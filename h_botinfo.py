@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 from datetime import datetime, timedelta, timezone
 import html
@@ -6,8 +8,13 @@ import platform
 import sys
 import time
 
-from aiogram import Bot, Router
-from aiogram.types import Message
+from aiogram import Bot, F, Router
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 import db
 from core_registry import REGISTRY, Cmd
