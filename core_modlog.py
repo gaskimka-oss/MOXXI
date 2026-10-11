@@ -1,0 +1,135 @@
+"""Журнал модерации: контекст диалога, запись наказаний, автоудаление."""
+from __future__ import annotations
+
+import asyncio
+import logging
+import html
+import time
+
+from aiogram import Bot
+from aiogram.types import Message
+
+import db
+
+BUFFER_KEEP = 400          # сколько сообщений держать на чат
+CONTEXT_BEFORE = 6         # реплик до нарушения
+AUTODEL_MUTE = 180         # 3 минуты
+
+
+async def remember(message: Message) -> None:
+    """Складывает сообщение в буфер — для восстановления контекста."""
+    if message.chat.type == "private" or not message.from_user:
+        return
+    text = (message.text or message.caption or "")[:300]
+    if not text:
+        return
+    await db.execute(
+        "INSERT OR REPLACE INTO msg_buffer (chat_id,msg_id,user_id,user_name,text,ts) "
+        "VALUES (?,?,?,?,?,?)",
+        (message.chat.id, message.message_id, message.from_user.id,
+         message.from_user.first_name or "", text, int(time.time())))
+    # чистим старое, чтобы база не пухла
+    if message.message_id % 50 == 0:
+        await db.execute(
+            "DELETE FROM msg_buffer WHERE chat_id=? AND msg_id NOT IN "
+            "(SELECT msg_id FROM msg_buffer WHERE chat_id=? "
+            " ORDER BY ts DESC LIMIT ?)",
+            (message.chat.id, message.chat.id, BUFFER_KEEP))
+
+
+async def build_context(chat_id: int, target_id: int,
+                        trigger_text: str = "") -> str:
+    """Собирает переписку вокруг нарушения."""
+    rows = await db.fetchall(
+        "SELECT user_name, text, ts, user_id FROM msg_buffer WHERE chat_id=? "
+        "ORDER BY ts DESC LIMIT ?", (chat_id, CONTEXT_BEFORE))
+    rows = list(reversed(rows))
+    lines = []
+    for r in rows:
+        mark = "👉 " if r["user_id"] == target_id else "   "
+        t = time.strftime("%H:%M", time.localtime(r["ts"]))
+        lines.append(f"{mark}[{t}] {r['user_name']}: {r['text'][:120]}")
+    if trigger_text and not any(trigger_text[:40] in l for l in lines):
+        lines.append(f"👉 [нарушение] {trigger_text[:150]}")
+    return "\n".join(lines[-CONTEXT_BEFORE - 1:]) if lines else "(нет данных)"
+
+
+async def write(chat_id: int, punish_id: int, target_id: int, target_name: str,
+                by_id: int, by_name: str, kind: str, reason: str,
+                seconds: int, source: str, context: str = "",
+                bot: Bot | None = None) -> int:
+    await db.execute(
+        "INSERT INTO mod_log (chat_id,punish_id,target_id,target_name,by_id,by_name,"
+        "kind,reason,seconds,context,source,ts) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (chat_id, punish_id, target_id, target_name or str(target_id), by_id,
+         by_name or ("автомодерация" if not by_id else str(by_id)),
+         kind, reason, seconds, context, source, int(time.time())))
+    row = await db.fetchone("SELECT last_insert_rowid() id")
+    log_id = row["id"] if row else 0
+
+    # ИИ проверяет справедливость наказания в фоне
+    try:
+        import core_ai as ai
+        if ai.available() and log_id:
+            asyncio.create_task(_ai_review(
+                log_id, punish_id, chat_id, target_id, kind, reason, seconds,
+                target_name or str(target_id),
+                by_name or "автомодерация", context, bot))
+    except Exception:
+        pass
+    return log_id
+
+
+async def _ai_review(log_id: int, punish_id: int, chat_id: int,
+                     target_id: int, kind: str, reason: str,
+                     seconds: int, target: str, moderator: str,
+                     context: str, bot: Bot | None) -> None:
+    """Фоновая проверка наказания. Спорные — показываем владельцу."""
+    import core_ai as ai
+    try:
+        # Лестница санкций зависит от номера нарушения. Передаём ИИ только
+        # реальные предыдущие записи, не включая только что созданную.
+        previous = await db.fetchall(
+            "SELECT kind,reason,seconds,ts FROM punishments WHERE chat_id=? "
+            "AND user_id=? AND id<>? ORDER BY id DESC LIMIT 6",
+            (chat_id, target_id, punish_id))
+        if previous:
+            kinds = {"mute": "мут", "ban": "бан", "warn": "предупреждение",
+                     "kick": "кик"}
+            hist = []
+            for p in reversed(previous):
+                date = time.strftime("%d.%m %H:%M", time.localtime(p["ts"]))
+                duration = f" на {p['seconds']} сек." if p["seconds"] else ""
+                hist.append(
+                    f"- {date}: {kinds.get(p['kind'], p['kind'])}{duration}; "
+                    f"причина: {p['reason'] or 'не указана'}")
+            context = (context or "(нет переписки)") + \
+                      "\n\nПодтверждённая предыдущая история наказаний:\n" + "\n".join(hist)
+        else:
+            context = (context or "(нет переписки)") + \
+                      "\n\nПредыдущих наказаний в базе не найдено."
+
+        r = await ai.review_punishment(kind, reason, seconds, target,
+                                       moderator, context)
+        if not r:
+            return
+        await db.execute(
+            "UPDATE mod_log SET ai_verdict=?, ai_score=?, ai_reason=?, "
+            "ai_advice=? WHERE id=?",
+            (r["verdict"], r["score"], r["reason"], r.get("advice", ""),
+             log_id))
+
+        # Оценки сохраняются в базу чата mod_log для панели чата,
+        # без пересылки в личку владельца бота, чтобы изолировать чаты друг от друга.
+    except Exception as e:
+        logging.getLogger("moxxibot.ai").warning("разбор наказания: %s", e)
+
+
+async def autodelete(bot: Bot, chat_id: int, message_id: int,
+                     delay: int = AUTODEL_MUTE) -> None:
+    pass
+
+
+def schedule_autodelete(bot: Bot, msg: Message | None,
+                        delay: int = AUTODEL_MUTE) -> None:
+    pass
