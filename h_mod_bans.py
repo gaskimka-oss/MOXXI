@@ -10,8 +10,9 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 
-from aiogram import Bot, Router
-from aiogram.types import ChatPermissions, Message
+from aiogram import Bot, F, Router
+from aiogram.types import (ChatPermissions, CallbackQuery,
+                           InlineKeyboardButton, InlineKeyboardMarkup, Message)
 
 import db
 import core_members as members
@@ -404,19 +405,26 @@ async def cmd_warn(message: Message, bot: Bot, args: str = "", **kw):
                             (message.chat.id, uid))
 
     limit = int(await db.get_setting(message.chat.id, "warn_limit", str(WARN_LIMIT)))
-    text = (f"⚠️ <b>Предупреждение {row['c']}/{limit}</b>\n"
+    if limit < 1:
+        limit = 3
+    cur_count = int(row["c"])
+    bar_squares = " ".join("🟥" if i < cur_count else "⬜️" for i in range(limit))
+    scale_text = f"[ {bar_squares} ] ({cur_count}/{limit})"
+
+    text = (f"⚠️ <b>Предупреждение выдано!</b>\n"
             f"👤 {mention_id(uid, name)}\n"
+            f"📊 <b>Шкала:</b> <code>{scale_text}</code>\n"
             f"🎖 Статус: <b>{rank_label(target_rank) if target_rank else 'Игрок'}</b>\n"
             f"📝 Причина: {html.escape(reason)}\n"
-            f"👮 {mention_id(message.from_user.id, message.from_user.first_name)}\n"
+            f"👮 Администратор: {mention_id(message.from_user.id, message.from_user.first_name)}\n"
             f"<code>#{pid}</code>")
-    if row["c"] >= limit:
+    if cur_count >= limit:
         until = datetime.now(timezone.utc) + timedelta(hours=WARN_MUTE_HOURS)
         try:
             await bot.restrict_chat_member(message.chat.id, uid, MUTE_OFF, until_date=until)
             await log_punish(message.chat.id, uid, "mute",
                              f"автомут: {limit} предупреждений", WARN_MUTE_HOURS * 3600, 0)
-            text += f"\n\n🔇 Лимит предупреждений ({limit}) достигнут — автомут на {WARN_MUTE_HOURS} ч."
+            text += f"\n\n🔇 <b>Лимит предупреждений ({limit}/{limit}) достигнут!</b> Автомут на {WARN_MUTE_HOURS} ч."
         except Exception as e:
             if "administrator" in str(e).lower():
                 text += "\n\n<i>(автомут не применён: пользователь — админ Telegram)</i>"
@@ -439,6 +447,32 @@ async def cmd_warn(message: Message, bot: Bot, args: str = "", **kw):
 
     sent = await message.reply(text + ai_note)
     modlog.schedule_autodelete(bot, sent)
+
+
+@router.message(Cmd("лимит варнов", "варн лимит", "настройка варнов", section=S_BAN, rank=3,
+                    usage="лимит варнов [2-10]", desc="⚙️ Установить максимум варнов для чата (от 2 до 10)"))
+async def cmd_set_warn_limit(message: Message, bot: Bot, args: str = "", **kw):
+    if not await require(message, bot, 3):
+        return
+    cid = message.chat.id
+    val = (args or "").strip()
+    if not val.isdigit() or int(val) < 2 or int(val) > 10:
+        cur = await db.get_setting(cid, "warn_limit", str(WARN_LIMIT))
+        return await message.reply(
+            f"⚙️ <b>Настройка лимита варнов для этой группы:</b>\n"
+            f"Текущий лимит: <b>{cur} варнов</b> до автомута.\n\n"
+            f"Чтобы изменить, укажите число от 2 до 10:\n"
+            f"👉 <code>лимит варнов 5</code> (шкала из 5 квадратов)\n"
+            f"👉 <code>лимит варнов 3</code> (шкала из 3 квадратов)"
+        )
+    new_limit = int(val)
+    await db.set_setting(cid, "warn_limit", str(new_limit))
+    sample_bar = " ".join("⬜️" for _ in range(new_limit))
+    await message.reply(
+        f"✅ <b>Лимит варнов для этого чата установлен: {new_limit}!</b>\n\n"
+        f"Новая шкала в чате: <code>[ {sample_bar} ] (0/{new_limit})</code>\n"
+        f"При получении {new_limit}-го варна участник получит автомут на {WARN_MUTE_HOURS} ч."
+    )
 
 
 @router.message(Cmd("снять варн", "снять пред", "минус варн", "unwarn", section=S_BAN, rank=2,
@@ -485,11 +519,18 @@ async def cmd_unwarn(message: Message, bot: Bot, args: str = "", **kw):
     except Exception:
         pass
 
+    left_c = int(left['c']) if left else 0
+    limit = int(await db.get_setting(message.chat.id, "warn_limit", str(WARN_LIMIT)))
+    if limit < 1:
+        limit = 3
+    bar_squares = " ".join("🟥" if i < left_c else "⬜️" for i in range(limit))
+    scale_text = f"[ {bar_squares} ] ({left_c}/{limit})"
+
     await message.reply(
         f"✅ <b>Снято одно предупреждение</b>\n"
         f"👤 {mention_id(uid, name)}\n"
         f"📝 Причина снятия: {html.escape(reason)}\n"
-        f"📊 Осталось варнов: <b>{int(left['c']) if left else 0}</b>\n"
+        f"📊 <b>Текущая шкала:</b> <code>{scale_text}</code>\n"
         f"👮 Модератор: {mention_id(message.from_user.id, message.from_user.first_name)}{ai_note}")
 
 
@@ -523,16 +564,23 @@ async def cmd_warns(message: Message, bot: Bot, args: str = "", **kw):
             "Для этой должности действует иммунитет к варнам.")
     limit = RANK_WARN_LIMITS.get(target_rank) or int(await db.get_setting(
         message.chat.id, "warn_limit", str(WARN_LIMIT)))
+    if limit < 1:
+        limit = 3
+
+    cur_c = len(rows)
+    bar_squares = " ".join("🟥" if i < cur_c else "⬜️" for i in range(limit))
+    scale_text = f"[ {bar_squares} ] ({cur_c}/{limit})"
 
     if not rows:
         return await message.reply(
             f"✅ {'У вас' if own else f'У {mention_id(uid, name)}'} "
-            f"<b>нет предупреждений</b>.\nЛимит для текущего статуса: {limit}")
+            f"<b>нет предупреждений</b>.\n"
+            f"📊 Шкала: <code>{scale_text}</code> (Лимит: {limit})")
 
     left = limit - len(rows)
     head = (f"⚠️ <b>{'Ваши предупреждения' if own else 'Предупреждения'}</b>"
             f"{'' if own else ' ' + mention_id(uid, name)}\n"
-            f"Всего: <b>{len(rows)}/{limit}</b>")
+            f"📊 <b>Шкала:</b> <code>{scale_text}</code>")
     if left > 0:
         head += f" · до наказания осталось: <b>{left}</b>"
     else:
@@ -853,3 +901,154 @@ async def cmd_kick_deleted(message: Message, bot: Bot, **kw):
         except Exception:
             continue
     await message.reply(f"🧹 Удалённых аккаунтов исключено: <b>{kicked}</b>")
+
+
+# ══════════════════ УМНАЯ ЧИСТКА НЕАКТИВА (ИЗОЛИРОВАННАЯ) ══════════════════
+
+async def _build_inactive_candidates_view(cid: int, days: int = 7) -> tuple[str, list[int], InlineKeyboardMarkup]:
+    border = int(time.time()) - (days * 86400)
+    # Выбираем СТРОГО участников текущей группы cid!
+    rows = await db.fetchall(
+        "SELECT cs.user_id, cs.messages, cs.last_seen, u.first_name, u.username "
+        "FROM chat_stats cs "
+        "LEFT JOIN users u ON cs.user_id = u.user_id "
+        "WHERE cs.chat_id=? AND cs.last_seen < ? "
+        "ORDER BY cs.last_seen ASC LIMIT 40",
+        (cid, border)
+    )
+
+    voters = set()
+    try:
+        v_rows = await db.fetchall(
+            "SELECT DISTINCT user_id FROM announcement_votes WHERE chat_id=? AND ts > ?",
+            (cid, border)
+        )
+        for vr in v_rows:
+            voters.add(vr["user_id"])
+    except Exception:
+        pass
+
+    candidates = []
+    now = int(time.time())
+    for r in rows:
+        uid = r["user_id"]
+        if uid in voters:
+            continue
+        if await get_rank(cid, uid) > 0:
+            continue
+        days_silent = max(1, (now - r["last_seen"]) // 86400) if r["last_seen"] else days
+        candidates.append({
+            "uid": uid,
+            "name": r["first_name"] or r["username"] or f"id{uid}",
+            "username": f"@{r['username']}" if r["username"] else "",
+            "days": days_silent,
+            "msgs": r["messages"] or 0
+        })
+
+    count = len(candidates)
+    short_cid = abs(cid) % 100000
+    if count == 0:
+        text = (
+            f"🧹 ✨ <b>ПРОВЕРКА АКТИВА • ЧАТ #{short_cid}</b> ✨ 🧹\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"Критерий: молчат более <b>{days} дн.</b> и не участвовали в перекличках.\n\n"
+            f"🎉 <b>Неактивных участников не обнаружено!</b> Все в строю."
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Обновить", callback_data=f"cln_r:{cid}:{days}")]
+        ])
+        return text, [], kb
+
+    lines = [
+        f"🧹 ✨ <b>КАНДИДАТЫ НА ЧИСТКУ • ЧАТ #{short_cid}</b> ✨ 🧹",
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈",
+        f"Критерий: молчат более <b>{days} дн.</b> и не голосовали в перекличках.",
+        f"Найдено неактивных: <b>{count}</b> чел.\n"
+    ]
+
+    for i, c in enumerate(candidates[:20], 1):
+        tag = f" ({c['username']})" if c['username'] else ""
+        lines.append(f"<b>{i}.</b> {html.escape(c['name'])}{tag} — молчит <b>{c['days']} дн.</b> (смс: {c['msgs']})")
+
+    if count > 20:
+        lines.append(f"\n<i>... и ещё {count - 20} участников.</i>")
+
+    lines.append("\n⚠️ <i>Чистка затронет ТОЛЬКО этот чат! Другие группы не будут затронуты.</i>")
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"👢 Исключить неактивных ({count})", callback_data=f"cln_k:{cid}:{days}")],
+        [InlineKeyboardButton(text="🔄 Обновить список", callback_data=f"cln_r:{cid}:{days}")]
+    ])
+    return "\n".join(lines), [c["uid"] for c in candidates], kb
+
+
+@router.message(Cmd("кто неактив", "неактив", "чистка кандидаты", "кандидаты на кик", "список неактива",
+                    section=S_CLEAN, rank=3, group_only=True,
+                    usage="кто неактив [дни=7]", desc="📋 Показать список неактивных участников чата"))
+async def cmd_inactive_candidates(message: Message, bot: Bot, args: str = "", **kw):
+    if not await require(message, bot, 3):
+        return
+    days = 7
+    a = (args or "").strip()
+    if a.isdigit() and 1 <= int(a) <= 180:
+        days = int(a)
+    elif "14" in a:
+        days = 14
+    elif "30" in a:
+        days = 30
+
+    text, _, kb = await _build_inactive_candidates_view(message.chat.id, days)
+    await message.reply(text, reply_markup=kb, disable_web_page_preview=True)
+
+
+@router.callback_query(F.data.startswith("cln_r:"))
+async def cb_clean_refresh(call: CallbackQuery, bot: Bot):
+    parts = call.data.split(":")
+    cid = int(parts[1])
+    days = int(parts[2])
+    from core_ranks import get_rank
+    import config
+    uid = call.from_user.id
+    if not (uid == config.OWNER_ID or uid in config.ADMINS or await get_rank(cid, uid) >= 3):
+        return await call.answer("🔒 Доступно только модераторам и админам чата!", show_alert=True)
+    text, _, kb = await _build_inactive_candidates_view(cid, days)
+    try:
+        await call.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
+    except Exception:
+        pass
+    await call.answer("Список обновлен!")
+
+
+@router.callback_query(F.data.startswith("cln_k:"))
+async def cb_clean_kick(call: CallbackQuery, bot: Bot):
+    parts = call.data.split(":")
+    cid = int(parts[1])
+    days = int(parts[2])
+    from core_ranks import get_rank
+    import config
+    uid = call.from_user.id
+    if not (uid == config.OWNER_ID or uid in config.ADMINS or await get_rank(cid, uid) >= 4):
+        return await call.answer("🔒 Исключать участников могут только администраторы чата (ранг 4+)!", show_alert=True)
+
+    text, uids, _ = await _build_inactive_candidates_view(cid, days)
+    if not uids:
+        return await call.answer("Неактивных кандидатов не найдено!", show_alert=True)
+
+    await call.answer("Начинаю исключение неактивных участников...")
+    kicked = 0
+    for user_to_kick in uids:
+        try:
+            await bot.ban_chat_member(cid, user_to_kick)
+            await bot.unban_chat_member(cid, user_to_kick)
+            kicked += 1
+            await asyncio.sleep(0.08)
+        except Exception:
+            continue
+
+    await call.message.edit_text(
+        f"🧹 ✨ <b>ЧИСТКА НЕАКТИВА ЗАВЕРШЕНА!</b> ✨ 🧹\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"👥 Исключено неактивных из этой группы: <b>{kicked}</b> чел.\n"
+        f"👮 Администратор: {mention_id(call.from_user.id, call.from_user.first_name)}\n\n"
+        f"<i>Беседа очищена от неактива и готова к новым победам!</i>"
+    )

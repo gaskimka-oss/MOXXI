@@ -319,6 +319,21 @@ CREATE TABLE IF NOT EXISTS relationship_children (
     care_last_ts INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS relationship_bank (
+    rel_id INTEGER PRIMARY KEY,
+    balance INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS wedding_gifts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    rel_id INTEGER NOT NULL,
+    giver_id INTEGER NOT NULL,
+    giver_name TEXT NOT NULL,
+    amount INTEGER NOT NULL DEFAULT 1000,
+    ts INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS friends (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user1_id INTEGER NOT NULL,
@@ -328,6 +343,44 @@ CREATE TABLE IF NOT EXISTS friends (
 );
 CREATE INDEX IF NOT EXISTS idx_friends_u1 ON friends(user1_id);
 CREATE INDEX IF NOT EXISTS idx_friends_u2 ON friends(user2_id);
+
+CREATE TABLE IF NOT EXISTS relationship_rings (
+    rel_id INTEGER PRIMARY KEY,
+    ring_key TEXT NOT NULL,
+    giver_id INTEGER NOT NULL,
+    ts INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_cars (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    car_key TEXT NOT NULL,
+    bought_at INTEGER NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS chat_quotes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    quote_text TEXT NOT NULL,
+    author_name TEXT NOT NULL,
+    adder_name TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_quotes_chat ON chat_quotes(chat_id);
+
+CREATE TABLE IF NOT EXISTS chat_pair_of_day (
+    chat_id INTEGER NOT NULL,
+    date_str TEXT NOT NULL,
+    user1_id INTEGER NOT NULL,
+    user2_id INTEGER NOT NULL,
+    user1_name TEXT NOT NULL,
+    user2_name TEXT NOT NULL,
+    compatibility INTEGER NOT NULL,
+    story TEXT NOT NULL,
+    PRIMARY KEY(chat_id, date_str)
+);
 
 CREATE TABLE IF NOT EXISTS spam_base (
     user_id INTEGER PRIMARY KEY, reason TEXT, by_id INTEGER, ts INTEGER);
@@ -541,6 +594,18 @@ CREATE TABLE IF NOT EXISTS chat_jackpot (
     last_win_ts INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS casino_big_wins (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    user_name TEXT NOT NULL,
+    chat_id INTEGER NOT NULL,
+    game_name TEXT NOT NULL,
+    bet INTEGER NOT NULL,
+    win_amount INTEGER NOT NULL,
+    ts INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_casino_wins_ts ON casino_big_wins(ts, win_amount);
+
 CREATE TABLE IF NOT EXISTS user_titles (
     user_id INTEGER NOT NULL,
     title_id TEXT NOT NULL,
@@ -624,6 +689,27 @@ CREATE TABLE IF NOT EXISTS disabled_chats (
     disabled_by INTEGER,
     ts          INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS announcements (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id     INTEGER NOT NULL,
+    msg_id      INTEGER NOT NULL DEFAULT 0,
+    creator_id  INTEGER NOT NULL,
+    title       TEXT NOT NULL,
+    text        TEXT NOT NULL,
+    event_type  TEXT NOT NULL DEFAULT 'general',
+    created_at  INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS announcement_votes (
+    ann_id      INTEGER NOT NULL,
+    user_id     INTEGER NOT NULL,
+    user_name   TEXT NOT NULL,
+    vote        TEXT NOT NULL,
+    updated_at  INTEGER NOT NULL,
+    PRIMARY KEY (ann_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_ann_chat ON announcements(chat_id, created_at);
 """
 
 
@@ -1189,6 +1275,79 @@ async def get_all_relationships() -> list[dict]:
     return await fetchall("SELECT * FROM relationships ORDER BY level DESC, xp DESC, id ASC")
 
 
+# --- Семейный банк и подарки молодожёнам ---
+async def get_rel_bank(rel_id: int) -> int:
+    b, _ = await get_rel_bank_with_interest(rel_id)
+    return b
+
+
+async def get_rel_bank_with_interest(rel_id: int) -> tuple[int, int]:
+    """Возвращает (текущий_баланс, начисленный_доход). Каждые 24ч капает +1% дохода!"""
+    row = await fetchone("SELECT balance, updated_at FROM relationship_bank WHERE rel_id=?", (rel_id,))
+    if not row:
+        return 0, 0
+    bal = int(row["balance"] or 0)
+    updated_at = int(row["updated_at"] or int(time.time()))
+    now = int(time.time())
+    interest = 0
+    if bal > 0 and (now - updated_at) >= 86400:
+        days = min(30, (now - updated_at) // 86400)
+        interest = int(bal * 0.01 * days)
+        if interest > 0:
+            bal += interest
+            await execute("UPDATE relationship_bank SET balance=?, updated_at=? WHERE rel_id=?", (bal, now, rel_id))
+    return bal, interest
+
+
+async def add_rel_bank(rel_id: int, amount: int) -> int:
+    now = int(time.time())
+    await execute(
+        "INSERT INTO relationship_bank (rel_id, balance, updated_at) VALUES (?, MAX(0, ?), ?) "
+        "ON CONFLICT(rel_id) DO UPDATE SET balance = MAX(0, balance + ?), updated_at = ?",
+        (rel_id, amount, now, amount, now)
+    )
+    return await get_rel_bank(rel_id)
+
+
+async def add_wedding_gift(rel_id: int, giver_id: int, giver_name: str, amount: int = 1000) -> tuple[int, int]:
+    now = int(time.time())
+    await execute(
+        "INSERT INTO wedding_gifts (rel_id, giver_id, giver_name, amount, ts) VALUES (?, ?, ?, ?, ?)",
+        (rel_id, giver_id, giver_name, amount, now)
+    )
+    # Пополняем семейный банк пары на сумму подарка
+    await add_rel_bank(rel_id, amount)
+    return await get_wedding_gifts_stats(rel_id)
+
+
+async def get_wedding_gifts_stats(rel_id: int) -> tuple[int, int]:
+    row = await fetchone("SELECT COALESCE(SUM(amount), 0) as total, COUNT(*) as cnt FROM wedding_gifts WHERE rel_id=?", (rel_id,))
+    if not row:
+        return 0, 0
+    return int(row["total"] or 0), int(row["cnt"] or 0)
+
+
+# --- Турниры казино и крупные заносы ---
+async def record_big_win(user_id: int, user_name: str, chat_id: int, game_name: str, bet: int, win_amount: int) -> None:
+    now = int(time.time())
+    await execute(
+        "INSERT INTO casino_big_wins (user_id, user_name, chat_id, game_name, bet, win_amount, ts) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (user_id, user_name, chat_id, game_name, bet, win_amount, now)
+    )
+
+
+async def get_weekly_big_wins(limit: int = 10) -> list[dict]:
+    week_ago = int(time.time()) - (7 * 86400)
+    rows = await fetchall(
+        "SELECT user_id, user_name, game_name, bet, MAX(win_amount) as max_win, ts "
+        "FROM casino_big_wins WHERE ts >= ? "
+        "GROUP BY user_id ORDER BY max_win DESC LIMIT ?",
+        (week_ago, limit)
+    )
+    return [dict(r) for r in rows]
+
+
 # ================== ДРУЗЬЯ (ДРУЖЕСКИЕ ОТНОШЕНИЯ) ==================
 
 async def add_friend(u1: int, u2: int) -> bool:
@@ -1232,6 +1391,60 @@ async def count_friends(uid: int) -> int:
     return int(row["c"]) if row else 0
 
 
+# --- Обручальные кольца пары ---
+async def get_rel_ring(rel_id: int) -> dict | None:
+    row = await fetchone("SELECT ring_key, giver_id, ts FROM relationship_rings WHERE rel_id=?", (rel_id,))
+    return dict(row) if row else None
+
+
+async def set_rel_ring(rel_id: int, ring_key: str, giver_id: int) -> None:
+    now = int(time.time())
+    await execute(
+        "INSERT INTO relationship_rings (rel_id, ring_key, giver_id, ts) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(rel_id) DO UPDATE SET ring_key=excluded.ring_key, giver_id=excluded.giver_id, ts=excluded.ts",
+        (rel_id, ring_key, giver_id, now)
+    )
+
+
+# --- Гараж и Автомобили ---
+async def get_user_cars(user_id: int) -> list[dict]:
+    rows = await fetchall("SELECT id, car_key, bought_at, is_active FROM user_cars WHERE user_id=? ORDER BY id ASC", (user_id,))
+    return [dict(r) for r in rows]
+
+
+async def get_user_active_car(user_id: int) -> dict | None:
+    row = await fetchone("SELECT id, car_key, bought_at FROM user_cars WHERE user_id=? AND is_active=1 ORDER BY id DESC LIMIT 1", (user_id,))
+    return dict(row) if row else None
+
+
+async def add_user_car(user_id: int, car_key: str) -> int:
+    now = int(time.time())
+    await execute("UPDATE user_cars SET is_active=0 WHERE user_id=?", (user_id,))
+    cur = await execute("INSERT INTO user_cars (user_id, car_key, bought_at, is_active) VALUES (?, ?, ?, 1)", (user_id, car_key, now))
+    return cur.lastrowid
+
+
+async def set_active_car(user_id: int, car_id: int) -> bool:
+    row = await fetchone("SELECT 1 FROM user_cars WHERE id=? AND user_id=?", (car_id, user_id))
+    if not row:
+        return False
+    await execute("UPDATE user_cars SET is_active=0 WHERE user_id=?", (user_id,))
+    await execute("UPDATE user_cars SET is_active=1 WHERE id=? AND user_id=?", (car_id, user_id))
+    return True
+
+
+async def remove_user_car(user_id: int, car_id: int) -> bool:
+    row = await fetchone("SELECT is_active FROM user_cars WHERE id=? AND user_id=?", (car_id, user_id))
+    if not row:
+        return False
+    await execute("DELETE FROM user_cars WHERE id=? AND user_id=?", (car_id, user_id))
+    if row["is_active"]:
+        rem = await fetchone("SELECT id FROM user_cars WHERE user_id=? ORDER BY id DESC LIMIT 1", (user_id,))
+        if rem:
+            await execute("UPDATE user_cars SET is_active=1 WHERE id=?", (rem["id"],))
+    return True
+
+
 # --- Кометы (валюта comets / comets engine) -----------------------------
 async def get_comets(user_id: int) -> int:
     return await get_grams(user_id)
@@ -1245,24 +1458,18 @@ async def set_comets(user_id: int, amount: int) -> int:
     return await set_grams(user_id, amount)
 
 
-# --- Игровой уровень и XP -----------------------------------------------
-GAME_LVL_THRESHOLDS = [
-    (1, 0),
-    (2, 10),
-    (3, 25),
-    (4, 50),
-    (5, 90),
-    (6, 150),
-    (7, 230),
-    (8, 330),
-    (9, 450),
-    (10, 600),
-    (11, 800),
-    (12, 1050),
-    (13, 1350),
-    (14, 1700),
-    (15, 2100),
+# --- Игровой уровень и XP (1-100 LVL) -----------------------------------
+_BASE_LVLS = [
+    (1, 0), (2, 10), (3, 25), (4, 50), (5, 90), (6, 150), (7, 230), (8, 330),
+    (9, 450), (10, 600), (11, 800), (12, 1050), (13, 1350), (14, 1700),
+    (15, 2100), (16, 2600), (17, 3200), (18, 3900), (19, 4700), (20, 5600),
 ]
+GAME_LVL_THRESHOLDS = list(_BASE_LVLS)
+_cur_xp = 5600
+for _l in range(21, 101):
+    _step = int(900 + (_l - 20) * 120)
+    _cur_xp += _step
+    GAME_LVL_THRESHOLDS.append((_l, _cur_xp))
 
 
 def _calc_game_lvl(xp: int) -> tuple[int, int, int]:
@@ -1278,8 +1485,8 @@ def _calc_game_lvl(xp: int) -> tuple[int, int, int]:
             next_req = req
             break
     else:
-        next_req = cur_base + cur_lvl * 100
-    return cur_lvl, next_req, cur_base
+        next_req = cur_base + cur_lvl * 500
+    return min(100, cur_lvl), next_req, cur_base
 
 
 async def get_game_profile(user_id: int) -> dict:
@@ -1714,6 +1921,98 @@ async def get_global_bot_stats() -> dict:
         "pending_ideas": int(row_sug["c"]) if row_sug else 0,
         "blacklisted_chats": int(row_bl["c"]) if row_bl else 0,
     }
+
+
+# ══════════════════ АНОНСЫ И ПЕРЕКЛИЧКИ С ИИ ══════════════════
+
+async def create_announcement(chat_id: int, creator_id: int, title: str, text: str, event_type: str = "general") -> int:
+    now = int(time.time())
+    cur = await execute(
+        "INSERT INTO announcements (chat_id, creator_id, title, text, event_type, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (chat_id, creator_id, title, text, event_type, now)
+    )
+    return cur.lastrowid
+
+
+async def set_announcement_msg_id(ann_id: int, msg_id: int) -> None:
+    await execute("UPDATE announcements SET msg_id = ? WHERE id = ?", (msg_id, ann_id))
+
+
+async def record_announcement_vote(ann_id: int, user_id: int, user_name: str, vote: str) -> None:
+    now = int(time.time())
+    await execute(
+        "INSERT INTO announcement_votes (ann_id, user_id, user_name, vote, updated_at) "
+        "VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(ann_id, user_id) DO UPDATE SET vote = excluded.vote, user_name = excluded.user_name, updated_at = excluded.updated_at",
+        (ann_id, user_id, user_name, vote, now)
+    )
+
+
+async def get_announcement_vote_counts(ann_id: int) -> dict[str, int]:
+    rows = await fetchall("SELECT vote, COUNT(*) as cnt FROM announcement_votes WHERE ann_id = ? GROUP BY vote", (ann_id,))
+    counts = {"yes": 0, "no": 0, "late": 0}
+    for r in rows:
+        v = r["vote"]
+        if v in counts:
+            counts[v] = int(r["cnt"])
+    return counts
+
+
+async def get_announcement_votes_detailed(ann_id: int) -> dict[str, list[str]]:
+    rows = await fetchall("SELECT user_id, user_name, vote FROM announcement_votes WHERE ann_id = ? ORDER BY updated_at ASC", (ann_id,))
+    res = {"yes": [], "no": [], "late": []}
+    for r in rows:
+        v = r["vote"]
+        if v in res:
+            res[v].append(r["user_name"] or str(r["user_id"]))
+    return res
+
+
+async def get_announcement(ann_id: int) -> dict | None:
+    return await fetchone("SELECT * FROM announcements WHERE id = ?", (ann_id,))
+
+
+# --- Цитатник чата ---------------------------------------------------
+async def add_chat_quote(chat_id: int, user_id: int, quote_text: str, author_name: str, adder_name: str) -> int:
+    now = int(time.time())
+    cur = await execute(
+        "INSERT INTO chat_quotes (chat_id, user_id, quote_text, author_name, adder_name, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (chat_id, user_id, quote_text, author_name, adder_name, now)
+    )
+    return cur.lastrowid
+
+
+async def get_random_chat_quote(chat_id: int) -> dict | None:
+    return await fetchone(
+        "SELECT quote_text, author_name, adder_name, created_at FROM chat_quotes WHERE chat_id=? ORDER BY RANDOM() LIMIT 1",
+        (chat_id,)
+    )
+
+
+async def get_chat_quotes_count(chat_id: int) -> int:
+    row = await fetchone("SELECT COUNT(*) as cnt FROM chat_quotes WHERE chat_id=?", (chat_id,))
+    return int(row["cnt"]) if row else 0
+
+
+# --- Пара Дня (Шипперинг) -------------------------------------------
+async def get_pair_of_day(chat_id: int, date_str: str) -> dict | None:
+    return await fetchone(
+        "SELECT user1_id, user2_id, user1_name, user2_name, compatibility, story FROM chat_pair_of_day "
+        "WHERE chat_id=? AND date_str=?",
+        (chat_id, date_str)
+    )
+
+
+async def set_pair_of_day(chat_id: int, date_str: str, u1_id: int, u2_id: int,
+                          u1_name: str, u2_name: str, compat: int, story: str) -> None:
+    await execute(
+        "INSERT OR REPLACE INTO chat_pair_of_day "
+        "(chat_id, date_str, user1_id, user2_id, user1_name, user2_name, compatibility, story) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (chat_id, date_str, u1_id, u2_id, u1_name, u2_name, compat, story)
+    )
 
 
 async def close() -> None:

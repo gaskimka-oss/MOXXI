@@ -41,7 +41,7 @@ STORAGE_INFO: dict = _storage.INFO
 DB_PATH: Path = Path(os.getenv("DB_PATH", "") or _storage.DB_FILE)
 
 # --- Экономика ------------------------------------------------------------
-CURRENCY = os.getenv("CURRENCY", "🌑")          # символ валюты
+CURRENCY = os.getenv("CURRENCY", "🪙")          # символ единой валюты: 🪙 Монеты
 CURRENCY_NAME = os.getenv("CURRENCY_NAME", "монет")
 START_BALANCE = int(os.getenv("START_BALANCE", "1000"))
 

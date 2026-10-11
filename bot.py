@@ -70,6 +70,7 @@ import h_party_games as party_games
 import h_webapp as webapp
 import h_community_support as community_support
 import h_owner_panel as owner_panel
+import h_social_fun as social_fun
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s")
@@ -150,6 +151,12 @@ async def user_middleware(handler, event, data: dict):
             except Exception:
                 pass
         await db.register_chat(chat.id, chat.title)
+        if user and not user.is_bot and getattr(event, "text", None):
+            try:
+                from h_ai_features import record_chat_message
+                record_chat_message(chat.id, user.first_name, event.text)
+            except Exception:
+                pass
         if await db.get_setting(chat.id, "silent") == "1":
             txt = (getattr(event, "text", "") or "").lower().lstrip("!./ ")
             if not txt.startswith(("включить чат", "проверка", "команды")):
@@ -329,6 +336,7 @@ async def main() -> None:
     dp.include_router(community_support.router)
     dp.include_router(chatset.router)
     dp.include_router(fun.router)
+    dp.include_router(social_fun.router)
     dp.include_router(relations.router)
     dp.include_router(vip.router)
     dp.include_router(modules.router)
@@ -374,6 +382,7 @@ async def main() -> None:
     asyncio.create_task(chatlock.schedule_worker(bot))
     asyncio.create_task(tournament.schedule_worker(bot))
     asyncio.create_task(boss.boss_schedule_worker(bot))
+    asyncio.create_task(grams.auction_schedule_worker(bot))
     asyncio.create_task(backup.worker(bot))
     asyncio.create_task(botinfo.announce_update_on_startup(bot))
     asyncio.create_task(botinfo.auto_restart_worker(bot))

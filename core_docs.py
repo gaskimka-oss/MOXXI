@@ -34,7 +34,7 @@ SECTION_IMG = {
     **{n: "sec_settings" for n in (4, 6, 7, 10, 11, 26, 28, 32)},
     **{n: "sec_economy" for n in (13, 27, 31)},
     **{n: "sec_games" for n in (14, 15, 16)},
-    **{n: "sec_social" for n in (8, 9, 17, 18, 19, 20, 21, 22, 23, 24, 25, 30)},
+    **{n: "sec_social" for n in (8, 9, 17, 18, 19, 20, 21, 22, 23, 24, 25, 30, 45)},
 }
 
 

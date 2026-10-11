@@ -109,14 +109,17 @@ async def main_text(name: str | None, u: dict) -> str:
 async def main_kb(uid: int = 0, bot_username: str = "moxxichat_bot") -> InlineKeyboardMarkup:
     rights = ("change_info+delete_messages+restrict_members+invite_users"
               "+pin_messages+manage_chat")
-    add_url = f"https://t.me/{bot_username}?startgroup&admin={rights}"
+    add_url = f"https://t.me/{bot_username}?startgroup=true&admin={rights}"
 
     target_url = DEFAULT_WEBAPP_URL if DEFAULT_WEBAPP_URL.startswith("https://") else "https://moxxibot.vercel.app"
 
+    if "t.me/" in target_url:
+        webapp_btn = InlineKeyboardButton(text="📱 Открыть Moxxi Mini App (Казино & Игры)", url=target_url)
+    else:
+        webapp_btn = InlineKeyboardButton(text="📱 Открыть Moxxi Mini App (Казино & Игры)", web_app=WebAppInfo(url=target_url))
+
     rows = [
-        [
-            InlineKeyboardButton(text="📱 Открыть Moxxi Mini App (Казино & Игры)", web_app=WebAppInfo(url=target_url))
-        ],
+        [webapp_btn],
         [
             InlineKeyboardButton(text="➕ Добавить в беседу", url=add_url),
             InlineKeyboardButton(text="⚙️ Установка и Инфо", callback_data="mm:setup")
@@ -265,16 +268,16 @@ BONUS_TEXT = """🎁 ✨ <b>ЕЖЕДНЕВНЫЕ БОНУСЫ И НАГРАДЫ<
 Забирайте бесплатные монеты и прокачивайте свой баланс!
 
 🎁 <b>Ежедневный бонус (<code>бонус</code>):</b>
-• Случайная награда: <b>от 1 до 30 000 🌑</b>!
+• Случайная награда: <b>от 1 до 30 000 🪙</b>!
 • Базовый кулдаун: раз в 4 часа (для VIP — раз в 2 часа, для VIP+ — раз в 1 час).
 • 🌐 <b>Глобальный таймер:</b> бонус един для всех бесед и ЛС (нельзя получить дважды в разных группах).
 
 💼 <b>Заработок на работе (<code>работа</code>):</b>
-• Зарабатывайте от 150 до 900 🌑 каждый час.
+• Зарабатывайте от 150 до 900 🪙 каждый час.
 • 👑 VIP получают <b>+50%</b>, а VIP+ — <b>+100%</b> к зарплате!
 
 🦹 <b>Преступления (<code>крайм</code>):</b>
-• Рискованный заработок от 400 до 3 000 🌑 раз в 1.5 часа (шанс 55%)."""
+• Рискованный заработок от 400 до 3 000 🪙 раз в 1.5 часа (шанс 55%)."""
 
 ECONOMY_TEXT = """🏢 ✨ <b>БИЗНЕСЫ И ЭКОНОМИКА</b> ✨ 🏢
 ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
@@ -815,9 +818,9 @@ async def cb_gram_bonus(call: CallbackQuery):
     
     vip_tag = ""
     if vip_active and vip_lvl >= 2:
-        vip_tag = f"\n🌟 <i>VIP+ бонус x2 (+{final_bonus - base_bonus:,} 🌑)!</i>"
+        vip_tag = f"\n🌟 <i>VIP+ бонус x2 (+{final_bonus - base_bonus:,} 🪙)!</i>"
     elif vip_active and vip_lvl >= 1:
-        vip_tag = f"\n⭐️ <i>VIP бонус +50% (+{final_bonus - base_bonus:,} 🌑)!</i>"
+        vip_tag = f"\n⭐️ <i>VIP бонус +50% (+{final_bonus - base_bonus:,} 🪙)!</i>"
 
     from utils import hms
     await call.message.edit_text(

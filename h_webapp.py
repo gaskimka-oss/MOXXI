@@ -29,13 +29,13 @@ def _get_webapp_kb(url: str | None = None) -> InlineKeyboardMarkup:
     if not target_url.startswith("https://"):
         target_url = "https://moxxibot.vercel.app"
 
+    if "t.me/" in target_url:
+        top_btn = InlineKeyboardButton(text="📱 Открыть Moxxi Mini App (Казино & Игры)", url=target_url)
+    else:
+        top_btn = InlineKeyboardButton(text="📱 Открыть Moxxi Mini App (Казино & Игры)", web_app=WebAppInfo(url=target_url))
+
     return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="📱 Открыть Moxxi Mini App (Казино & Игры)",
-                web_app=WebAppInfo(url=target_url)
-            )
-        ],
+        [top_btn],
         [
             InlineKeyboardButton(text="🎰 Слоты в чате", callback_data="jp:play_slots"),
             InlineKeyboardButton(text="💎 Джекпот", callback_data="jp:refresh:0")

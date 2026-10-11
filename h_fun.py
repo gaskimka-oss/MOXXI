@@ -18,7 +18,7 @@ from config import (CRIME_COOLDOWN, CRIME_FINE, CRIME_REWARD, CRIME_SUCCESS_CHAN
 from core_ranks import require
 from core_registry import Cmd
 from core_resolve import human_period, parse_period, resolve_target
-from utils import hms, level_of, mention, mention_id, money, parse_amount
+from utils import hms, level_of, mention, mention_id, money, parse_amount, make_game_replay_kb
 from h_grams import topic_ok
 
 router = Router(name="fun")
@@ -163,7 +163,7 @@ async def cmd_rob(message: Message, bot: Bot, args: str = "", **kw):
             f"🦹‍♂️ <b>Успешное ограбление!</b>\n\n"
             f"{mention(message.from_user)} ловко вытащил из мешка {mention_id(uid, name)} <b>+{money(amount)}</b>! 💰\n\n"
             f"🎲 Вероятность успеха была: <b>{int(chance * 100)}%</b>\n"
-            f"🌑 Ваш новый баланс: <b>{money(new_bal)}</b>")
+            f"🪙 Ваш новый баланс: <b>{money(new_bal)}</b>")
     else:
         # Провал! Штраф от 50% до 100% от суммы попытки (но не более баланса вора и строго > 0)
         fine = max(50, min(u_robber["balance"], int(amount * random.uniform(0.5, 1.0))))
@@ -174,7 +174,7 @@ async def cmd_rob(message: Message, bot: Bot, args: str = "", **kw):
             f"🚨 <b>Ограбление провалилось!</b>\n\n"
             f"{mention(message.from_user)} попался с поличным при попытке ограбить {mention_id(uid, name)}!\n"
             f"👮‍♂️ Полиция конфисковала и передала жертве компенсацию: <b>{money(fine)}</b> 💸\n\n"
-            f"🌑 Ваш баланс: <b>{money(new_bal)}</b>")
+            f"🪙 Ваш баланс: <b>{money(new_bal)}</b>")
 
 
 @router.message(Cmd("скрыть мешок", "спрятать мешок", "спрятать карманы", "защита мешка", "hidebag", "hide_bag",
@@ -354,6 +354,11 @@ async def cmd_cube(message: Message, args: str = "", **kw):
     if bet is None:
         return
     await db.add_balance(message.from_user.id, -bet, "cube_bet")
+    if message.chat.type in {"group", "supergroup"}:
+        try:
+            await db.add_to_chat_jackpot(message.chat.id, int(bet * 0.02))
+        except Exception:
+            pass
     m1 = await message.answer_dice(emoji="🎲")
     await asyncio.sleep(4)
     m2 = await message.answer_dice(emoji="🎲")
@@ -362,15 +367,16 @@ async def cmd_cube(message: Message, args: str = "", **kw):
     is_win = p > b
     lvl, lvl_up = await db.add_game_xp(message.from_user.id, 1, is_win=is_win)
     lvl_tag = f"\n🚀 <i>Игровой уровень повышен до <b>{lvl} LVL</b>!</i>" if lvl_up else ""
+    kb = make_game_replay_kb("cube", bet, message.from_user.id)
     if is_win:
         bal = await db.add_balance(message.from_user.id, bet * 2, "cube_win")
-        await message.reply(f"🎲 {p} : {b} — <b>победа!</b> +{money(bet)}\nБаланс: {money(bal)}{lvl_tag}")
+        await message.reply(f"🎲 {p} : {b} — <b>победа!</b> +{money(bet)}\nБаланс: {money(bal)}{lvl_tag}", reply_markup=kb)
     elif p == b:
         bal = await db.add_balance(message.from_user.id, bet, "cube_draw")
-        await message.reply(f"🎲 {p} : {b} — ничья.\nБаланс: {money(bal)}{lvl_tag}")
+        await message.reply(f"🎲 {p} : {b} — ничья.\nБаланс: {money(bal)}{lvl_tag}", reply_markup=kb)
     else:
         u = await db.get_user(message.from_user.id)
-        await message.reply(f"🎲 {p} : {b} — проигрыш −{money(bet)}\nБаланс: {money(u['balance'])}{lvl_tag}")
+        await message.reply(f"🎲 {p} : {b} — проигрыш −{money(bet)}\nБаланс: {money(u['balance'])}{lvl_tag}", reply_markup=kb)
 
 
 @router.message(Cmd("слоты", "slots", "казино", "казик", "казиныч", "casino", section=S_CUBE, usage="казик {ставка}",
@@ -380,6 +386,11 @@ async def cmd_slots(message: Message, args: str = "", **kw):
     if bet is None:
         return
     await db.add_balance(message.from_user.id, -bet, "slots_bet")
+    if message.chat.type in {"group", "supergroup"}:
+        try:
+            await db.add_to_chat_jackpot(message.chat.id, int(bet * 0.02))
+        except Exception:
+            pass
     m = await message.answer_dice(emoji="🎰")
     await asyncio.sleep(3.5)
     v = m.dice.value
@@ -387,12 +398,34 @@ async def cmd_slots(message: Message, args: str = "", **kw):
     is_win = mult > 0
     lvl, lvl_up = await db.add_game_xp(message.from_user.id, 1, is_win=is_win)
     lvl_tag = f"\n🚀 <i>Игровой уровень повышен до <b>{lvl} LVL</b>!</i>" if lvl_up else ""
-    if mult:
+    kb = make_game_replay_kb("slots", bet, message.from_user.id)
+    if v == 64:
+        jackpot_won = 0
+        if message.chat.type in {"group", "supergroup"}:
+            try:
+                jackpot_won = await db.claim_chat_jackpot(message.chat.id, message.from_user.id, message.from_user.first_name)
+            except Exception:
+                pass
+        bal = await db.add_balance(message.from_user.id, bet * 10 + jackpot_won, "slots_jackpot_win")
+        tag = (f"🔥 💥 <b>ДЖЕКПОТ ЧАТА СОРВАН!</b> 💥 🔥\n\n"
+               f"{mention(message.from_user)} выбил <b>7️⃣7️⃣7️⃣</b> (x10) и сорвал джекпот: <b>+{money(jackpot_won)}</b>!\n"
+               f"Общий выигрыш: <b>+{money(bet * 10 + jackpot_won)}</b> 🎉")
+        try:
+            await db.record_big_win(message.from_user.id, message.from_user.first_name, message.chat.id, "Слоты 🎰", bet, bet * 10 + jackpot_won)
+        except Exception:
+            pass
+        await message.reply(f"{tag}\nБаланс: {money(bal)}{lvl_tag}", reply_markup=kb)
+    elif mult:
         bal = await db.add_balance(message.from_user.id, bet * mult, "slots_win")
-        await message.reply(f"🎰 <b>Выигрыш x{mult}!</b> +{money(bet*(mult-1))}\nБаланс: {money(bal)}{lvl_tag}")
+        if bet * mult >= 10_000 or mult >= 5:
+            try:
+                await db.record_big_win(message.from_user.id, message.from_user.first_name, message.chat.id, "Слоты 🎰", bet, bet * mult)
+            except Exception:
+                pass
+        await message.reply(f"🎰 <b>Выигрыш x{mult}!</b> +{money(bet*(mult-1))}\nБаланс: {money(bal)}{lvl_tag}", reply_markup=kb)
     else:
         u = await db.get_user(message.from_user.id)
-        await message.reply(f"🎰 Мимо. −{money(bet)}\nБаланс: {money(u['balance'])}{lvl_tag}")
+        await message.reply(f"🎰 Мимо. −{money(bet)}\nБаланс: {money(u['balance'])}{lvl_tag}", reply_markup=kb)
 
 
 @router.message(Cmd("дартс", "darts", section=S_CUBE, usage="дартс {ставка}",
@@ -402,6 +435,11 @@ async def cmd_darts(message: Message, args: str = "", **kw):
     if bet is None:
         return
     await db.add_balance(message.from_user.id, -bet, "darts_bet")
+    if message.chat.type in {"group", "supergroup"}:
+        try:
+            await db.add_to_chat_jackpot(message.chat.id, int(bet * 0.02))
+        except Exception:
+            pass
     m = await message.answer_dice(emoji="🎯")
     await asyncio.sleep(3)
     v = m.dice.value
@@ -409,16 +447,17 @@ async def cmd_darts(message: Message, args: str = "", **kw):
     is_win = mult > 1
     lvl, lvl_up = await db.add_game_xp(message.from_user.id, 1, is_win=is_win)
     lvl_tag = f"\n🚀 <i>Игровой уровень повышен до <b>{lvl} LVL</b>!</i>" if lvl_up else ""
+    kb = make_game_replay_kb("darts", bet, message.from_user.id)
     if mult > 1:
         bal = await db.add_balance(message.from_user.id, bet * mult, "darts_win")
         tag = "🎯 <b>В ЯБЛОЧКО! x5!</b>" if v == 6 else f"🎯 <b>Точное попадание! x{mult}!</b>"
-        await message.reply(f"{tag} +{money(bet*(mult-1))}\nБаланс: {money(bal)}{lvl_tag}")
+        await message.reply(f"{tag} +{money(bet*(mult-1))}\nБаланс: {money(bal)}{lvl_tag}", reply_markup=kb)
     elif mult == 1:
         bal = await db.add_balance(message.from_user.id, bet, "darts_draw")
-        await message.reply(f"🎯 Возврат ставки (x1).\nБаланс: {money(bal)}{lvl_tag}")
+        await message.reply(f"🎯 Возврат ставки (x1).\nБаланс: {money(bal)}{lvl_tag}", reply_markup=kb)
     else:
         u = await db.get_user(message.from_user.id)
-        await message.reply(f"🎯 Мимо мишени! −{money(bet)}\nБаланс: {money(u['balance'])}{lvl_tag}")
+        await message.reply(f"🎯 Мимо мишени! −{money(bet)}\nБаланс: {money(u['balance'])}{lvl_tag}", reply_markup=kb)
 
 
 @router.message(Cmd("боулинг", "кегли", "bowling", section=S_CUBE, usage="боулинг {ставка}",
@@ -506,6 +545,11 @@ async def cmd_roulette(message: Message, args: str = "", **kw):
     if bet is None:
         return
     await db.add_balance(message.from_user.id, -bet, "roulette_bet")
+    if message.chat.type in {"group", "supergroup"}:
+        try:
+            await db.add_to_chat_jackpot(message.chat.id, int(bet * 0.02))
+        except Exception:
+            pass
     num = random.randint(0, 36)
     red = {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36}
     color = "зеро" if num == 0 else ("красное" if num in red else "чёрное")
@@ -519,14 +563,291 @@ async def cmd_roulette(message: Message, args: str = "", **kw):
     is_win = mult > 0
     lvl, lvl_up = await db.add_game_xp(message.from_user.id, 1, is_win=is_win)
     lvl_tag = f"\n🚀 <i>Игровой уровень повышен до <b>{lvl} LVL</b>!</i>" if lvl_up else ""
+    kb = make_game_replay_kb("roulette", bet, message.from_user.id, choice)
     if mult:
         bal = await db.add_balance(message.from_user.id, bet * mult, "roulette_win")
         await message.reply(f"🎡 Выпало <b>{num} {color}</b> — x{mult}: +{money(bet*(mult-1))}\n"
-                            f"Баланс: {money(bal)}{lvl_tag}")
+                            f"Баланс: {money(bal)}{lvl_tag}", reply_markup=kb)
     else:
         u = await db.get_user(message.from_user.id)
         await message.reply(f"🎡 Выпало <b>{num} {color}</b> — проигрыш −{money(bet)}\n"
-                            f"Баланс: {money(u['balance'])}{lvl_tag}")
+                            f"Баланс: {money(u['balance'])}{lvl_tag}", reply_markup=kb)
+
+
+@router.message(Cmd("джекпот", "казик джекпот", "джекпот чата", "куш", section=S_CUBE,
+                    usage="джекпот", desc="Посмотреть накопленный джекпот чата"))
+async def cmd_chat_jackpot(message: Message, **kw):
+    chat_id = message.chat.id
+    jk = await db.get_chat_jackpot(chat_id)
+    pool = jk.get("pool", 5000)
+    last_winner = jk.get("last_winner_name")
+    last_amount = jk.get("last_winner_amount", 0)
+
+    lines = [
+        f"🔥 <b>НАКОПИТЕЛЬНЫЙ ДЖЕКПОТ КАЗИНО</b> 🎰\n",
+        f"💰 <b>Банк джекпота беседы:</b> <code>{money(pool)}</code>\n",
+        f"✨ <i>С каждой ставки игроков в казино 2% отчисляется в общий накопительный банк!</i>",
+        f"🎯 <b>Как сорвать куш:</b> выбейте комбинацию <b>7️⃣7️⃣7️⃣</b> в слотах (<code>казик 1000</code>).",
+    ]
+    if last_winner and last_amount:
+        lines.append(f"\n👑 <b>Последний победитель:</b> {last_winner} (+{money(last_amount)})")
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🎰 Крутить слоты (1 000 🪙)", callback_data=f"grep:slots:1000:{message.from_user.id}:")
+    ]])
+    await message.reply("\n".join(lines), reply_markup=kb)
+
+
+# ---------- Инлайн-кнопки быстрого повтора (Реплей) для Казино и Игр ----------
+@router.callback_query(F.data.startswith("grep:"))
+async def cb_game_replay(call: CallbackQuery, bot: Bot):
+    parts = call.data.split(":")
+    if len(parts) < 4:
+        return await call.answer("Неверные данные.")
+    game_code = parts[1]
+    bet = int(parts[2])
+    target_uid = int(parts[3])
+    opt = parts[4] if len(parts) > 4 else ""
+
+    if call.from_user.id != target_uid:
+        return await call.answer("Это не ваша игра! Напишите казик 1000 для своей игры 😉", show_alert=True)
+
+    if game_code == "close":
+        try:
+            await call.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        return await call.answer("Выигрыш на вашем балансе! 💰")
+
+    if game_code == "jackpot":
+        chat_id = call.message.chat.id
+        jk = await db.get_chat_jackpot(chat_id)
+        pool = jk.get("pool", 5000)
+        last_winner = jk.get("last_winner_name")
+        last_amt = jk.get("last_winner_amount", 0)
+        txt = f"🔥 Накопительный джекпот чата: {money(pool)}!\n\nС каждой ставки отчисляется 2% в общий куш.\nВыпадает при 7️⃣7️⃣7️⃣ в слотах!"
+        if last_winner and last_amt:
+            txt += f"\n\n👑 Последний куш: {last_winner} (+{money(last_amt)})"
+        return await call.answer(txt, show_alert=True)
+
+    if not await topic_ok(call.message):
+        return await call.answer("Казино отключено в этом чате или теме.", show_alert=True)
+
+    if game_code == "bj":
+        try:
+            await call.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        from h_grams import start_quick_blackjack
+        return await start_quick_blackjack(call, bet)
+
+    if game_code == "race":
+        try:
+            await call.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        from h_grams import start_quick_race
+        h_idx = int(opt) if opt and opt.isdigit() else 1
+        return await start_quick_race(call, bet, h_idx)
+
+    bal = await db.get_balance(call.from_user.id)
+    if bal < bet:
+        return await call.answer(f"Недостаточно средств!\nНужно: {money(bet)}, у вас: {money(bal)}", show_alert=True)
+
+    # Списание ставки
+    await db.add_balance(call.from_user.id, -bet, f"{game_code}_bet")
+    if call.message.chat.type in {"group", "supergroup"}:
+        try:
+            await db.add_to_chat_jackpot(call.message.chat.id, int(bet * 0.02))
+        except Exception:
+            pass
+
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    if game_code == "slots":
+        await call.answer("🎰 Крутим барабан!")
+        m = await call.message.answer_dice(emoji="🎰")
+        await asyncio.sleep(3.5)
+        v = m.dice.value
+        mult = 10 if v == 64 else (5 if v in (1, 22, 43) else (2 if v in (4, 8, 12, 16, 32, 48) else 0))
+        is_win = mult > 0
+        lvl, lvl_up = await db.add_game_xp(call.from_user.id, 1, is_win=is_win)
+        lvl_tag = f"\n🚀 <i>Игровой уровень повышен до <b>{lvl} LVL</b>!</i>" if lvl_up else ""
+        if v == 64:
+            jackpot_won = 0
+            if call.message.chat.type in {"group", "supergroup"}:
+                try:
+                    jackpot_won = await db.claim_chat_jackpot(call.message.chat.id, call.from_user.id, call.from_user.first_name)
+                except Exception:
+                    pass
+            new_bal = await db.add_balance(call.from_user.id, bet * 10 + jackpot_won, "slots_jackpot_win")
+            try:
+                await db.record_big_win(call.from_user.id, call.from_user.first_name, call.message.chat.id, "Слоты 🎰", bet, bet * 10 + jackpot_won)
+            except Exception:
+                pass
+            msg_text = (
+                f"🔥 💥 <b>ДЖЕКПОТ ЧАТА СОРВАН!</b> 💥 🔥\n\n"
+                f"{mention(call.from_user)} выбил <b>7️⃣7️⃣7️⃣</b> (x10) и сорвал джекпот: <b>+{money(jackpot_won)}</b>!\n"
+                f"Всего выигрыш: <b>+{money(bet * 10 + jackpot_won)}</b> 🎉\n"
+                f"Баланс: {money(new_bal)}{lvl_tag}"
+            )
+        elif mult:
+            new_bal = await db.add_balance(call.from_user.id, bet * mult, "slots_win")
+            if bet * mult >= 10_000 or mult >= 5:
+                try:
+                    await db.record_big_win(call.from_user.id, call.from_user.first_name, call.message.chat.id, "Слоты 🎰", bet, bet * mult)
+                except Exception:
+                    pass
+            msg_text = f"🎰 <b>Выигрыш x{mult}!</b> +{money(bet*(mult-1))}\nБаланс: {money(new_bal)}{lvl_tag}"
+        else:
+            u = await db.get_user(call.from_user.id)
+            msg_text = f"🎰 Мимо. −{money(bet)}\nБаланс: {money(u['balance'])}{lvl_tag}"
+
+        return await call.message.reply(msg_text, reply_markup=make_game_replay_kb("slots", bet, call.from_user.id))
+
+    elif game_code == "cube":
+        await call.answer("🎲 Бросаем кубики!")
+        m1 = await call.message.answer_dice(emoji="🎲")
+        await asyncio.sleep(3.5)
+        m2 = await call.message.answer_dice(emoji="🎲")
+        await asyncio.sleep(3.5)
+        p, b = m1.dice.value, m2.dice.value
+        is_win = p > b
+        lvl, lvl_up = await db.add_game_xp(call.from_user.id, 1, is_win=is_win)
+        lvl_tag = f"\n🚀 <i>Игровой уровень повышен до <b>{lvl} LVL</b>!</i>" if lvl_up else ""
+        if is_win:
+            new_bal = await db.add_balance(call.from_user.id, bet * 2, "cube_win")
+            msg_text = f"🎲 {p} : {b} — <b>победа!</b> +{money(bet)}\nБаланс: {money(new_bal)}{lvl_tag}"
+        elif p == b:
+            new_bal = await db.add_balance(call.from_user.id, bet, "cube_draw")
+            msg_text = f"🎲 {p} : {b} — ничья.\nБаланс: {money(new_bal)}{lvl_tag}"
+        else:
+            u = await db.get_user(call.from_user.id)
+            msg_text = f"🎲 {p} : {b} — проигрыш −{money(bet)}\nБаланс: {money(u['balance'])}{lvl_tag}"
+
+        return await call.message.reply(msg_text, reply_markup=make_game_replay_kb("cube", bet, call.from_user.id))
+
+    elif game_code == "darts":
+        await call.answer("🎯 Бросаем дротик!")
+        m = await call.message.answer_dice(emoji="🎯")
+        await asyncio.sleep(3)
+        v = m.dice.value
+        mult = 5 if v == 6 else (2 if v in (4, 5) else (1 if v in (2, 3) else 0))
+        is_win = mult > 1
+        lvl, lvl_up = await db.add_game_xp(call.from_user.id, 1, is_win=is_win)
+        lvl_tag = f"\n🚀 <i>Игровой уровень повышен до <b>{lvl} LVL</b>!</i>" if lvl_up else ""
+        if mult > 1:
+            new_bal = await db.add_balance(call.from_user.id, bet * mult, "darts_win")
+            tag = "🎯 <b>В ЯБЛОЧКО! x5!</b>" if v == 6 else f"🎯 <b>Точное попадание! x{mult}!</b>"
+            msg_text = f"{tag} +{money(bet*(mult-1))}\nБаланс: {money(new_bal)}{lvl_tag}"
+        elif mult == 1:
+            new_bal = await db.add_balance(call.from_user.id, bet, "darts_draw")
+            msg_text = f"🎯 Возврат ставки (x1).\nБаланс: {money(new_bal)}{lvl_tag}"
+        else:
+            u = await db.get_user(call.from_user.id)
+            msg_text = f"🎯 Мимо мишени! −{money(bet)}\nБаланс: {money(u['balance'])}{lvl_tag}"
+
+        return await call.message.reply(msg_text, reply_markup=make_game_replay_kb("darts", bet, call.from_user.id))
+
+    elif game_code == "coin":
+        side = opt if opt in ("орёл", "решка") else "орёл"
+        await call.answer(f"🪙 Бросаем на {side}!")
+        flip = random.choice(["орёл", "решка"])
+        is_win = (flip == side)
+        lvl, lvl_up = await db.add_game_xp(call.from_user.id, 1, is_win=is_win)
+        lvl_tag = f"\n🚀 <i>Игровой уровень повышен до <b>{lvl} LVL</b>!</i>" if lvl_up else ""
+        if is_win:
+            new_bal = await db.add_balance(call.from_user.id, bet * 2, "coin_win")
+            msg_text = f"🪙 Выпал <b>{flip}</b>!\n\n🎉 <b>ПОБЕДА! +{money(bet)}</b>\nБаланс: <b>{money(new_bal)}</b>{lvl_tag}"
+        else:
+            u = await db.get_user(call.from_user.id)
+            msg_text = f"🪙 Выпал <b>{flip}</b>\n\n💔 Проигрыш −{money(bet)}\nБаланс: <b>{money(u['balance'])}</b>{lvl_tag}"
+
+        return await call.message.reply(msg_text, reply_markup=make_game_replay_kb("coin", bet, call.from_user.id, side))
+
+    elif game_code == "wheel":
+        await call.answer("🎡 Крутим барабан!")
+        from h_grams import WHEEL_SECTORS
+        weights = [30, 25, 20, 12, 7, 4, 1.5, 0.5]
+        mult, label = random.choices(WHEEL_SECTORS, weights=weights, k=1)[0]
+        is_win = mult > 1.0
+        lvl, lvl_up = await db.add_game_xp(call.from_user.id, 1, is_win=is_win)
+        lvl_tag = f"\n🚀 <i>Игровой уровень повышен до <b>{lvl} LVL</b>!</i>" if lvl_up else ""
+        if mult > 0:
+            win = int(bet * mult)
+            new_bal = await db.add_balance(call.from_user.id, win, "wheel_win")
+            diff = win - bet
+            res = (f"🎉 <b>+{money(diff)}</b>" if diff > 0 else (f"🔸 Возврат" if diff == 0 else f"💔 −{money(-diff)}"))
+            msg_text = f"🎡 Сектор: <b>{label}</b>\n\n{res}\nБаланс: <b>{money(new_bal)}</b>{lvl_tag}"
+        else:
+            u = await db.get_user(call.from_user.id)
+            msg_text = f"🎡 Сектор: <b>{label}</b>\n\n💔 Проигрыш −{money(bet)}\nБаланс: <b>{money(u['balance'])}</b>{lvl_tag}"
+
+        return await call.message.reply(msg_text, reply_markup=make_game_replay_kb("wheel", bet, call.from_user.id))
+
+    elif game_code == "roulette":
+        choice = opt.lower() if opt else "красное"
+        await call.answer(f"🎡 Ставка на {choice}!")
+        num = random.randint(0, 36)
+        red = {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36}
+        color = "зеро" if num == 0 else ("красное" if num in red else "чёрное")
+        mult = 0
+        if choice in {"красное", "красн", "red"} and color == "красное": mult = 2
+        elif choice in {"чёрное", "черное", "black"} and color == "чёрное": mult = 2
+        elif choice in {"чет", "чёт", "even"} and num and num % 2 == 0: mult = 2
+        elif choice in {"нечет", "нечёт", "odd"} and num % 2 == 1: mult = 2
+        elif choice in {"зеро", "zero"} and num == 0: mult = 14
+        elif choice.isdigit() and int(choice) == num: mult = 14
+
+        is_win = mult > 0
+        lvl, lvl_up = await db.add_game_xp(call.from_user.id, 1, is_win=is_win)
+        lvl_tag = f"\n🚀 <i>Игровой уровень повышен до <b>{lvl} LVL</b>!</i>" if lvl_up else ""
+        if mult:
+            new_bal = await db.add_balance(call.from_user.id, bet * mult, "roulette_win")
+            if bet * mult >= 10_000 or mult >= 10:
+                try:
+                    await db.record_big_win(call.from_user.id, call.from_user.first_name, call.message.chat.id, "Рулетка 🎡", bet, bet * mult)
+                except Exception:
+                    pass
+            msg_text = f"🎡 Выпало <b>{num} {color}</b> — x{mult}: +{money(bet*(mult-1))}\nБаланс: {money(new_bal)}{lvl_tag}"
+        else:
+            u = await db.get_user(call.from_user.id)
+            msg_text = f"🎡 Выпало <b>{num} {color}</b> — проигрыш −{money(bet)}\nБаланс: {money(u['balance'])}{lvl_tag}"
+
+        return await call.message.reply(msg_text, reply_markup=make_game_replay_kb("roulette", bet, call.from_user.id, choice))
+
+
+@router.message(Cmd("топ заносов", "топ казик", "турнир казик", "заносы", "турнир казино", "бигвин", "бигвины",
+                    section=S_BONUS, usage="топ заносов",
+                    desc="Турнирная таблица крупнейших заносов и выигрышей недели в казино"))
+async def cmd_casino_top_wins(message: Message, **kw):
+    wins = await db.get_weekly_big_wins(limit=10)
+    if not wins:
+        return await message.reply(
+            "🎰 <b>ТУРНИР КАЗИНО MOXXI: ТОП ЗАНОСОВ</b> 🏆\n"
+            "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            "На этой неделе пока нет зафиксированных крупных заносов!\n\n"
+            "Крутите <code>казик [ставка]</code>, выбивайте 777 и попадайте в зал славы казино!"
+        )
+
+    medals = ["🥇", "🥈", "🥉"] + ["🔹"] * 7
+    lines = []
+    for i, w in enumerate(wins):
+        med = medals[i]
+        uname = w["user_name"] or f"Игрок {w['user_id']}"
+        lines.append(f"{med} {mention_id(w['user_id'], uname)} — <b>+{money(w['max_win'])}</b> ({w['game_name']}, ставка: {money(w['bet'])})")
+
+    card = (
+        "🎰 🏆 <b>ТУРНИР КАЗИНО: ТОП ЗАНОСОВ НЕДЕЛИ</b> 🏆 🎰\n"
+        "✦ ══ • ⊰ 💎 🍀 🔥 🎰 🎲 🪙 ⊱ • ══ ✦\n\n"
+        "Лидеры по самому крупному выигрышу за последние 7 дней:\n\n"
+        + "\n".join(lines) +
+        "\n\n🔥 <i>Испытай удачу: <code>казик 1000</code> / <code>слоты 1к</code>!</i>"
+    )
+    await message.reply(card)
 
 
 # ---------- Магазин и топ дня (работают и в группе, и в личке) ----------
@@ -558,3 +879,78 @@ async def cmd_topday(message: Message, **kw):
     await message.reply("🏆 <b>Топ дня</b>\n\n" + "\n".join(
         f"{medals[i]} {mention_id(r['user_id'], r['first_name'])} — {r['m']} сообщ."
         for i, r in enumerate(rows)))
+
+
+# ══════════════════ ЕЖЕДНЕВНОЕ КОЛЕСО ФОРТУНЫ МОКСИ ══════════════════
+
+@router.message(Cmd("колесо", "рулетка дня", "фортуна", "колесо фортуны", "крутить колесо",
+                    section=S_BONUS, usage="колесо",
+                    desc="🎡 Ежедневное Колесо Фортуны Мокси (1 бесплатная крутка в день)"))
+async def cmd_wheel_of_fortune(message: Message, bot: Bot, **kw):
+    uid = message.from_user.id
+    left = await db.cooldown_left(uid, "wheel_of_fortune", 86400)
+    if left:
+        return await message.reply(
+            f"🎡 ✨ <b>КОЛЕСО ФОРТУНЫ МОКСИ</b> ✨ 🎡\n\n"
+            f"💋 Детка, ты уже забирал свой ежедневный подарок сегодня!\n"
+            f"Следующая бесплатная крутка будет доступна через: <b>{hms(left)}</b>."
+        )
+
+    # Ставим кулдаун на 24 часа
+    await db.set_cooldown(uid, "wheel_of_fortune")
+
+    anim = await message.reply(
+        "🎡 ✨ <b>КОЛЕСО ФОРТУНЫ МОКСИ</b> ✨ 🎡\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        "🎰 <i>Раскручиваем барабан арены...</i>\n"
+        "<code>[ 🪙 750 | 💎 3500 | 🧪 Зелье | 👑 VIP | 🍖 Корм | 🪙 1500 ]</code>"
+    )
+    await asyncio.sleep(1.2)
+
+    # Розыгрыш приза
+    roll = random.random()
+    if roll < 0.05:  # 5% ДЖЕКПОТ: VIP-статус на сутки!
+        await db.execute(
+            "INSERT INTO vip (user_id, until, level) VALUES (?, ?, 1) "
+            "ON CONFLICT(user_id) DO UPDATE SET until = MAX(until, ?) + 86400, level = MAX(level, 1)",
+            (uid, int(time.time()) + 86400, int(time.time()))
+        )
+        prize_text = "👑 <b>ДЖЕКПОТ АРЕНЫ: VIP-СТАТУС НА 24 ЧАСА!</b> 👑\n<i>Все бонусы и привилегии VIP активированы!</i>"
+    elif roll < 0.20:  # 15%: 3500 монет
+        bal = await db.add_balance(uid, 3500, "wheel_reward")
+        prize_text = f"💎 <b>БОЛЬШОЙ КУШ: +3 500 {money(3500)}!</b>\nБаланс: {money(bal)}"
+    elif roll < 0.45:  # 25%: 1500 монет
+        bal = await db.add_balance(uid, 1500, "wheel_reward")
+        prize_text = f"🪙 <b>ОТЛИЧНЫЙ КУШ: +1 500 {money(1500)}!</b>\nБаланс: {money(bal)}"
+    elif roll < 0.60:  # 15%: Зелье лечения
+        try:
+            import h_items
+            await h_items.add_inventory_item(uid, "medkit", 1)
+            prize_text = "🧪 <b>РЕДКОЕ ЛЕЧЕБНОЕ ЗЕЛЬЕ РЕЙДА!</b>\n<i>Добавлено в инвентарь для битв с боссами.</i>"
+        except Exception:
+            bal = await db.add_balance(uid, 1000, "wheel_reward")
+            prize_text = f"🪙 <b>+1 000 {money(1000)}!</b>\nБаланс: {money(bal)}"
+    elif roll < 0.75:  # 15%: Премиум-корм
+        try:
+            import h_items
+            await h_items.add_inventory_item(uid, "pet_food", 2)
+            prize_text = "🍖 <b>ПРЕМИУМ-КОРМ ДЛЯ ПИТОМЦА (x2)!</b>\n<i>Ваш питомец будет сыт и доволен.</i>"
+        except Exception:
+            bal = await db.add_balance(uid, 1000, "wheel_reward")
+            prize_text = f"🪙 <b>+1 000 {money(1000)}!</b>\nБаланс: {money(bal)}"
+    else:  # 25%: 750 монет
+        bal = await db.add_balance(uid, 750, "wheel_reward")
+        prize_text = f"🪙 <b>ПРИЗ: +750 {money(750)}!</b>\nБаланс: {money(bal)}"
+
+    res_card = (
+        f"🎡 ✨ <b>КОЛЕСО ФОРТУНЫ МОКСИ</b> ✨ 🎡\n"
+        f"✦ ══ • ⊰ 💖 🔮 💙 🩵 💚 💛 🟣 🧡 ❤️ 🤍 ⊱ • ══ ✦\n\n"
+        f"🎉 <b>Стрелка остановилась! Твой выигрыш:</b>\n\n"
+        f"{prize_text}\n\n"
+        f"💋 <i>Приходи завтра за следующей бесплатной круткой!</i> 🍸✨"
+    )
+    try:
+        await anim.edit_text(res_card)
+    except Exception:
+        await message.reply(res_card)
+

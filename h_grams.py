@@ -19,12 +19,12 @@ from aiogram.types import (CallbackQuery, InlineKeyboardButton,
 import db
 from core_registry import Cmd
 from core_resolve import human_period, parse_period, resolve_target
-from utils import hms, mention, mention_id, parse_amount, money
+from utils import hms, mention, mention_id, parse_amount, money, make_game_replay_kb
 
 router = Router(name="grams")
 S = 33  # раздел «Монеты, бизнесы и игры»
 
-COIN = "🌑"
+COIN = "🪙"
 COINS = COIN
 COMET = COIN
 GRAM = COIN  # алиас для совместимости
@@ -40,87 +40,326 @@ START_GRAMS = START_COINS
 
 
 def c(n: int) -> str:
-    """Форматирование: 1 500 000 → 1 500 000 🌑"""
+    """Форматирование: 1 500 000 → 1 500 000 🪙"""
     return f"{n:,}".replace(",", " ") + f" {COIN}"
 
 
 g = c  # алиас для совместимости
 
 
-# ═══════════════ СПИСОК ПРЕДПРИЯТИЙ И НЕДВИЖИМОСТИ ═══════════════
+# ═══════════════ СПИСОК ПРЕДПРИЯТИЙ И НЕДВИЖИМОСТИ (30 ОБЪЕКТОВ ДО 100 LVL) ═══════════════
 BUSINESS_TYPES: dict[str, dict] = {
     "farm": {
+        "id": 1,
         "name": "Ферма",
         "emoji": "🌾",
-        "base_price": 25_000,
+        "base_price": 5_000,
         "income_per_min": 15,
         "req_lvl": 1,
         "desc": "Выращивание урожая и органических культур",
         "aliases": ["ферма", "ферму", "фермы", "farm", "1"]
     },
     "house": {
+        "id": 2,
         "name": "Дом в аренду",
         "emoji": "🏠",
-        "base_price": 100_000,
-        "income_per_min": 60,
+        "base_price": 18_000,
+        "income_per_min": 55,
         "req_lvl": 2,
         "desc": "Сдача коттеджа жильцам",
         "aliases": ["дом", "дом в аренду", "коттедж", "аренда", "house", "2"]
     },
     "factory": {
+        "id": 3,
         "name": "Завод",
         "emoji": "🏭",
-        "base_price": 400_000,
-        "income_per_min": 240,
+        "base_price": 60_000,
+        "income_per_min": 200,
         "req_lvl": 3,
-        "desc": "Производство электроники и товаров",
+        "desc": "Производство электроники и потребительских товаров",
         "aliases": ["завод", "заводы", "фабрика", "factory", "3"]
     },
     "mall": {
+        "id": 4,
         "name": "Торговый центр",
         "emoji": "🏢",
-        "base_price": 1_500_000,
-        "income_per_min": 900,
+        "base_price": 200_000,
+        "income_per_min": 750,
         "req_lvl": 4,
-        "desc": "Аренда бутиков и магазинов",
+        "desc": "Аренда бутиков, фудкортов и гипермаркетов",
         "aliases": ["тц", "торговый центр", "бизнес-центр", "бц", "mall", "4"]
     },
     "mine": {
+        "id": 5,
         "name": "Крипто-шахта",
         "emoji": "⛏",
-        "base_price": 6_000_000,
-        "income_per_min": 3_500,
+        "base_price": 712_500,
+        "income_per_min": 3_000,
         "req_lvl": 5,
         "desc": "Добыча редких кристаллов и крипто-руды",
         "aliases": ["шахта", "шахту", "крипто-шахта", "криптошахта", "mine", "5"]
     },
     "power": {
+        "id": 6,
         "name": "Электростанция",
         "emoji": "⚡",
-        "base_price": 25_000_000,
-        "income_per_min": 14_000,
+        "base_price": 2_500_000,
+        "income_per_min": 11_000,
         "req_lvl": 6,
-        "desc": "Генерация энергии для мегаполиса",
+        "desc": "Генерация энергии для крупнейших мегаполисов",
         "aliases": ["станция", "электростанция", "аэс", "гэс", "power", "6"]
     },
     "rig": {
+        "id": 7,
         "name": "Нефтяная вышка",
         "emoji": "🛢",
-        "base_price": 100_000_000,
-        "income_per_min": 52_000,
+        "base_price": 8_000_000,
+        "income_per_min": 38_000,
         "req_lvl": 8,
         "desc": "Добыча и переработка чёрного золота",
         "aliases": ["вышка", "вышку", "нефтяная вышка", "нефть", "rig", "7"]
     },
     "space": {
+        "id": 8,
         "name": "Космодром",
         "emoji": "🚀",
-        "base_price": 500_000_000,
-        "income_per_min": 250_000,
+        "base_price": 30_000_000,
+        "income_per_min": 160_000,
         "req_lvl": 10,
-        "desc": "Запуск коммерческих шаттлов и спутников",
+        "desc": "Запуск коммерческих шаттлов и научных ракет",
         "aliases": ["космодром", "ракета", "space", "8"]
     },
+    "bank": {
+        "id": 9,
+        "name": "Банковский конгломерат",
+        "emoji": "🏦",
+        "base_price": 85_000_000,
+        "income_per_min": 480_000,
+        "req_lvl": 12,
+        "desc": "Управление международными финансовыми потоками",
+        "aliases": ["банк", "банки", "конгломерат", "банковский конгломерат", "bank", "9"]
+    },
+    "orbital": {
+        "id": 10,
+        "name": "Орбитальная станция",
+        "emoji": "🛰",
+        "base_price": 220_000_000,
+        "income_per_min": 1_300_000,
+        "req_lvl": 15,
+        "desc": "Космические исследования и верфи на околоземной орбите",
+        "aliases": ["орбиталка", "орбитальная станция", "orbital", "10"]
+    },
+    "megacorp": {
+        "id": 11,
+        "name": "Межгалактическая корпорация",
+        "emoji": "💎",
+        "base_price": 500_000_000,
+        "income_per_min": 3_200_000,
+        "req_lvl": 18,
+        "desc": "Владение торговыми путями через дальние звёздные сектора",
+        "aliases": ["корпорация", "межгалактическая корпорация", "мегакорп", "megacorp", "11"]
+    },
+    "dyson": {
+        "id": 12,
+        "name": "Сфера Дайсона",
+        "emoji": "🌌",
+        "base_price": 1_200_000_000,
+        "income_per_min": 8_500_000,
+        "req_lvl": 22,
+        "desc": "Мегаструктура вокруг звезды для колоссальной выработки энергии",
+        "aliases": ["сфера дайсона", "дайсон", "сфера", "12"]
+    },
+    "mars_colony": {
+        "id": 13,
+        "name": "Колония на Марсе",
+        "emoji": "🪐",
+        "base_price": 2_800_000_000,
+        "income_per_min": 21_000_000,
+        "req_lvl": 26,
+        "desc": "Терраформирование красной планеты и биокупола",
+        "aliases": ["марс", "колония на марсе", "колония", "mars", "13"]
+    },
+    "collider": {
+        "id": 14,
+        "name": "Термоядерный коллайдер",
+        "emoji": "⚛️",
+        "base_price": 6_500_000_000,
+        "income_per_min": 52_000_000,
+        "req_lvl": 30,
+        "desc": "Синтез редчайших античастиц и бозонов массы",
+        "aliases": ["коллайдер", "термояд", "синтез", "collider", "14"]
+    },
+    "quantum_lab": {
+        "id": 15,
+        "name": "Квантовый биокомплекс",
+        "emoji": "🧬",
+        "base_price": 15_000_000_000,
+        "income_per_min": 130_000_000,
+        "req_lvl": 35,
+        "desc": "Регенерация ДНК и квантовые нейрочипы",
+        "aliases": ["квант", "биокомплекс", "квантовый биокомплекс", "15"]
+    },
+    "star_fleet": {
+        "id": 16,
+        "name": "Флот Звёздных Разрушителей",
+        "emoji": "🛸",
+        "base_price": 35_000_000_000,
+        "income_per_min": 320_000_000,
+        "req_lvl": 40,
+        "desc": "Космическая армада для защиты торговых гипер-маршрутов",
+        "aliases": ["флот", "разрушители", "армада", "звездный флот", "16"]
+    },
+    "stargate": {
+        "id": 17,
+        "name": "Звёздные врата Варпа",
+        "emoji": "🌠",
+        "base_price": 80_000_000_000,
+        "income_per_min": 780_000_000,
+        "req_lvl": 45,
+        "desc": "Мгновенные гиперпространственные прыжки через парсеки",
+        "aliases": ["врата", "варп", "звездные врата", "stargate", "17"]
+    },
+    "black_hole": {
+        "id": 18,
+        "name": "Генератор Чёрных Дыр",
+        "emoji": "🌀",
+        "base_price": 190_000_000_000,
+        "income_per_min": 1_950_000_000,
+        "req_lvl": 50,
+        "desc": "Добыча гравитационной энергии из горизонта событий",
+        "aliases": ["черная дыра", "генератор черных дыр", "гравитация", "18"]
+    },
+    "chrono_lab": {
+        "id": 19,
+        "name": "Хроно-лаборатория времени",
+        "emoji": "🔮",
+        "base_price": 450_000_000_000,
+        "income_per_min": 4_800_000_000,
+        "req_lvl": 55,
+        "desc": "Манипуляции с квантовым потоком времени",
+        "aliases": ["хроно", "время", "хроно-лаборатория", "chrono", "19"]
+    },
+    "dark_matter": {
+        "id": 20,
+        "name": "Фабрика Тёмной материи",
+        "emoji": "💫",
+        "base_price": 1_000_000_000_000,
+        "income_per_min": 11_500_000_000,
+        "req_lvl": 60,
+        "desc": "Конденсация тёмной материи для двигателей судного дня",
+        "aliases": ["темная материя", "фабрика темной материи", "материя", "20"]
+    },
+    "alliance": {
+        "id": 21,
+        "name": "Галактический Альянс",
+        "emoji": "🌌",
+        "base_price": 2_500_000_000_000,
+        "income_per_min": 30_000_000_000,
+        "req_lvl": 65,
+        "desc": "Политический и торговый союз тысяч звёздных цивилизаций",
+        "aliases": ["альянс", "галактический альянс", "союз", "21"]
+    },
+    "quasar": {
+        "id": 22,
+        "name": "Звёздный кузнец квазаров",
+        "emoji": "☀️",
+        "base_price": 6_000_000_000_000,
+        "income_per_min": 75_000_000_000,
+        "req_lvl": 70,
+        "desc": "Ковка звёздных ядер на ревущей мощи квазаров",
+        "aliases": ["квазар", "кузнец", "кузнец квазаров", "22"]
+    },
+    "singularity": {
+        "id": 23,
+        "name": "Энергостанция Сингулярности",
+        "emoji": "🕳",
+        "base_price": 15_000_000_000_000,
+        "income_per_min": 190_000_000_000,
+        "req_lvl": 75,
+        "desc": "Абсолютная точка сжатия пространства и бесконечной тяги",
+        "aliases": ["сингулярность", "станция сингулярности", "23"]
+    },
+    "ring_worlds": {
+        "id": 24,
+        "name": "Мегаструктура «Кольцо Миров»",
+        "emoji": "🪐",
+        "base_price": 38_000_000_000_000,
+        "income_per_min": 500_000_000_000,
+        "req_lvl": 80,
+        "desc": "Обитаемый монолитный пояс радиусом в миллионы километров",
+        "aliases": ["кольцо миров", "кольцо", "мегаструктура", "24"]
+    },
+    "mind_matrix": {
+        "id": 25,
+        "name": "Матрица Перерождения Разума",
+        "emoji": "🧬",
+        "base_price": 95_000_000_000_000,
+        "income_per_min": 1_300_000_000_000,
+        "req_lvl": 85,
+        "desc": "Цифровое бессмертие и единое суперсознание вселенной",
+        "aliases": ["матрица", "разум", "матрица разума", "25"]
+    },
+    "supercluster": {
+        "id": 26,
+        "name": "Сверхскопление Мета-Вселенной",
+        "emoji": "🌌",
+        "base_price": 240_000_000_000_000,
+        "income_per_min": 3_400_000_000_000,
+        "req_lvl": 90,
+        "desc": "Полный контроль над миллионами взаимосвязанных галактик",
+        "aliases": ["сверхскопление", "метавселенная", "мета", "26"]
+    },
+    "void_throne": {
+        "id": 27,
+        "name": "Трон Властелина Пространства",
+        "emoji": "👑",
+        "base_price": 600_000_000_000_000,
+        "income_per_min": 9_000_000_000_000,
+        "req_lvl": 93,
+        "desc": "Центр управления законами физики и геометрии космоса",
+        "aliases": ["трон", "властелин", "трон пространства", "27"]
+    },
+    "multiverse_core": {
+        "id": 28,
+        "name": "Ядро Мультивселенной",
+        "emoji": "♾",
+        "base_price": 1_500_000_000_000_000,
+        "income_per_min": 24_000_000_000_000,
+        "req_lvl": 96,
+        "desc": "Слияние параллельных измерений в единый поток ресурсов",
+        "aliases": ["ядро", "мультивселенная", "ядро мультивселенной", "28"]
+    },
+    "reality_forge": {
+        "id": 29,
+        "name": "Творец Реальностей",
+        "emoji": "🌠",
+        "base_price": 4_000_000_000_000_000,
+        "income_per_min": 68_000_000_000_000,
+        "req_lvl": 98,
+        "desc": "Создание и уничтожение новых вселенных по щелчку пальцев",
+        "aliases": ["творец", "реальность", "творец реальностей", "29"]
+    },
+    "omniverse": {
+        "id": 30,
+        "name": "Омниверсум Создателя",
+        "emoji": "👑",
+        "base_price": 10_000_000_000_000_000,
+        "income_per_min": 180_000_000_000_000,
+        "req_lvl": 100,
+        "desc": "Абсолютная вершина мироздания и вечной власти",
+        "aliases": ["омниверсум", "создатель", "абсолют", "30"]
+    },
+    # Обратная совместимость для ранее купленных ключей:
+    "cafe": {"id": 1, "name": "Кофейня", "emoji": "☕️", "base_price": 10_000, "income_per_min": 32, "req_lvl": 1, "desc": "Кофейня", "aliases": ["кофейня", "кафе"]},
+    "autoservice": {"id": 2, "name": "Автосервис", "emoji": "🚗", "base_price": 35_000, "income_per_min": 115, "req_lvl": 2, "desc": "Автосервис", "aliases": ["автосервис"]},
+    "pizzeria": {"id": 3, "name": "Пиццерия", "emoji": "🍕", "base_price": 110_000, "income_per_min": 390, "req_lvl": 3, "desc": "Пиццерия", "aliases": ["пиццерия"]},
+    "port": {"id": 4, "name": "Порт", "emoji": "🚢", "base_price": 420_000, "income_per_min": 1_650, "req_lvl": 4, "desc": "Порт", "aliases": ["порт"]},
+    "skyscraper": {"id": 5, "name": "Небоскрёб", "emoji": "🏙", "base_price": 1_400_000, "income_per_min": 6_000, "req_lvl": 5, "desc": "Небоскрёб", "aliases": ["небоскреб"]},
+    "airline": {"id": 6, "name": "Авиакомпания", "emoji": "✈️", "base_price": 4_800_000, "income_per_min": 22_000, "req_lvl": 7, "desc": "Авиакомпания", "aliases": ["авиа"]},
+    "biolab": {"id": 7, "name": "Биолаборатория", "emoji": "🧬", "base_price": 16_000_000, "income_per_min": 82_000, "req_lvl": 9, "desc": "Биолаборатория", "aliases": ["биолаборатория"]},
+    "starlink": {"id": 8, "name": "Спутниковая сеть", "emoji": "🛰", "base_price": 52_000_000, "income_per_min": 285_000, "req_lvl": 11, "desc": "Спутники", "aliases": ["старлинк"]},
+    "moon": {"id": 9, "name": "Лунная база", "emoji": "🪐", "base_price": 140_000_000, "income_per_min": 810_000, "req_lvl": 13, "desc": "Лунная база", "aliases": ["луна"]},
+    "asteroid": {"id": 10, "name": "Астероидный рудник", "emoji": "☄️", "base_price": 340_000_000, "income_per_min": 2_100_000, "req_lvl": 16, "desc": "Рудник", "aliases": ["астероид"]},
 }
 
 
@@ -140,7 +379,7 @@ def get_market_price(biz_key: str, is_sell: bool = False) -> tuple[int, str]:
     mult = get_market_multiplier(biz_key)
     base = info["base_price"]
     if is_sell:
-        price = max(1, int(base * mult * 0.90))  # 10% комиссия брокера при продаже
+        price = max(1, int(base * 0.50 * mult))  # Срочная ликвидация б/у (уценка ~50%)
     else:
         price = max(1, int(base * mult))
 
@@ -354,12 +593,12 @@ async def cmd_balance(message: Message, bot: Bot, args: str = "", **kw):
     txt = (
         f"💳 <b>ФИНАНСОВЫЙ ПРОФИЛЬ</b>\n"
         f"👤 {mention_id(uid, name)}\n\n"
-        f"🌑 <b>Баланс:</b> <code>{c(bal)}</code>\n\n"
+        f"🪙 <b>Баланс Монет:</b> <code>{c(bal)}</code>\n\n"
         f"🎮 <b>Игровой уровень:</b> <b>{lvl} LVL</b> ({xp}/{next_xp} XP)\n"
         f"📊 Прогресс: <code>[{bar}]</code> {pct}%\n"
         f"🎲 Сыграно игр: <b>{prof['games_played']}</b> (побед: {prof['games_won']})\n\n"
         f"🏢 <b>Предприятия:</b> <b>{total_biz} шт.</b>\n"
-        f"💵 Доход: <b>+{income_min:,} 🌑/мин</b>\n"
+        f"💵 Доход: <b>+{income_min:,} 🪙/мин</b>\n"
         f"🔒 Мешок: <b>{bag_status}</b>\n\n"
         f"{bonus_line}\n"
         f"💡 <i>Команды:</i> <code>бизнесы</code> · <code>игры</code> · <code>скрыть мешок</code>"
@@ -402,9 +641,9 @@ async def cmd_daily(message: Message, args: str = "", **kw):
 
     vip_tag = ""
     if vip_active and vip_lvl >= 2:
-        vip_tag = f"\n🌟 <i>VIP+ бонус x2 (+{final_bonus - base_bonus:,} 🌑)!</i>"
+        vip_tag = f"\n🌟 <i>VIP+ бонус x2 (+{final_bonus - base_bonus:,} 🪙)!</i>"
     elif vip_active and vip_lvl >= 1:
-        vip_tag = f"\n⭐️ <i>VIP бонус +50% (+{final_bonus - base_bonus:,} 🌑)!</i>"
+        vip_tag = f"\n⭐️ <i>VIP бонус +50% (+{final_bonus - base_bonus:,} 🪙)!</i>"
 
     await message.reply(
         f"🎁 <b>Ежедневный бонус!</b>\n\n"
@@ -433,7 +672,7 @@ async def cmd_top(message: Message, args: str = "", **kw):
     for i, r in enumerate(rows):
         uname = r["first_name"] or r["username"] or f"Игрок {r['user_id']}"
         lines.append(f"{medals[i]} {mention_id(r['user_id'], uname)} — {c(r['balance'])}")
-    await message.reply(f"🌑 <b>Топ игроков по балансу</b>\n\n" + "\n".join(lines))
+    await message.reply(f"🪙 <b>Топ игроков по балансу</b>\n\n" + "\n".join(lines))
 
 
 @router.message(Cmd("восстановить топ", "сброс топа", "сбросить топ", "вернуть топ", "фикс топа", "исправить топ",
@@ -462,7 +701,7 @@ async def cmd_restore_top(message: Message, bot: Bot, **kw):
         f"✅ Сброшены накрученные триллионы и баги\n"
         f"✅ Снесено накрученных предприятий: <b>{res['businesses_deleted']}</b> шт.\n"
         f"✅ Сброшены уровни казино у <b>{res['stats_reset']}</b> пользователей\n\n"
-        f"🌑 <b>Актуальный топ по балансу:</b>\n{top_lines}")
+        f"🪙 <b>Актуальный топ по балансу:</b>\n{top_lines}")
 
 
 @router.message(Cmd("снести фермы", "сброс ферм", "сбросить фермы", "снести бизнесы", "сброс бизнесов",
@@ -493,12 +732,12 @@ async def cmd_wipe_businesses(message: Message, bot: Bot, **kw):
         f"✅ <b>Снесено предприятий:</b> {res['businesses_deleted']} шт. (все фермы, заводы, дома, ТЦ, шахты удалены)\n"
         f"✅ <b>Сброшены уровни казино:</b> у {res['stats_reset']} игроков\n"
         f"✅ <b>Балансы игроков:</b> возвращены к исходному состоянию до ошибки!\n\n"
-        f"🌑 <b>Актуальный эталонный топ:</b>\n{top_lines}")
+        f"🪙 <b>Актуальный эталонный топ:</b>\n{top_lines}")
 
 
 @router.message(Cmd("п", "п.", "передать", "перевод", "дать", "передать монеты", "дать монеты", "перевод монет",
                     "передать коины", "дать коины", "передать граммы", "дать граммы", "pay", "give", section=S,
-                    usage="п {ссылка} {сумма}", desc="Передать валюту 🌑"))
+                    usage="п {ссылка} {сумма}", desc="Передать валюту 🪙"))
 async def cmd_give(message: Message, bot: Bot, args: str = "", **kw):
     if not await topic_ok(message):
         return
@@ -531,8 +770,8 @@ async def cmd_give(message: Message, bot: Bot, args: str = "", **kw):
 
 
 
-# ═══════════════ СИСТЕМА БИЗНЕСОВ И РЫНКА ═══════════════
-def _render_biz_menu(uid: int, user_biz: dict[str, dict], prof: dict) -> tuple[str, InlineKeyboardMarkup]:
+# ═══════════════ СИСТЕМА БИЗНЕСОВ И РЫНКА (30 ПРЕДПРИЯТИЙ ДО 100 LVL) ═══════════════
+def _render_biz_menu(uid: int, user_biz: dict[str, dict], prof: dict, page: int = 1) -> tuple[str, InlineKeyboardMarkup]:
     lvl = prof["level"]
     now = int(time.time())
 
@@ -549,18 +788,28 @@ def _render_biz_menu(uid: int, user_biz: dict[str, dict], prof: dict) -> tuple[s
             profit = mins * cnt * info["income_per_min"]
             total_income_min += cnt * info["income_per_min"]
             accumulated_profit += profit
-            owned_lines.append(f"• {info['emoji']} <b>{info['name']}:</b> {cnt} шт. (доход: +{cnt*info['income_per_min']:,} 🌑/мин)")
+            owned_lines.append(f"• {info['emoji']} <b>{info['name']}:</b> {cnt} шт. (доход: +{cnt*info['income_per_min']:,} 🪙/мин)")
+
+    # 30 основных предприятий
+    main_biz = [(k, v) for k, v in BUSINESS_TYPES.items() if "id" in v and 1 <= v["id"] <= 30]
+    main_biz.sort(key=lambda x: x[1]["id"])
+    total_pages = 3
+    page = max(1, min(total_pages, page))
+
+    start_idx = (page - 1) * 10
+    end_idx = start_idx + 10
+    page_biz = main_biz[start_idx:end_idx]
 
     market_lines = []
-    for k, info in BUSINESS_TYPES.items():
+    for k, info in page_biz:
         buy_p, trend = get_market_price(k, is_sell=False)
         sell_p, _ = get_market_price(k, is_sell=True)
         lock = "🔒 " if lvl < info["req_lvl"] else "✅ "
         lvl_note = f"<i>(с {info['req_lvl']} LVL)</i>" if lvl < info["req_lvl"] else ""
         market_lines.append(
-            f"{lock}{info['emoji']} <b>{info['name']}</b> {lvl_note}\n"
-            f"   Купить: <b>{c(buy_p)}</b> [{trend}] · Продать: <b>{c(sell_p)}</b>\n"
-            f"   Доход: <code>+{info['income_per_min']} 🌑/мин</code>"
+            f"{lock}{info['emoji']} <b>#{info['id']} {info['name']}</b> {lvl_note}\n"
+            f"   Купить: <b>{c(buy_p)}</b> [{trend}] · Продать (б/у ~50%): <b>{c(sell_p)}</b>\n"
+            f"   Доход: <code>+{info['income_per_min']:,} 🪙/мин</code>"
         )
 
     owned_txt = "\n".join(owned_lines) if owned_lines else "<i>У вас пока нет купленных предприятий.</i>"
@@ -569,25 +818,36 @@ def _render_biz_menu(uid: int, user_biz: dict[str, dict], prof: dict) -> tuple[s
     text = (
         f"🏢 <b>РЫНОК БИЗНЕСОВ И ИМУЩЕСТВА</b> 📈\n\n"
         f"🎮 <b>Ваш игровой уровень:</b> <b>{lvl} LVL</b> ({prof['xp']}/{prof['next_xp']} XP)\n"
-        f"💵 <b>Суммарный доход:</b> <b>+{total_income_min:,} 🌑/мин</b>\n"
-        f"💰 <b>Накоплено к сбору:</b> <b>+{accumulated_profit:,} 🌑</b>\n\n"
+        f"💵 <b>Суммарный доход:</b> <b>+{total_income_min:,} 🪙/мин</b>\n"
+        f"💰 <b>Накоплено к сбору:</b> <b>+{accumulated_profit:,} 🪙</b>\n\n"
         f"📦 <b>Ваше имущество:</b>\n{owned_txt}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📊 <b>Каталог рынка (цены обновляются каждый час):</b>\n\n"
+        f"📊 <b>Каталог рынка (Страница {page}/{total_pages}):</b>\n\n"
         f"{market_txt}\n\n"
-        f"💡 <i>Команды:</i> <code>купить [название] [кол-во]</code> · <code>продать [название] [кол-во]</code> · <code>собрать</code>"
+        f"💡 <i>Команды:</i> <code>купить [номер/название] [кол-во]</code> · <code>продать [название] [кол-во]</code> · <code>собрать</code>"
     )
 
     rows = [
-        [InlineKeyboardButton(text=f"💰 Собрать прибыль (+{accumulated_profit:,} 🌑)", callback_data="biz:collect")],
-        [InlineKeyboardButton(text="🌾 Купить Ферму", callback_data="biz:buy:farm"),
-         InlineKeyboardButton(text="🏠 Купить Дом", callback_data="biz:buy:house")],
-        [InlineKeyboardButton(text="🏭 Купить Завод", callback_data="biz:buy:factory"),
-         InlineKeyboardButton(text="🏢 Купить ТЦ", callback_data="biz:buy:mall")],
-        [InlineKeyboardButton(text="⛏ Купить Шахту", callback_data="biz:buy:mine"),
-         InlineKeyboardButton(text="⚡ Электростанция", callback_data="biz:buy:power")],
-        [InlineKeyboardButton(text="🔄 Обновить рынок", callback_data="biz:refresh")]
+        [InlineKeyboardButton(text=f"💰 Собрать прибыль (+{accumulated_profit:,} 🪙)", callback_data=f"biz:collect:{page}")],
     ]
+    for i in range(0, len(page_biz), 2):
+        row = []
+        k1, b1 = page_biz[i]
+        row.append(InlineKeyboardButton(text=f"{b1['emoji']} {b1['name'][:13]}", callback_data=f"biz:buy:{k1}:{page}"))
+        if i + 1 < len(page_biz):
+            k2, b2 = page_biz[i + 1]
+            row.append(InlineKeyboardButton(text=f"{b2['emoji']} {b2['name'][:13]}", callback_data=f"biz:buy:{k2}:{page}"))
+        rows.append(row)
+
+    prev_p = max(1, page - 1)
+    next_p = min(total_pages, page + 1)
+    rows.append([
+        InlineKeyboardButton(text="◀️ Назад", callback_data=f"biz:page:{prev_p}"),
+        InlineKeyboardButton(text=f"📄 Стр. {page}/{total_pages}", callback_data=f"biz:refresh:{page}"),
+        InlineKeyboardButton(text="Вперёд ▶️", callback_data=f"biz:page:{next_p}"),
+    ])
+    rows.append([InlineKeyboardButton(text="🔄 Обновить рынок", callback_data=f"biz:refresh:{page}")])
+
     return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -712,7 +972,7 @@ async def cmd_buy_business(message: Message, args: str = "", **kw):
         f"Вы приобрели: {info['emoji']} <b>{info['name']}</b> × {count} шт.\n"
         f"Списано: <b>−{c(total_cost)}</b>\n"
         f"Всего у вас: <b>{new_count} шт.</b>\n"
-        f"Доход: <b>+{new_count * info['income_per_min']:,} 🌑/мин</b>\n"
+        f"Доход: <b>+{new_count * info['income_per_min']:,} 🪙/мин</b>\n"
         f"Баланс: <b>{c(new_bal)}</b>"
     )
 
@@ -758,8 +1018,8 @@ async def cmd_sell_business(message: Message, args: str = "", **kw):
     new_bal = await db.add_coins(uid, total_gain, "biz_sell", biz_key)
 
     await message.reply(
-        f"🏷 <b>Предприятие продано!</b>\n\n"
-        f"Вы продали: {info['emoji']} <b>{info['name']}</b> × {count} шт.\n"
+        f"🏷 <b>Предприятие ликвидировано!</b>\n\n"
+        f"Вы продали: {info['emoji']} <b>{info['name']}</b> × {count} шт. <i>(вторичный рынок б/у: -50%)</i>\n"
         f"Выручка: <b>+{c(total_gain)}</b>\n"
         f"Ваш новый баланс: <b>{c(new_bal)}</b>"
     )
@@ -768,17 +1028,27 @@ async def cmd_sell_business(message: Message, args: str = "", **kw):
 @router.callback_query(F.data.startswith("biz:"))
 async def cb_businesses(call: CallbackQuery):
     uid = call.from_user.id
-    action = call.data.split(":")[1]
+    parts = call.data.split(":")
+    action = parts[1]
 
-    if action in ("menu", "refresh"):
+    # Определяем страницу
+    cur_page = 1
+    if action == "page" and len(parts) > 2 and parts[2].isdigit():
+        cur_page = int(parts[2])
+    elif action in ("refresh", "collect") and len(parts) > 2 and parts[2].isdigit():
+        cur_page = int(parts[2])
+    elif action == "buy" and len(parts) > 3 and parts[3].isdigit():
+        cur_page = int(parts[3])
+
+    if action in ("menu", "refresh", "page"):
         user_biz = await db.get_user_businesses(uid)
         prof = await db.get_game_profile(uid)
-        text, kb = _render_biz_menu(uid, user_biz, prof)
+        text, kb = _render_biz_menu(uid, user_biz, prof, page=cur_page)
         try:
             await call.message.edit_text(text, reply_markup=kb)
         except Exception:
             pass
-        return await call.answer("Рынок обновлён")
+        return await call.answer(f"Страница {cur_page}/3")
 
     if action == "collect":
         user_biz = await db.get_user_businesses(uid)
@@ -797,11 +1067,11 @@ async def cb_businesses(call: CallbackQuery):
             return await call.answer("⏳ Прибыль ещё не накопилась (начисляется каждую минуту).", show_alert=True)
         await db.update_business_collect_time(uid, keys)
         await db.add_coins(uid, total, "biz_income")
-        await call.answer(f"💰 Собрано: +{total:,} 🌑!", show_alert=True)
-        # Обновляем меню
+        await call.answer(f"💰 Собрано: +{total:,} 🪙!", show_alert=True)
+        # Обновляем меню на текущей странице
         user_biz = await db.get_user_businesses(uid)
         prof = await db.get_game_profile(uid)
-        text, kb = _render_biz_menu(uid, user_biz, prof)
+        text, kb = _render_biz_menu(uid, user_biz, prof, page=cur_page)
         try:
             await call.message.edit_text(text, reply_markup=kb)
         except Exception:
@@ -809,7 +1079,7 @@ async def cb_businesses(call: CallbackQuery):
         return
 
     if action == "buy":
-        biz_key = call.data.split(":")[2]
+        biz_key = parts[2]
         info = BUSINESS_TYPES.get(biz_key)
         if not info:
             return await call.answer("Ошибка")
@@ -819,12 +1089,12 @@ async def cb_businesses(call: CallbackQuery):
         buy_p, _ = get_market_price(biz_key, is_sell=False)
         bal = await db.get_coins(uid)
         if bal < buy_p:
-            return await call.answer(f"Недостаточно монет! Нужно {buy_p:,} 🌑", show_alert=True)
+            return await call.answer(f"Недостаточно монет! Нужно {buy_p:,} 🪙", show_alert=True)
         await db.add_coins(uid, -buy_p, "biz_buy", biz_key)
         await db.change_user_business(uid, biz_key, 1)
         await call.answer(f"🎉 Куплено: {info['name']}!", show_alert=True)
         user_biz = await db.get_user_businesses(uid)
-        text, kb = _render_biz_menu(uid, user_biz, prof)
+        text, kb = _render_biz_menu(uid, user_biz, prof, page=cur_page)
         try:
             await call.message.edit_text(text, reply_markup=kb)
         except Exception:
@@ -832,8 +1102,370 @@ async def cb_businesses(call: CallbackQuery):
         return
 
 
+
+# ═══════════════ БИЗНЕС-АУКЦИОНЫ В ЧАТЕ ═══════════════
+class ChatAuction:
+    def __init__(self, chat_id: int, biz_key: str, start_bid: int, duration_sec: int = 180):
+        self.chat_id = chat_id
+        self.biz_key = biz_key
+        self.start_bid = start_bid
+        self.current_bid = start_bid
+        self.has_bids = False
+        self.highest_bidder_id: int | None = None
+        self.highest_bidder_name: str | None = None
+        self.end_ts = int(time.time()) + duration_sec
+        self.msg_id: int | None = None
+        self.thread_id: int | None = None
+        self.task: asyncio.Task | None = None
+
+
+_active_auctions: dict[int, ChatAuction] = {}
+
+
+def _render_auction_card(auc: ChatAuction) -> tuple[str, InlineKeyboardMarkup]:
+    info = BUSINESS_TYPES.get(auc.biz_key, {})
+    name = info.get("name", auc.biz_key)
+    emoji = info.get("emoji", "🏢")
+    base = info.get("base_price", 0)
+    income = info.get("income_per_min", 0)
+
+    now = int(time.time())
+    left_sec = max(0, auc.end_ts - now)
+
+    if auc.has_bids and auc.highest_bidder_id:
+        leader_str = f"👑 {mention_id(auc.highest_bidder_id, auc.highest_bidder_name or 'Игрок')} (<b>{c(auc.current_bid)}</b>)"
+    else:
+        leader_str = "<i>Пока нет ставок (стартовая цена)</i>"
+
+    step1 = max(100, int(auc.current_bid * 0.05))
+    step2 = max(500, int(auc.current_bid * 0.15))
+    step3 = max(1000, int(auc.current_bid * 0.35))
+
+    text = (
+        f"🏛 <b>БИЗНЕС-АУКЦИОН В ЧАТЕ!</b> 🔨\n"
+        f"✦ ══ • ⊰ 💎 🏢 ⚡️ 🛰 🚀 🏦 ⊱ • ══ ✦\n\n"
+        f"📦 <b>Выставленный лот:</b> {emoji} <b>{name}</b>\n"
+        f"🏷 <b>Рыночная цена:</b> <b>{c(base)}</b>\n"
+        f"💵 <b>Пассивный доход:</b> <code>+{income:,} 🪙/мин</code>\n\n"
+        f"💰 <b>Текущая ставка:</b> <b>{c(auc.current_bid)}</b>\n"
+        f"👤 <b>Лидер аукциона:</b> {leader_str}\n"
+        f"⏳ <b>До завершения торгов:</b> <b>{left_sec} сек.</b>\n\n"
+        f"💡 <i>Перебить ставку:</i> напишите <code>ставка [сумма]</code>\n"
+        f"<i>(например, <code>ставка {auc.current_bid + step1}</code>) или нажмите кнопки ниже:</i>"
+    )
+
+    rows = [
+        [
+            InlineKeyboardButton(text=f"➕ {step1:,} 🪙", callback_data=f"auc_bid:{auc.chat_id}:{step1}"),
+            InlineKeyboardButton(text=f"➕ {step2:,} 🪙", callback_data=f"auc_bid:{auc.chat_id}:{step2}"),
+            InlineKeyboardButton(text=f"➕ {step3:,} 🪙", callback_data=f"auc_bid:{auc.chat_id}:{step3}"),
+        ],
+        [
+            InlineKeyboardButton(text="🔄 Обновить статус", callback_data=f"auc_refresh:{auc.chat_id}"),
+        ]
+    ]
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def _auction_timer_task(bot: Bot, chat_id: int):
+    while True:
+        await asyncio.sleep(5)
+        auc = _active_auctions.get(chat_id)
+        if not auc:
+            break
+        now = int(time.time())
+        if now >= auc.end_ts:
+            _active_auctions.pop(chat_id, None)
+            info = BUSINESS_TYPES.get(auc.biz_key, {})
+            name = info.get("name", auc.biz_key)
+            emoji = info.get("emoji", "🏢")
+
+            if auc.has_bids and auc.highest_bidder_id:
+                await db.change_user_business(auc.highest_bidder_id, auc.biz_key, 1)
+                win_text = (
+                    f"🔨 💥 <b>АУКЦИОН ЗАВЕРШЁН! ПРОДАНО!</b> 💥 🔨\n\n"
+                    f"👑 <b>Победитель:</b> {mention_id(auc.highest_bidder_id, auc.highest_bidder_name or 'Игрок')}\n"
+                    f"🏆 <b>Выигранный лот:</b> {emoji} <b>{name}</b> за <b>{c(auc.current_bid)}</b>!\n\n"
+                    f"🎉 Предприятие перешло в вашу собственность! Прибыль начисляется каждую минуту (<code>бизнесы</code>)."
+                )
+            else:
+                win_text = (
+                    f"⌛️ <b>Аукцион завершён!</b>\n\n"
+                    f"📦 Лот {emoji} <b>{name}</b> снят с торгов, так как никто не сделал начальную ставку <b>{c(auc.start_bid)}</b>."
+                )
+
+            try:
+                await bot.send_message(chat_id, win_text, message_thread_id=auc.thread_id)
+            except Exception:
+                pass
+            break
+
+
+async def start_chat_auction(bot: Bot, chat_id: int, biz_key: str | None = None, thread_id: int | None = None) -> bool:
+    if not await casino_enabled(chat_id):
+        return False
+    if chat_id in _active_auctions:
+        return False
+
+    if not biz_key or biz_key not in BUSINESS_TYPES:
+        biz_key = random.choice(list(BUSINESS_TYPES.keys()))
+
+    info = BUSINESS_TYPES[biz_key]
+    start_bid = max(100, int(info["base_price"] * 0.40))
+
+    if thread_id is None:
+        thread_id = await get_gram_topic(chat_id)
+
+    auc = ChatAuction(chat_id=chat_id, biz_key=biz_key, start_bid=start_bid, duration_sec=180)
+    auc.thread_id = thread_id
+    _active_auctions[chat_id] = auc
+
+    text, kb = _render_auction_card(auc)
+    try:
+        msg = await bot.send_message(chat_id, text, reply_markup=kb, message_thread_id=thread_id)
+        auc.msg_id = msg.message_id
+    except Exception:
+        _active_auctions.pop(chat_id, None)
+        return False
+
+    auc.task = asyncio.create_task(_auction_timer_task(bot, chat_id))
+    return True
+
+
+async def place_auction_bid(bot: Bot, chat_id: int, user_id: int, user_name: str, bid_amount: int) -> tuple[bool, str]:
+    if not await casino_enabled(chat_id):
+        return False, "Казино и азартные игры отключены в этом чате."
+
+    auc = _active_auctions.get(chat_id)
+    if not auc:
+        return False, "В этом чате сейчас нет активного аукциона."
+
+    now = int(time.time())
+    if now >= auc.end_ts:
+        return False, "Время аукциона истекло!"
+
+    min_required = (auc.current_bid + 1) if auc.has_bids else auc.start_bid
+    if bid_amount < min_required:
+        return False, f"Ставка слишком мала! Минимальная ставка: <b>{c(min_required)}</b>."
+
+    bal = await db.get_coins(user_id)
+    if bal < bid_amount:
+        return False, f"Недостаточно монет на балансе!\nУ вас: <b>{c(bal)}</b>, а ставка: <b>{c(bid_amount)}</b>."
+
+    prev_bidder = auc.highest_bidder_id
+    prev_bid = auc.current_bid
+
+    # Списываем ставку
+    await db.add_coins(user_id, -bid_amount, "auction_bid", auc.biz_key)
+
+    # Если был предыдущий лидер и это другой игрок — возвращаем ему монеты
+    if auc.has_bids and prev_bidder:
+        await db.add_coins(prev_bidder, prev_bid, "auction_refund", auc.biz_key)
+
+    auc.current_bid = bid_amount
+    auc.has_bids = True
+    auc.highest_bidder_id = user_id
+    auc.highest_bidder_name = user_name
+
+    # Анти-снайп продление (+30 секунд если < 30 сек)
+    if auc.end_ts - now < 30:
+        auc.end_ts = now + 30
+
+    # Обновляем карточку
+    if auc.msg_id:
+        text, kb = _render_auction_card(auc)
+        try:
+            await bot.edit_message_text(text, chat_id=chat_id, message_id=auc.msg_id, reply_markup=kb)
+        except Exception:
+            pass
+
+    return True, f"✅ Ваша ставка <b>{c(bid_amount)}</b> принята! Вы новый лидер аукциона!"
+
+
+async def auction_schedule_worker(bot: Bot):
+    """Фоновый воркер: периодически проводит бизнес-аукционы в активных чатах."""
+    while True:
+        try:
+            await asyncio.sleep(60)
+            now = int(time.time())
+            chats = await db.fetchall("SELECT chat_id FROM chats WHERE silent=0")
+            for c_row in chats:
+                cid = c_row["chat_id"]
+                if not await casino_enabled(cid):
+                    continue
+                if cid in _active_auctions:
+                    continue
+
+                int_hours_str = await db.get_setting(cid, "auction_interval", "3")
+                if int_hours_str in ("0", "выкл", "off", "disable"):
+                    continue
+                try:
+                    int_hours = max(1, int(int_hours_str))
+                except Exception:
+                    int_hours = 3
+
+                interval_sec = int_hours * 3600
+                last_auc_str = await db.get_setting(cid, "last_auction_ts", "0")
+                try:
+                    last_auc = int(last_auc_str)
+                except Exception:
+                    last_auc = 0
+
+                if (now - last_auc) >= interval_sec:
+                    await db.set_setting(cid, "last_auction_ts", str(now))
+                    await start_chat_auction(bot, cid)
+        except Exception:
+            pass
+
+
+@router.message(Cmd("бизнес аукцион", "аукцион бизнесов", "бизнесаукцион", "аукцион", section=S,
+                    usage="аукцион [старт/стоп/интервал]", desc="Бизнес-аукцион предприятий в чате"))
+async def cmd_business_auction(message: Message, bot: Bot, args: str = "", **kw):
+    had_prefix = kw.get("had_prefix", False)
+    in_group = message.chat.type in {"group", "supergroup"}
+
+    if not in_group:
+        return await message.reply("🏛 Бизнес-аукционы проводятся в беседах между игроками!")
+
+    if not await casino_enabled(message.chat.id):
+        if had_prefix or (args or "").strip():
+            return await message.reply("🎰 Казино и аукционы отключены в этом чате. Включить: <code>+казино</code>")
+        return
+
+    parts = (args or "").strip().split()
+    sub = parts[0].lower() if parts else ""
+
+    from core_ranks import effective_rank
+    have_rank = await effective_rank(message, bot)
+
+    if sub in ("старт", "start", "запуск", "начать"):
+        if have_rank < 3:
+            return await message.reply("🔒 Запуск аукциона вручную доступен администраторам (3+ ранг).")
+        if message.chat.id in _active_auctions:
+            return await message.reply("⚠️ В чате уже идёт активный аукцион!")
+
+        target_biz = parts[1].lower() if len(parts) > 1 else None
+        biz_key, _ = find_business_by_alias(target_biz) if target_biz else (None, None)
+        ok = await start_chat_auction(bot, message.chat.id, biz_key, thread_id=_tid(message))
+        if not ok:
+            return await message.reply("Не удалось запустить аукцион (проверьте тему или настройки казино).")
+        return
+
+    elif sub in ("стоп", "stop", "отмена", "cancel"):
+        if have_rank < 3:
+            return await message.reply("🔒 Отмена аукциона доступна администраторам (3+ ранг).")
+        auc = _active_auctions.pop(message.chat.id, None)
+        if not auc:
+            return await message.reply("Сейчас нет активного аукциона.")
+        if auc.task:
+            auc.task.cancel()
+        if auc.has_bids and auc.highest_bidder_id:
+            await db.add_coins(auc.highest_bidder_id, auc.current_bid, "auction_cancel_refund", auc.biz_key)
+        return await message.reply(f"🛑 <b>Аукцион отменён администратором.</b>\nСтавки возвращены игрокам.")
+
+    elif sub in ("интервал", "время", "период"):
+        if have_rank < 3:
+            return await message.reply("🔒 Настройка интервала доступна администраторам (3+ ранг).")
+        val = parts[1].lower() if len(parts) > 1 else ""
+        if val in ("выкл", "off", "0", "disable"):
+            await db.set_setting(message.chat.id, "auction_interval", "0")
+            return await message.reply("🛑 Автоматические аукционы в чате отключены. Запуск только вручную: <code>аукцион старт</code>")
+        elif val.isdigit():
+            h = max(1, min(24, int(val)))
+            await db.set_setting(message.chat.id, "auction_interval", str(h))
+            return await message.reply(f"✅ Интервал авто-аукционов установлен: <b>каждые {h} ч.</b>")
+        else:
+            cur = await db.get_setting(message.chat.id, "auction_interval", "3")
+            return await message.reply(
+                f"⚙️ Текущий интервал авто-аукционов: <b>{cur} ч.</b>\n"
+                f"Изменить: <code>аукцион интервал 2</code> (каждые 2 часа) или <code>аукцион интервал выкл</code>"
+            )
+
+    auc = _active_auctions.get(message.chat.id)
+    if auc:
+        text, kb = _render_auction_card(auc)
+        return await message.reply(text, reply_markup=kb)
+    else:
+        cur_int = await db.get_setting(message.chat.id, "auction_interval", "3")
+        int_desc = f"каждые {cur_int} ч." if cur_int != "0" else "отключен (запуск вручную)"
+        return await message.reply(
+            f"🏛 <b>БИЗНЕС-АУКЦИОН ЧАТА</b> 🔨\n\n"
+            f"Сейчас на торгах нет активного лота.\n"
+            f"⏰ Автоматический запуск: <b>{int_desc}</b>\n\n"
+            f"💡 <i>Администраторы могут запустить аукцион вручную:</i>\n"
+            f"• <code>аукцион старт</code> — случайное предприятие\n"
+            f"• <code>аукцион старт шахта</code> — выставить конкретный лот\n"
+            f"• <code>аукцион интервал [часы/выкл]</code> — настройка периода\n\n"
+            f"💰 <i>Делать ставки:</i> <code>ставка [сумма]</code> во время торгов!"
+        )
+
+
+@router.message(Cmd("ставка", "бид", "перебить", section=S,
+                    usage="ставка [сумма]", desc="Сделать ставку на бизнес-аукционе"))
+async def cmd_auction_bid(message: Message, bot: Bot, args: str = "", **kw):
+    had_prefix = kw.get("had_prefix", False)
+    in_group = message.chat.type in {"group", "supergroup"}
+
+    if not in_group:
+        return await message.reply("Ставки на аукционе принимаются только в группе!")
+
+    if not await casino_enabled(message.chat.id):
+        return
+
+    auc = _active_auctions.get(message.chat.id)
+    if not auc:
+        if had_prefix:
+            return await message.reply("В чате сейчас нет активного аукциона. Запуск: <code>аукцион старт</code>")
+        return
+
+    raw = (args or "").strip()
+    if not raw:
+        return await message.reply(f"Укажите сумму ставки: <code>ставка {auc.current_bid + 5000}</code>")
+
+    bal = await db.get_coins(message.from_user.id)
+    amount = parse_amount(raw, bal, 1)
+    if not amount or amount <= 0:
+        return await message.reply(f"Укажите корректную сумму ставки: <code>ставка {auc.current_bid + 5000}</code>")
+
+    uname = message.from_user.first_name or f"Игрок {message.from_user.id}"
+    ok, err_msg = await place_auction_bid(bot, message.chat.id, message.from_user.id, uname, amount)
+    await message.reply(err_msg)
+
+
+@router.callback_query(F.data.startswith("auc_bid:"))
+async def cb_auction_bid(call: CallbackQuery, bot: Bot):
+    parts = call.data.split(":")
+    cid = int(parts[1])
+    add_amt = int(parts[2])
+
+    auc = _active_auctions.get(cid)
+    if not auc:
+        return await call.answer("Аукцион уже завершён!", show_alert=True)
+
+    uname = call.from_user.first_name or f"Игрок {call.from_user.id}"
+    new_bid = (auc.current_bid + add_amt) if auc.has_bids else max(auc.start_bid, auc.current_bid + add_amt)
+
+    ok, msg = await place_auction_bid(bot, cid, call.from_user.id, uname, new_bid)
+    await call.answer(msg.replace("<b>", "").replace("</b>", "").replace("✅ ", "").replace("❌ ", ""), show_alert=not ok)
+
+
+@router.callback_query(F.data.startswith("auc_refresh:"))
+async def cb_auction_refresh(call: CallbackQuery):
+    cid = int(call.data.split(":")[1])
+    auc = _active_auctions.get(cid)
+    if not auc:
+        return await call.answer("Аукцион завершён!", show_alert=True)
+
+    text, kb = _render_auction_card(auc)
+    try:
+        await call.message.edit_text(text, reply_markup=kb)
+    except Exception:
+        pass
+    await call.answer("Статус обновлён")
+
+
 # ═══════════════ СПИСОК ИГР ═══════════════
-GAMES_TEXT = f"""🎮 <b>ДОСТУПНЫЕ ИГРЫ НА МОНЕТЫ 🌑</b>
+GAMES_TEXT = f"""🎮 <b>ДОСТУПНЫЕ ИГРЫ НА МОНЕТЫ 🪙</b>
 
 🎰 <b>СЛОТЫ / КАЗИНО</b> — <code>казик 1000</code> / <code>слоты 1к</code>
    Крути барабан · до x10
@@ -861,6 +1493,12 @@ GAMES_TEXT = f"""🎮 <b>ДОСТУПНЫЕ ИГРЫ НА МОНЕТЫ 🌑</b>
 
 🎡 <b>РУЛЕТКА</b> — <code>рулетка красное 1000</code>
    Цвет x2 · число x14
+
+🃏 <b>БЛЭКДЖЕК / 21 ОЧКО</b> — <code>бд 1000</code> / <code>блэкджек 1к</code> / <code>21 1000</code>
+   Интерактивная игра с Мокси · Натуральный блэкджек x2.5
+
+🏇 <b>СКАЧКИ / ИППОДРОМ</b> — <code>скачки 1 1000</code> / <code>ипподром</code>
+   5 скакунов · коэффициенты до x15 · ставки для всех игроков
 
 🚀 <i>За каждую игру вы получаете опыт XP и повышаете уровень для покупки заводов и ферм!</i>"""
 
@@ -893,19 +1531,20 @@ async def cmd_coin(message: Message, args: str = "", **kw):
     is_win = flip == side
     lvl, lvl_up = await db.add_game_xp(uid, 1, is_win=is_win)
     lvl_note = f"\n🚀 <i>Игровой уровень повышен до <b>{lvl} LVL</b>!</i>" if lvl_up else ""
+    kb = make_game_replay_kb("coin", bet, uid, side)
     if is_win:
         win = bet * 2
         bal = await db.add_comets(uid, win, "gram_win_coin")
         await message.reply(
             f"🪙 Выпал <b>{flip}</b>!\n\n"
             f"🎉 <b>ПОБЕДА! +{c(bet)}</b>\n"
-            f"Баланс: <b>{c(bal)}</b>{lvl_note}")
+            f"Баланс: <b>{c(bal)}</b>{lvl_note}", reply_markup=kb)
     else:
         bal = await db.get_comets(uid)
         await message.reply(
             f"🪙 Выпал <b>{flip}</b>\n\n"
             f"💔 Проигрыш −{c(bet)}\n"
-            f"Баланс: <b>{c(bal)}</b>{lvl_note}")
+            f"Баланс: <b>{c(bal)}</b>{lvl_note}", reply_markup=kb)
 
 
 # 2. Мины
@@ -1167,6 +1806,7 @@ async def cmd_wheel(message: Message, args: str = "", **kw):
     is_win = mult > 1.0
     lvl, lvl_up = await db.add_game_xp(uid, 1, is_win=is_win)
     lvl_note = f"\n🚀 <i>Игровой уровень: <b>{lvl} LVL</b>!</i>" if lvl_up else ""
+    kb = make_game_replay_kb("wheel", bet, uid)
     if mult > 0:
         win = int(bet * mult)
         bal = await db.add_comets(uid, win, "gram_win_wheel")
@@ -1174,12 +1814,12 @@ async def cmd_wheel(message: Message, args: str = "", **kw):
         res = (f"🎉 <b>+{c(diff)}</b>" if diff > 0 else (f"🔸 Возврат" if diff == 0 else f"💔 −{c(-diff)}"))
         await msg.edit_text(
             f"🎡 Сектор: <b>{label}</b>\n\n"
-            f"{res}\nБаланс: <b>{c(bal)}</b>{lvl_note}")
+            f"{res}\nБаланс: <b>{c(bal)}</b>{lvl_note}", reply_markup=kb)
     else:
         bal = await db.get_comets(uid)
         await msg.edit_text(
             f"🎡 Сектор: <b>{label}</b>\n\n"
-            f"💔 Проигрыш −{c(bet)}\nБаланс: <b>{c(bal)}</b>{lvl_note}")
+            f"💔 Проигрыш −{c(bet)}\nБаланс: <b>{c(bal)}</b>{lvl_note}", reply_markup=kb)
 
 
 # 6. Сапёр (Дуэль на двоих)
@@ -1364,10 +2004,572 @@ async def cmd_comet_roulette(message: Message, args: str = "", **kw):
         await message.reply(f"🎡 Выпало <b>{num} {color}</b> — проигрыш −{c(bet)}\nБаланс: <b>{c(bal)}</b>{lvl_note}")
 
 
+# ═══════════════ 8. БЛЭКДЖЕК / 21 ОЧКО ПРОТИВ МОКСИ ═══════════════
+_bj_games: dict[str, dict] = {}
+
+CARD_SUITS = ["♠️", "♥️", "♦️", "♣️"]
+CARD_RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"]
+
+
+def _create_deck() -> list[tuple[str, str]]:
+    deck = [(r, s) for s in CARD_SUITS for r in CARD_RANKS]
+    random.shuffle(deck)
+    return deck
+
+
+def _calc_hand_points(hand: list[tuple[str, str]]) -> int:
+    pts = 0
+    aces = 0
+    for r, _ in hand:
+        if r in ("J", "Q", "K"):
+            pts += 10
+        elif r == "A":
+            pts += 11
+            aces += 1
+        else:
+            pts += int(r)
+    while pts > 21 and aces > 0:
+        pts -= 10
+        aces -= 1
+    return pts
+
+
+def _fmt_hand(hand: list[tuple[str, str]], hide_second: bool = False) -> str:
+    if hide_second and len(hand) >= 2:
+        return f"[ {hand[0][1]} {hand[0][0]} ] [ 🂠 ??? ] (?? очков)"
+    cards_str = " ".join(f"[ {s} {r} ]" for r, s in hand)
+    pts = _calc_hand_points(hand)
+    return f"{cards_str} (<b>{pts}</b> очков)"
+
+
+def _bj_kb(key: str, can_double: bool = False) -> InlineKeyboardMarkup:
+    row1 = [
+        InlineKeyboardButton(text="🃏 Взять карту", callback_data=f"bj:hit:{key}"),
+        InlineKeyboardButton(text="🛑 Хватит", callback_data=f"bj:stand:{key}"),
+    ]
+    if can_double:
+        row1.append(InlineKeyboardButton(text="💥 2x Удвоить", callback_data=f"bj:double:{key}"))
+    return InlineKeyboardMarkup(inline_keyboard=[row1])
+
+
+async def _finish_bj_game(call: CallbackQuery, key: str, st: dict, outcome: str):
+    _bj_games.pop(key, None)
+    uid = st["uid"]
+    bet = st["bet"]
+    chat_id = st["chat_id"]
+
+    is_win = False
+    payout = 0
+    res_title = ""
+
+    if outcome == "blackjack":
+        is_win = True
+        payout = int(bet * 2.5)  # Натуральный блэкджек x2.5
+        res_title = "🎉 💥 <b>НАТУРАЛЬНЫЙ БЛЭКДЖЕК (21)! x2.5!</b> 💥 🎉"
+    elif outcome == "win":
+        is_win = True
+        payout = bet * 2
+        res_title = "🎉 <b>ВЫ ПОБЕДИЛИ МОКСИ! +x2!</b> 🎉"
+    elif outcome == "draw":
+        is_win = False
+        payout = bet
+        res_title = "🤝 <b>НИЧЬЯ (PUSH)!</b> Ставка возвращена."
+    elif outcome == "bust":
+        is_win = False
+        payout = 0
+        res_title = "💥 <b>ПЕРЕБОР (>21)! ВЫ ПРОИГРАЛИ.</b> 💔"
+    elif outcome == "lose":
+        is_win = False
+        payout = 0
+        res_title = "💔 <b>МОКСИ ВЫИГРАЛА ЭТУ РАЗДАЧУ!</b>"
+
+    lvl, lvl_up = await db.add_game_xp(uid, 1, is_win=is_win)
+    lvl_note = f"\n🚀 <i>Игровой уровень повышен до <b>{lvl} LVL</b>!</i>" if lvl_up else ""
+
+    if payout > 0:
+        new_bal = await db.add_comets(uid, payout, "bj_payout")
+        profit = payout - bet
+        if profit >= 10_000 or outcome == "blackjack":
+            try:
+                await db.record_big_win(uid, call.from_user.first_name, chat_id, "Блэкджек 🃏", bet, payout)
+            except Exception:
+                pass
+        profit_str = f"+{c(profit)}" if profit > 0 else "0 🪙 (возврат)"
+        gain_line = f"💰 <b>Выплата:</b> <b>{profit_str}</b>\n"
+    else:
+        new_bal = await db.get_comets(uid)
+        gain_line = f"💸 <b>Потеряно:</b> <b>−{c(bet)}</b>\n"
+
+    p_hand_str = _fmt_hand(st["player"], hide_second=False)
+    d_hand_str = _fmt_hand(st["dealer"], hide_second=False)
+
+    text = (
+        f"🃏 <b>БЛЭКДЖЕК / 21 ОЧКО ПРОТИВ МОКСИ</b> 🍸\n"
+        f"✦ ══ • ⊰ ♠️ ♥️ ♦️ ♣️ ⊱ • ══ ✦\n\n"
+        f"{res_title}\n\n"
+        f"👤 <b>Ваши карты:</b>\n{p_hand_str}\n\n"
+        f"💋 <b>Карты Мокси (дилера):</b>\n{d_hand_str}\n\n"
+        f"{gain_line}"
+        f"💰 <b>Ваш баланс:</b> <b>{c(new_bal)}</b>{lvl_note}"
+    )
+
+    replay_kb = make_game_replay_kb("bj", bet, uid)
+    try:
+        await call.message.edit_text(text, reply_markup=replay_kb)
+    except Exception:
+        await call.message.reply(text, reply_markup=replay_kb)
+
+
+async def start_quick_blackjack(call: CallbackQuery, bet: int):
+    """Быстрый старт блэкджека по нажатию инлайн-кнопки реплея."""
+    uid = call.from_user.id
+    chat_id = call.message.chat.id
+    bal = await db.get_comets(uid)
+    if bal < bet:
+        return await call.answer(f"Недостаточно монет! Баланс: {c(bal)}", show_alert=True)
+
+    await db.add_comets(uid, -bet, "bj_bet")
+    if call.message.chat.type in {"group", "supergroup"}:
+        try:
+            await db.add_to_chat_jackpot(chat_id, int(bet * 0.02))
+        except Exception:
+            pass
+
+    deck = _create_deck()
+    player_hand = [deck.pop(), deck.pop()]
+    dealer_hand = [deck.pop(), deck.pop()]
+
+    key = f"{chat_id}:{uid}:{int(time.time() * 1000)}"
+    st = {
+        "bet": bet,
+        "uid": uid,
+        "chat_id": chat_id,
+        "deck": deck,
+        "player": player_hand,
+        "dealer": dealer_hand,
+        "can_double": True
+    }
+    _bj_games[key] = st
+
+    p_pts = _calc_hand_points(player_hand)
+    d_pts = _calc_hand_points(dealer_hand)
+
+    if p_pts == 21:
+        if d_pts == 21:
+            _bj_games.pop(key, None)
+            new_bal = await db.add_comets(uid, bet, "bj_refund")
+            p_hand_str = _fmt_hand(player_hand, hide_second=False)
+            d_hand_str = _fmt_hand(dealer_hand, hide_second=False)
+            text = (
+                f"🃏 <b>БЛЭКДЖЕК / 21 ОЧКО</b> 🍸\n\n"
+                f"🤝 <b>ДВОЙНОЙ БЛЭКДЖЕК! НИЧЬЯ (PUSH)!</b>\n\n"
+                f"👤 <b>Ваши карты:</b> {p_hand_str}\n"
+                f"💋 <b>Карты Мокси:</b> {d_hand_str}\n\n"
+                f"Ставка возвращена: <b>{c(bet)}</b>\nБаланс: <b>{c(new_bal)}</b>"
+            )
+            return await call.message.reply(text, reply_markup=make_game_replay_kb("bj", bet, uid))
+        else:
+            _bj_games.pop(key, None)
+            payout = int(bet * 2.5)
+            new_bal = await db.add_comets(uid, payout, "bj_natural_win")
+            try:
+                await db.record_big_win(uid, call.from_user.first_name, chat_id, "Блэкджек 🃏", bet, payout)
+            except Exception:
+                pass
+            p_hand_str = _fmt_hand(player_hand, hide_second=False)
+            d_hand_str = _fmt_hand(dealer_hand, hide_second=False)
+            text = (
+                f"🃏 💥 <b>НАТУРАЛЬНЫЙ БЛЭКДЖЕК! x2.5!</b> 💥 🍸\n\n"
+                f"👤 <b>Ваши карты:</b> {p_hand_str}\n"
+                f"💋 <b>Карты Мокси:</b> {d_hand_str}\n\n"
+                f"🎉 Выигрыш: <b>+{c(payout - bet)}</b>\nБаланс: <b>{c(new_bal)}</b>"
+            )
+            return await call.message.reply(text, reply_markup=make_game_replay_kb("bj", bet, uid))
+
+    p_hand_str = _fmt_hand(player_hand, hide_second=False)
+    d_hand_str = _fmt_hand(dealer_hand, hide_second=True)
+
+    text = (
+        f"🃏 <b>БЛЭКДЖЕК / 21 ОЧКО ПРОТИВ МОКСИ</b> 🍸\n"
+        f"✦ ══ • ⊰ ♠️ ♥️ ♦️ ♣️ ⊱ • ══ ✦\n\n"
+        f"👤 <b>Ваши карты:</b>\n{p_hand_str}\n\n"
+        f"💋 <b>Карты Мокси (дилера):</b>\n{d_hand_str}\n\n"
+        f"💰 Ставка: <b>{c(bet)}</b>\n"
+        f"👉 <i>Сделайте ход с помощью кнопок:</i>"
+    )
+    can_double = (await db.get_comets(uid)) >= bet
+    await call.message.reply(text, reply_markup=_bj_kb(key, can_double=can_double))
+
+
+@router.message(Cmd("блэкджек", "блекджек", "бд", "21", "очко", "blackjack", "bj", section=S,
+                    usage="бд {ставка}", desc="Карточный блэкджек (21 очко) против Мокси · Натуральный x2.5"))
+async def cmd_blackjack(message: Message, args: str = "", **kw):
+    bet = await take_bet(message, args, **kw)
+    if bet is None:
+        return
+    uid = message.from_user.id
+    chat_id = message.chat.id
+
+    # Списываем ставку
+    await db.add_comets(uid, -bet, "bj_bet")
+
+    # 2% в джекпот чата
+    if message.chat.type in {"group", "supergroup"}:
+        try:
+            await db.add_to_chat_jackpot(chat_id, int(bet * 0.02))
+        except Exception:
+            pass
+
+    deck = _create_deck()
+    player_hand = [deck.pop(), deck.pop()]
+    dealer_hand = [deck.pop(), deck.pop()]
+
+    key = f"{chat_id}:{uid}:{int(time.time() * 1000)}"
+    st = {
+        "bet": bet,
+        "uid": uid,
+        "chat_id": chat_id,
+        "deck": deck,
+        "player": player_hand,
+        "dealer": dealer_hand,
+        "can_double": True
+    }
+    _bj_games[key] = st
+
+    p_pts = _calc_hand_points(player_hand)
+    d_pts = _calc_hand_points(dealer_hand)
+
+    if p_pts == 21:
+        if d_pts == 21:
+            _bj_games.pop(key, None)
+            new_bal = await db.add_comets(uid, bet, "bj_refund")
+            p_hand_str = _fmt_hand(player_hand, hide_second=False)
+            d_hand_str = _fmt_hand(dealer_hand, hide_second=False)
+            text = (
+                f"🃏 <b>БЛЭКДЖЕК / 21 ОЧКО</b> 🍸\n\n"
+                f"🤝 <b>ДВОЙНОЙ БЛЭКДЖЕК! НИЧЬЯ (PUSH)!</b>\n\n"
+                f"👤 <b>Ваши карты:</b> {p_hand_str}\n"
+                f"💋 <b>Карты Мокси:</b> {d_hand_str}\n\n"
+                f"Ставка возвращена: <b>{c(bet)}</b>\nБаланс: <b>{c(new_bal)}</b>"
+            )
+            return await message.reply(text, reply_markup=make_game_replay_kb("bj", bet, uid))
+        else:
+            _bj_games.pop(key, None)
+            payout = int(bet * 2.5)
+            new_bal = await db.add_comets(uid, payout, "bj_natural_win")
+            try:
+                await db.record_big_win(uid, message.from_user.first_name, chat_id, "Блэкджек 🃏", bet, payout)
+            except Exception:
+                pass
+            p_hand_str = _fmt_hand(player_hand, hide_second=False)
+            d_hand_str = _fmt_hand(dealer_hand, hide_second=False)
+            text = (
+                f"🃏 💥 <b>НАТУРАЛЬНЫЙ БЛЭКДЖЕК! x2.5!</b> 💥 🍸\n\n"
+                f"👤 <b>Ваши карты:</b> {p_hand_str}\n"
+                f"💋 <b>Карты Мокси:</b> {d_hand_str}\n\n"
+                f"🎉 Выигрыш: <b>+{c(payout - bet)}</b>\nБаланс: <b>{c(new_bal)}</b>"
+            )
+            return await message.reply(text, reply_markup=make_game_replay_kb("bj", bet, uid))
+
+    p_hand_str = _fmt_hand(player_hand, hide_second=False)
+    d_hand_str = _fmt_hand(dealer_hand, hide_second=True)
+
+    text = (
+        f"🃏 <b>БЛЭКДЖЕК / 21 ОЧКО ПРОТИВ МОКСИ</b> 🍸\n"
+        f"✦ ══ • ⊰ ♠️ ♥️ ♦️ ♣️ ⊱ • ══ ✦\n\n"
+        f"👤 <b>Ваши карты:</b>\n{p_hand_str}\n\n"
+        f"💋 <b>Карты Мокси (дилера):</b>\n{d_hand_str}\n\n"
+        f"💰 Ставка: <b>{c(bet)}</b>\n"
+        f"👉 <i>Сделайте ход с помощью кнопок:</i>"
+    )
+    can_double = (await db.get_comets(uid)) >= bet
+    await message.reply(text, reply_markup=_bj_kb(key, can_double=can_double))
+
+
+@router.callback_query(F.data.startswith("bj:"))
+async def cb_bj_action(call: CallbackQuery):
+    parts = call.data.split(":")
+    act = parts[1]
+    key = f"{parts[2]}:{parts[3]}:{parts[4]}"
+    st = _bj_games.get(key)
+    if not st:
+        return await call.answer("Эта партия уже завершена или устарела.", show_alert=True)
+
+    if call.from_user.id != st["uid"]:
+        return await call.answer("Это не ваша партия! Напишите бд [ставка] для своей игры 😉", show_alert=True)
+
+    if act == "hit":
+        st["can_double"] = False
+        st["player"].append(st["deck"].pop())
+        pts = _calc_hand_points(st["player"])
+
+        if pts > 21:
+            await call.answer("Перебор!")
+            return await _finish_bj_game(call, key, st, "bust")
+        elif pts == 21:
+            await call.answer("21 очко!")
+            while _calc_hand_points(st["dealer"]) < 17:
+                st["dealer"].append(st["deck"].pop())
+            d_pts = _calc_hand_points(st["dealer"])
+            if d_pts > 21 or 21 > d_pts:
+                return await _finish_bj_game(call, key, st, "win")
+            elif d_pts == 21:
+                return await _finish_bj_game(call, key, st, "draw")
+            else:
+                return await _finish_bj_game(call, key, st, "lose")
+
+        p_hand_str = _fmt_hand(st["player"], hide_second=False)
+        d_hand_str = _fmt_hand(st["dealer"], hide_second=True)
+        text = (
+            f"🃏 <b>БЛЭКДЖЕК / 21 ОЧКО ПРОТИВ МОКСИ</b> 🍸\n"
+            f"✦ ══ • ⊰ ♠️ ♥️ ♦️ ♣️ ⊱ • ══ ✦\n\n"
+            f"👤 <b>Ваши карты:</b>\n{p_hand_str}\n\n"
+            f"💋 <b>Карты Мокси (дилера):</b>\n{d_hand_str}\n\n"
+            f"💰 Ставка: <b>{c(st['bet'])}</b>\n"
+            f"👉 <i>Сделайте ход:</i>"
+        )
+        await call.answer(f"Счёт: {pts}")
+        try:
+            await call.message.edit_text(text, reply_markup=_bj_kb(key, can_double=False))
+        except Exception:
+            pass
+        return
+
+    elif act == "double":
+        bal = await db.get_comets(st["uid"])
+        if bal < st["bet"]:
+            return await call.answer("Недостаточно монет для удвоения ставки!", show_alert=True)
+        await db.add_comets(st["uid"], -st["bet"], "bj_double_bet")
+        st["bet"] *= 2
+        st["player"].append(st["deck"].pop())
+        pts = _calc_hand_points(st["player"])
+
+        if pts > 21:
+            await call.answer("Перебор!")
+            return await _finish_bj_game(call, key, st, "bust")
+
+        while _calc_hand_points(st["dealer"]) < 17:
+            st["dealer"].append(st["deck"].pop())
+        d_pts = _calc_hand_points(st["dealer"])
+
+        if d_pts > 21 or pts > d_pts:
+            return await _finish_bj_game(call, key, st, "win")
+        elif pts == d_pts:
+            return await _finish_bj_game(call, key, st, "draw")
+        else:
+            return await _finish_bj_game(call, key, st, "lose")
+
+    elif act == "stand":
+        await call.answer("Ход дилера...")
+        pts = _calc_hand_points(st["player"])
+
+        while _calc_hand_points(st["dealer"]) < 17:
+            st["dealer"].append(st["deck"].pop())
+        d_pts = _calc_hand_points(st["dealer"])
+
+        if d_pts > 21:
+            return await _finish_bj_game(call, key, st, "win")
+        elif pts > d_pts:
+            return await _finish_bj_game(call, key, st, "win")
+        elif pts == d_pts:
+            return await _finish_bj_game(call, key, st, "draw")
+        else:
+            return await _finish_bj_game(call, key, st, "lose")
+
+
+# ═══════════════ СКАЧКИ НА ИППОДРОМЕ ═══════════════
+HORSES = [
+    {"id": 1, "name": "⚡ Молния", "odds": 2.2, "weight": 42, "desc": "Фаворит трека", "icon": "⚡"},
+    {"id": 2, "name": "🛡 Буцефал", "odds": 3.5, "weight": 26, "desc": "Могучий тяжеловес", "icon": "🛡"},
+    {"id": 3, "name": "🪽 Пегас", "odds": 5.0, "weight": 18, "desc": "Стремительный скакун", "icon": "🪽"},
+    {"id": 4, "name": "🌪 Торнадо", "odds": 8.0, "weight": 10, "desc": "Буйный мустанг", "icon": "🌪"},
+    {"id": 5, "name": "💨 Ветерок", "odds": 15.0, "weight": 4, "desc": "Дерзкий аутсайдер", "icon": "💨"},
+]
+
+
+def _horse_menu_kb(bet: int = 1000) -> InlineKeyboardMarkup:
+    rows = []
+    rows.append([
+        InlineKeyboardButton(text="1️⃣ ⚡ Молния (x2.2)", callback_data=f"horse_pick:1:{bet}"),
+        InlineKeyboardButton(text="2️⃣ 🛡 Буцефал (x3.5)", callback_data=f"horse_pick:2:{bet}"),
+    ])
+    rows.append([
+        InlineKeyboardButton(text="3️⃣ 🪽 Пегас (x5.0)", callback_data=f"horse_pick:3:{bet}"),
+        InlineKeyboardButton(text="4️⃣ 🌪 Торнадо (x8.0)", callback_data=f"horse_pick:4:{bet}"),
+    ])
+    rows.append([
+        InlineKeyboardButton(text="5️⃣ 💨 Ветерок (x15.0 - ДЖЕКПОТ!)", callback_data=f"horse_pick:5:{bet}"),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def _run_race_animation(msg: Message, user_name: str, chosen_h: dict, bet: int, uid: int, chat_id: int):
+    # Кадр 1: Старт
+    f1 = (
+        f"🏇 <b>БОЛЬШИЕ СКАЧКИ НА ИППОДРОМЕ МОКСИ!</b> 🏇\n"
+        f"✦ ══ • ⊰ ⚡ 🛡 🪽 🌪 💨 ⊱ • ══ ✦\n"
+        f"👤 Жокей: <b>{html.escape(user_name)}</b>\n"
+        f"🎯 Ставка: <b>{c(bet)}</b> на <b>{chosen_h['name']} (x{chosen_h['odds']})</b>\n\n"
+        f"🚦 <i>Ворота распахнуты! Скакуны рванули вперед!</i>\n\n"
+        f"1. ⚡ Молния:    🟩🟩🟩🏇─────────────\n"
+        f"2. 🛡 Буцефал:   🟩🟩🏇───────────────\n"
+        f"3. 🪽 Пегас:     🟩🟩🟩🟩🏇───────────\n"
+        f"4. 🌪 Торнадо:   🟩🟩🏇───────────────\n"
+        f"5. 💨 Ветерок:   🟩🏇─────────────────\n"
+    )
+    try:
+        await msg.edit_text(f1)
+    except Exception:
+        pass
+
+    await asyncio.sleep(1.2)
+
+    # Кадр 2: Борьба на вираже
+    f2 = (
+        f"🏇 <b>ФИНИШНАЯ ПРЯМАЯ!</b> 🔥\n"
+        f"✦ ══ • ⊰ ⚡ 🛡 🪽 🌪 💨 ⊱ • ══ ✦\n"
+        f"👤 Жокей: <b>{html.escape(user_name)}</b>\n"
+        f"🎯 Ставка: <b>{c(bet)}</b> на <b>{chosen_h['name']} (x{chosen_h['odds']})</b>\n\n"
+        f"🔥 <i>Трибуны ревут! Кони идут ноздря в ноздрю!</i>\n\n"
+        f"1. ⚡ Молния:    🟩🟩🟩🟩🟩🟩🟩🏇─────\n"
+        f"2. 🛡 Буцефал:   🟩🟩🟩🟩🟩🟩🏇───────\n"
+        f"3. 🪽 Пегас:     🟩🟩🟩🟩🟩🟩🟩🟩🏇───\n"
+        f"4. 🌪 Торнадо:   🟩🟩🟩🟩🟩🏇─────────\n"
+        f"5. 💨 Ветерок:   🟩🟩🟩🟩🟩🟩🟩🟩🟩🏇─\n"
+    )
+    try:
+        await msg.edit_text(f2)
+    except Exception:
+        pass
+
+    await asyncio.sleep(1.2)
+
+    # Определение победителя по весам
+    weights = [h["weight"] for h in HORSES]
+    winner = random.choices(HORSES, weights=weights, k=1)[0]
+    is_win = (winner["id"] == chosen_h["id"])
+
+    lvl, lvl_up = await db.add_game_xp(uid, 1, is_win=is_win)
+    lvl_tag = f"\n🚀 <i>Игровой уровень повышен до <b>{lvl} LVL</b>!</i>" if lvl_up else ""
+
+    kb = make_game_replay_kb("race", bet, uid, str(chosen_h["id"]))
+
+    if is_win:
+        win_amt = int(bet * winner["odds"])
+        profit = win_amt - bet
+        new_bal = await db.add_comets(uid, win_amt, "horse_win")
+        if profit >= 5000:
+            await record_big_win(chat_id, uid, user_name, f"🏇 Скачки ({winner['name']})", profit)
+
+        f3 = (
+            f"🏆 <b>ФИНИШ! ПОБЕДИТЕЛЬ: {winner['name']} (x{winner['odds']})!</b> 🏆\n"
+            f"✦ ══ • ⊰ 🥇 🏇 ✨ ⊱ • ══ ✦\n\n"
+            f"🎉 <b>ПОБЕДА! Ваш скакун пересёк черту первым!</b>\n"
+            f"💰 Выигрыш: <b>+{c(win_amt)}</b> <i>(чистая прибыль: +{c(profit)})</i>\n"
+            f"🪙 Ваш баланс: <b>{c(new_bal)}</b>{lvl_tag}"
+        )
+    else:
+        bal = await db.get_comets(uid)
+        f3 = (
+            f"🏆 <b>ФИНИШ! ПОБЕДИТЕЛЬ: {winner['name']} (x{winner['odds']})!</b> 🏆\n"
+            f"✦ ══ • ⊰ 🏁 🏇 🥀 ⊱ • ══ ✦\n\n"
+            f"💔 <b>Увы, {chosen_h['name']} не пришёл первым...</b>\n"
+            f"Потери: <b>−{c(bet)}</b>\n"
+            f"🪙 Ваш баланс: <b>{c(bal)}</b>{lvl_tag}"
+        )
+
+    try:
+        await msg.edit_text(f3, reply_markup=kb)
+    except Exception:
+        await msg.reply(f3, reply_markup=kb)
+
+
+@router.message(Cmd("скачки", "ипподром", "лошади", "заезд", "кони", section=S,
+                    usage="скачки {номер} {ставка}", desc="Скачки на ипподроме (до x15)"))
+async def cmd_horse_race(message: Message, args: str = "", **kw):
+    if not await topic_ok(message):
+        return
+    uid = message.from_user.id
+    await _ensure_start(uid)
+
+    parts = (args or "").strip().split()
+    if not parts or not parts[0].isdigit() or int(parts[0]) not in {1, 2, 3, 4, 5}:
+        text = (
+            f"🏇 <b>БОЛЬШИЕ СКАЧКИ НА ИППОДРОМЕ МОКСИ!</b> 🏇\n"
+            f"✦ ══ • ⊰ 🏆 🏇 ⚡ 🛡 🪽 🌪 💨 ⊱ • ══ ✦\n\n"
+            f"Добро пожаловать на главную арену королевских скачек!\n"
+            f"Выберите своего скакуна и сорвите огромный куш:\n\n"
+            f"1️⃣ ⚡ <b>Молния</b> — кэф <code>x2.20</code> (Фаворит, шанс 42%)\n"
+            f"2️⃣ 🛡 <b>Буцефал</b> — кэф <code>x3.50</code> (Могучий скакун, шанс 26%)\n"
+            f"3️⃣ 🪽 <b>Пегас</b> — кэф <code>x5.00</code> (Стремительный, шанс 18%)\n"
+            f"4️⃣ 🌪 <b>Торнадо</b> — кэф <code>x8.00</code> (Буйный мустанг, шанс 10%)\n"
+            f"5️⃣ 💨 <b>Ветерок</b> — кэф <code>x15.00</code> (Дерзкий аутсайдер, шанс 4%!)\n\n"
+            f"💡 <i>Сделайте ставку командой:</i> <code>скачки 1 1000</code>\n"
+            f"<i>или выберите скакуна со ставкой 1 000 🪙 кнопкой:</i>"
+        )
+        return await message.reply(text, reply_markup=_horse_menu_kb(1000))
+
+    horse_id = int(parts[0])
+    chosen_h = next(h for h in HORSES if h["id"] == horse_id)
+    bet_raw = " ".join(parts[1:]) if len(parts) > 1 else "1000"
+
+    bet = await take_bet(message, bet_raw, **kw)
+    if bet is None:
+        return
+
+    await db.add_comets(uid, -bet, "horse_bet")
+    init_msg = await message.reply(
+        f"🏇 <b>Ставка принята!</b>\n"
+        f"Вы поставили <b>{c(bet)}</b> на <b>{chosen_h['name']}</b>!\n"
+        f"Подготовка к старту..."
+    )
+    await _run_race_animation(init_msg, message.from_user.first_name, chosen_h, bet, uid, message.chat.id)
+
+
+@router.callback_query(F.data.startswith("horse_pick:"))
+async def cb_horse_pick(call: CallbackQuery):
+    parts = call.data.split(":")
+    horse_id = int(parts[1])
+    bet = int(parts[2])
+    uid = call.from_user.id
+
+    if not await topic_ok(call.message):
+        return await call.answer("Казино отключено в этом чате или теме.", show_alert=True)
+
+    bal = await db.get_comets(uid)
+    if bal < bet:
+        return await call.answer(f"Недостаточно монет! Нужно {c(bet)}, у вас: {c(bal)}", show_alert=True)
+
+    chosen_h = next((h for h in HORSES if h["id"] == horse_id), HORSES[0])
+    await db.add_comets(uid, -bet, "horse_bet")
+    await call.answer(f"Ставка {c(bet)} на {chosen_h['name']}!")
+
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    await _run_race_animation(call.message, call.from_user.first_name, chosen_h, bet, uid, call.message.chat.id)
+
+
+async def start_quick_race(call: CallbackQuery, bet: int, horse_idx: int):
+    uid = call.from_user.id
+    bal = await db.get_comets(uid)
+    if bal < bet:
+        return await call.answer(f"Недостаточно монет! Нужно {c(bet)}, у вас: {c(bal)}", show_alert=True)
+
+    chosen_h = next((h for h in HORSES if h["id"] == horse_idx), HORSES[0])
+    await db.add_comets(uid, -bet, "horse_bet")
+    await call.answer(f"🏇 Скачки на {chosen_h['name']}!")
+
+    msg = await call.message.reply(f"🏇 Новый заезд! Ставка <b>{c(bet)}</b> на <b>{chosen_h['name']}</b>...")
+    await _run_race_animation(msg, call.from_user.first_name, chosen_h, bet, uid, call.message.chat.id)
+
+
 # ═══════════════ АДМИНСКИЕ КОМАНДЫ ДЛЯ ВАЛЮТЫ ═══════════════
 @router.message(Cmd("монеты выдать", "выдать монеты", "начислить монеты", "coin give", "coins give", "выдать коины", "выдать граммы", "выдать кометы", "дать монеты", "дать коины", "кометы выдать", "выдать", "начислить", "p give", section=S, rank=6,
                     usage="выдать {ссылка} {сумма}",
-                    desc="Начислить валюту 🌑 (техадмин / 6+ ранг)"))
+                    desc="Начислить валюту 🪙 (техадмин / 6+ ранг)"))
 async def cmd_give_admin(message: Message, bot: Bot, args: str = "", **kw):
     from core_ranks import require
     if not await require(message, bot, 6):
@@ -1405,7 +2607,7 @@ async def cmd_set_admin(message: Message, bot: Bot, args: str = "", **kw):
 
 @router.message(Cmd("монеты снять", "снять монеты", "забрать монеты", "снять коины", "забрать коины", "кометы снять", "снять", "забрать", section=S, rank=6,
                     usage="снять {ссылка} {сумма}",
-                    desc="Снять валюту 🌑 (техадмин / 6+ ранг)"))
+                    desc="Снять валюту 🪙 (техадмин / 6+ ранг)"))
 async def cmd_take_admin(message: Message, bot: Bot, args: str = "", **kw):
     from core_ranks import require
     if not await require(message, bot, 6):
@@ -1459,7 +2661,7 @@ async def cmd_gram_topic(message: Message, bot: Bot, args: str = "", **kw):
         cur = await get_gram_topic(message.chat.id)
         cur_txt = (f"Сейчас: {_tlink(message.chat.id, cur)}" if cur else "Сейчас: не задана")
         return await message.reply(
-            f"🌑 <b>Тема для игр и валюты</b>\n\n{cur_txt}\n\n"
+            f"🪙 <b>Тема для игр и валюты</b>\n\n{cur_txt}\n\n"
             f"Установить — напишите команду <b>в нужной теме</b>:\n"
             f"<code>тема игр</code>\n\n"
             f"Или ссылкой:\n<code>тема игр https://t.me/c/123456/789</code>\n\n"
@@ -1468,7 +2670,7 @@ async def cmd_gram_topic(message: Message, bot: Bot, args: str = "", **kw):
 
     await db.set_setting(message.chat.id, "gram_topic", str(tid))
     await message.reply(
-        f"✅ <b>Тема для игр и валюты установлена</b>\n\n🌑 {_tlink(message.chat.id, tid)}\n\n"
+        f"✅ <b>Тема для игр и валюты установлена</b>\n\n🪙 {_tlink(message.chat.id, tid)}\n\n"
         f"Все игры и команды валюты теперь работают <b>только там</b>.",
         disable_web_page_preview=True)
 
@@ -1486,7 +2688,7 @@ async def cmd_exchange(message: Message, **kw):
     await message.reply(
         f"ℹ️ В боте действует <b>единая валюта {COIN}</b>!\n\n"
         f"💰 Ваш баланс: <b>{c(bal)}</b>\n\n"
-        f"Обмен не требуется — все игры, предприятия, переводы и покупки работают напрямую с вашим единым балансом 🌑.\n\n"
+        f"Обмен не требуется — все игры, предприятия, переводы и покупки работают напрямую с вашим единым балансом 🪙.\n\n"
         f"💡 <i>Открыть рынок: <code>бизнесы</code> · Игры: <code>игры</code> · Баланс: <code>б</code></i>")
 
 

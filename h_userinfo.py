@@ -315,11 +315,13 @@ async def render_card(message: Message, bot: Bot, uid: int, name: str | None) ->
         other_id = rel["user2_id"] if rel["user1_id"] == uid else rel["user1_id"]
         other_u = await db.get_user(other_id)
         partner_name = other_u["first_name"] or str(other_id)
-        family_str = f"💍 В отношениях с {mention_id(other_id, partner_name)} (Ур. {rel['level']})"
+        days = max(1, int((time.time() - rel["created_at"]) // 86400))
+        family_str = f"💍 В браке с: {mention_id(other_id, partner_name)} (уже {days} дн. ❤️, уровень любви: {rel['level']})"
     elif u["married_to"]:
         partner = await db.get_user(u["married_to"])
         pname = partner["first_name"] or str(u["married_to"])
-        family_str = f"💍 В браке с {mention_id(u['married_to'], pname)}"
+        m_days = max(1, int((time.time() - (u["married_at"] or u["created_at"] or time.time())) // 86400))
+        family_str = f"💍 В браке с: {mention_id(u['married_to'], pname)} (уже {m_days} дн. ❤️)"
     else:
         family_str = "Холост(а)"
 

@@ -1,6 +1,7 @@
 """🛡️ Магазин предметов, Боевое снаряжение, Кейсы, Инвентарь и Щиты от наказаний."""
 from __future__ import annotations
 
+import asyncio
 import html
 import random
 import time
@@ -433,3 +434,353 @@ async def consume_medkit(user_id: int) -> bool:
             await db.execute("DELETE FROM user_inventory WHERE user_id=? AND item_id='item_medkit'", (user_id,))
         return True
     return False
+
+
+# ═══════════════ АВТОСАЛОН, ГАРАЖ И УЛИЧНЫЕ ГОНКИ ═══════════════
+CARS = {
+    "vaz2107": {
+        "id": "vaz2107",
+        "name": "🚙 ВАЗ 2107 «Боевая классика»",
+        "price": 25_000,
+        "hp": 75,
+        "speed": 150,
+        "win_rate": 0.45,
+        "desc": "Легендарный заднеприводный жигуль для дрифта вокруг столбов."
+    },
+    "camry": {
+        "id": "camry",
+        "name": "🚗 Toyota Camry 3.5 «Держать руль»",
+        "price": 120_000,
+        "hp": 249,
+        "speed": 220,
+        "win_rate": 0.52,
+        "desc": "Уважаемый японский седан для уверенных обгонов по шашкам."
+    },
+    "m5": {
+        "id": "m5",
+        "name": "🏎 BMW M5 CS «Гроза автобанов»",
+        "price": 650_000,
+        "hp": 635,
+        "speed": 305,
+        "win_rate": 0.60,
+        "desc": "Битурбо V8 зверь с лаунч-контролем и выхлопом с отстрелами."
+    },
+    "porsche": {
+        "id": "porsche",
+        "name": "🏁 Porsche 911 Turbo S",
+        "price": 2_500_000,
+        "hp": 650,
+        "speed": 330,
+        "win_rate": 0.68,
+        "desc": "Немецкая инженерная магия: 2.7 секунды до первой сотни."
+    },
+    "ferrari": {
+        "id": "ferrari",
+        "name": "🔥 Ferrari SF90 Stradale",
+        "price": 9_000_000,
+        "hp": 1000,
+        "speed": 340,
+        "win_rate": 0.75,
+        "desc": "Итальянский гибридный монстр мощностью 1000 лошадиных сил."
+    },
+    "chiron": {
+        "id": "chiron",
+        "name": "⚡ Bugatti Chiron Super Sport",
+        "price": 35_000_000,
+        "hp": 1600,
+        "speed": 440,
+        "win_rate": 0.83,
+        "desc": "W16 квадро-турбо. Разрывает законы физики на максимальной скорости."
+    },
+    "rolls": {
+        "id": "rolls",
+        "name": "👑 Золотой Rolls-Royce Mansory",
+        "price": 120_000_000,
+        "hp": 600,
+        "speed": 250,
+        "win_rate": 0.72,
+        "desc": "Сверхроскошный дворец на колёсах с золотым напылением и звёздным небом."
+    },
+    "cybercar": {
+        "id": "cybercar",
+        "name": "🚀 Гиперкар Moxxi Void-Speeder",
+        "price": 500_000_000,
+        "hp": 5000,
+        "speed": 1000,
+        "win_rate": 0.92,
+        "desc": "Космический антигравитационный болид с плазменным ускорителем."
+    },
+}
+
+
+def _car_showroom_kb() -> InlineKeyboardMarkup:
+    rows = []
+    for k, car in CARS.items():
+        rows.append([InlineKeyboardButton(text=f"{car['name']} ({car['price']:,} 🪙)", callback_data=f"car_buy:{k}")])
+    rows.append([InlineKeyboardButton(text="🚪 В гараж", callback_data="car_to_garage")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@router.message(Cmd("автосалон", "машины", "салон авто", "купить авто", "купить машину",
+                    section=S, usage="автосалон", desc="Автосалон суперкаров и автомобилей"))
+async def cmd_car_showroom(message: Message, bot: Bot, args: str = "", **kw):
+    lines = [
+        "🏎 ✨ <b>ЭЛИТНЫЙ АВТОСАЛОН МОКСИ</b> ✨ 🏁\n",
+        "Покупайте автомобили, собирайте гараж мечты и побеждайте в уличных гонках!\n",
+        "━━━━━━━━━━━━━━━━━━━━",
+        "📊 <b>Каталог автомобилей в наличии:</b>\n"
+    ]
+    for k, car in CARS.items():
+        lines.append(
+            f"{car['name']}\n"
+            f"   💰 Цена: <b>{car['price']:,} 🪙</b> · 🐎 Мощность: <b>{car['hp']} л.с.</b>\n"
+            f"   ⚡️ Скорость: <b>до {car['speed']} км/ч</b> · Шанс в гонках: <b>{int(car['win_rate']*100)}%</b>\n"
+            f"   <i>{car['desc']}</i>\n"
+        )
+    lines.append("💡 <i>Купить машину можно кнопкой ниже или командой: <code>купить авто [название]</code></i>\n"
+                 "🚪 <i>Ваш личный транспорт: <code>гараж</code></i>")
+
+    await message.reply("\n".join(lines), reply_markup=_car_showroom_kb())
+
+
+@router.callback_query(F.data.startswith("car_buy:"))
+async def cb_car_buy(call: CallbackQuery):
+    car_key = call.data.split(":")[1]
+    car = CARS.get(car_key)
+    if not car:
+        return await call.answer("Автомобиль не найден.", show_alert=True)
+
+    uid = call.from_user.id
+    bal = await db.get_balance(uid)
+    if bal < car["price"]:
+        return await call.answer(f"Недостаточно монет! Нужно {car['price']:,} 🪙, у вас {bal:,} 🪙.", show_alert=True)
+
+    user_cars = await db.get_user_cars(uid)
+    if any(c["car_key"] == car_key for c in user_cars):
+        return await call.answer("Этот автомобиль уже есть в вашем гараже!", show_alert=True)
+
+    await db.add_balance(uid, -car["price"], "buy_car", car_key)
+    await db.add_user_car(uid, car_key)
+
+    res = (
+        f"🎉 🍾 <b>ПОЗДРАВЛЯЕМ С ПРИОБРЕТЕНИЕМ АВТОМОБИЛЯ!</b> 🍾 🎉\n"
+        f"✦ ══ • ⊰ 🏎 🔑 ✨ ⊱ • ══ ✦\n\n"
+        f"👤 Владелец: {mention(call.from_user)}\n"
+        f"🚘 Приобретено: <b>{car['name']}</b>\n"
+        f"🐎 Мощность: <b>{car['hp']} л.с.</b> · Скорость: <b>{car['speed']} км/ч</b>\n"
+        f"💰 Списано: <b>{car['price']:,} 🪙</b>\n\n"
+        f"🔑 Автомобиль доставлен в ваш <code>гараж</code> и установлен как активный!\n"
+        f"🏁 Проверьте его в деле на уличных гонках: <code>гонка 1000</code>!"
+    )
+    try:
+        await call.message.edit_text(res)
+    except Exception:
+        await call.message.reply(res)
+    await call.answer(f"Поздравляем с покупкой {car['name']}!")
+
+
+@router.message(Cmd("гараж", "мои авто", "мои машины", "автопарк", section=S,
+                    usage="гараж", desc="Личный гараж и автопарк"))
+async def cmd_garage(message: Message, bot: Bot, **kw):
+    uid = message.from_user.id
+    user_cars = await db.get_user_cars(uid)
+
+    if not user_cars:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🏎 Посетить Автосалон", callback_data="car_to_showroom")
+        ]])
+        return await message.reply(
+            "🚪 <b>ВАШ ГАРАЖ ПУСТ!</b> 🕸\n\n"
+            "У вас пока нет купленных автомобилей.\n"
+            "Загляните в <code>автосалон</code> и приобретите свой первый транспорт!",
+            reply_markup=kb
+        )
+
+    lines = [
+        "🚪 🏎 <b>ВАШ ЛИЧНЫЙ ГАРАЖ</b> 🏁 🚪\n",
+        f"👤 Владелец: {mention(message.from_user)}\n",
+        "━━━━━━━━━━━━━━━━━━━━",
+    ]
+    rows = []
+    for c_entry in user_cars:
+        car = CARS.get(c_entry["car_key"])
+        if not car:
+            continue
+        status = "⭐️ <b>[АКТИВНОЕ АВТО]</b>" if c_entry["is_active"] else "💤 В гараже"
+        lines.append(
+            f"{car['name']} — {status}\n"
+            f"   🐎 {car['hp']} л.с. · ⚡️ до {car['speed']} км/ч · Шанс победы: {int(car['win_rate']*100)}%\n"
+        )
+        if not c_entry["is_active"]:
+            rows.append([InlineKeyboardButton(text=f"🔑 Выбрать {car['name']}", callback_data=f"car_equip:{c_entry['id']}")])
+
+    rows.append([InlineKeyboardButton(text="🏎 Посетить Автосалон", callback_data="car_to_showroom")])
+    lines.append("💡 <i>Активный автомобиль используется в заездах: <code>гонка 1000</code>!</i>")
+
+    await message.reply("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+
+
+@router.callback_query(F.data == "car_to_showroom")
+async def cb_car_to_showroom(call: CallbackQuery):
+    await call.answer()
+    lines = [
+        "🏎 ✨ <b>ЭЛИТНЫЙ АВТОСАЛОН МОКСИ</b> ✨ 🏁\n",
+        "Покупайте автомобили, собирайте гараж мечты и побеждайте в уличных гонках!\n",
+        "━━━━━━━━━━━━━━━━━━━━",
+        "📊 <b>Каталог автомобилей:</b>\n"
+    ]
+    for k, car in CARS.items():
+        lines.append(f"{car['name']} — <b>{car['price']:,} 🪙</b> (🐎 {car['hp']} л.с.)\n")
+    try:
+        await call.message.edit_text("\n".join(lines), reply_markup=_car_showroom_kb())
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data == "car_to_garage")
+async def cb_car_to_garage(call: CallbackQuery):
+    await call.answer()
+    uid = call.from_user.id
+    user_cars = await db.get_user_cars(uid)
+    if not user_cars:
+        return await call.answer("Ваш гараж пуст!", show_alert=True)
+
+    lines = ["🚪 🏎 <b>ВАШ ЛИЧНЫЙ ГАРАЖ</b> 🏁 🚪\n"]
+    rows = []
+    for c_entry in user_cars:
+        car = CARS.get(c_entry["car_key"])
+        if not car:
+            continue
+        status = "⭐️ [АКТИВНО]" if c_entry["is_active"] else "💤 В гараже"
+        lines.append(f"{car['name']} — {status} (🐎 {car['hp']} л.с.)\n")
+        if not c_entry["is_active"]:
+            rows.append([InlineKeyboardButton(text=f"🔑 Выбрать {car['name']}", callback_data=f"car_equip:{c_entry['id']}")])
+
+    rows.append([InlineKeyboardButton(text="🏎 В автосалон", callback_data="car_to_showroom")])
+    try:
+        await call.message.edit_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data.startswith("car_equip:"))
+async def cb_car_equip(call: CallbackQuery):
+    car_id = int(call.data.split(":")[1])
+    uid = call.from_user.id
+    ok = await db.set_active_car(uid, car_id)
+    if not ok:
+        return await call.answer("Машина не найдена в гараже.", show_alert=True)
+
+    await call.answer("Автомобиль успешно выбран активным для гонок! 🏎")
+    user_cars = await db.get_user_cars(uid)
+    lines = ["🚪 🏎 <b>ВАШ ЛИЧНЫЙ ГАРАЖ</b> 🏁 🚪\n"]
+    rows = []
+    for c_entry in user_cars:
+        car = CARS.get(c_entry["car_key"])
+        if not car:
+            continue
+        status = "⭐️ <b>[АКТИВНОЕ АВТО]</b>" if c_entry["is_active"] else "💤 В гараже"
+        lines.append(f"{car['name']} — {status}\n")
+        if not c_entry["is_active"]:
+            rows.append([InlineKeyboardButton(text=f"🔑 Выбрать {car['name']}", callback_data=f"car_equip:{c_entry['id']}")])
+    rows.append([InlineKeyboardButton(text="🏎 Посетить Автосалон", callback_data="car_to_showroom")])
+    try:
+        await call.message.edit_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    except Exception:
+        pass
+
+
+# ═══════════════ УЛИЧНЫЙ ДРАГ-РЕЙСИНГ (ГОНКИ) ═══════════════
+@router.message(Cmd("гонка", "гонки", "драг", "заезд", "drag", section=S,
+                    usage="гонка [ставка]", desc="Уличный драг-рейсинг на машинах (x2)"))
+async def cmd_street_race(message: Message, bot: Bot, args: str = "", **kw):
+    uid = message.from_user.id
+    active_car_data = await db.get_user_active_car(uid)
+    if not active_car_data or active_car_data.get("car_key") not in CARS:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🏎 Посетить Автосалон", callback_data="car_to_showroom")
+        ]])
+        return await message.reply(
+            "🚦 <b>Вам не на чем участвовать в уличных гонках!</b> 🛑\n\n"
+            "Чтобы соревноваться на трассе, у вас должен быть автомобиль в гараже.\n"
+            "Загляните в <code>автосалон</code> и приобретите хотя бы 🚙 <b>ВАЗ 2107</b> или 🚗 <b>Toyota Camry</b>!",
+            reply_markup=kb
+        )
+
+    my_car = CARS[active_car_data["car_key"]]
+
+    bal = await db.get_balance(uid)
+    raw_bet = (args or "").strip()
+    bet = parse_amount(raw_bet, bal, 500) if raw_bet else 500
+
+    if not bet or bet < 500:
+        return await message.reply(f"Минимальная ставка в гонке: <b>500 🪙</b>.\nВаш баланс: <b>{bal:,} 🪙</b>.")
+    if bet > bal:
+        return await message.reply(f"Недостаточно монет! Требуется: <b>{bet:,} 🪙</b>, у вас: <b>{bal:,} 🪙</b>.")
+
+    await db.add_balance(uid, -bet, "race_bet", my_car["id"])
+
+    rival_key = random.choice(list(CARS.keys()))
+    rival_car = CARS[rival_key]
+    user_name = message.from_user.first_name or "Гонщик"
+
+    race_msg = await message.reply(
+        f"🚦 <b>УЛИЧНЫЙ ДРАГ-РЕЙСИНГ МОКСИ!</b> 🏁\n"
+        f"✦ ══ • ⊰ 🏎 💨 🔥 ⊱ • ══ ✦\n\n"
+        f"👤 Пилот: <b>{html.escape(user_name)}</b> на <b>{my_car['name']}</b>\n"
+        f"🚘 Соперник: уличный гонщик на <b>{rival_car['name']}</b>\n"
+        f"💰 Ставка: <b>{bet:,} 🪙</b>\n\n"
+        f"🔴 🔴 🔴 <i>Двигатели ревут на холостых... Прогрев резины!</i>"
+    )
+
+    await asyncio.sleep(1.2)
+
+    try:
+        await race_msg.edit_text(
+            f"🚦 🟡 🟡 🟡 <b>ЗЕЛЁНЫЙ СВЕТ! СТАРТ!</b> 🔥\n"
+            f"✦ ══ • ⊰ 🏎 💨 🔥 ⊱ • ══ ✦\n\n"
+            f"👤 {html.escape(user_name)}:   ▓▓▓▓▓▓▓▓───────── 🏁\n"
+            f"🚘 Соперник:        ▓▓▓▓▓▓─────────── 🏁\n\n"
+            f"💨 <i>{my_car['name']} срывается с места на пределе сцепления!</i>"
+        )
+    except Exception:
+        pass
+
+    await asyncio.sleep(1.2)
+
+    hp_diff = my_car["hp"] - rival_car["hp"]
+    adjusted_chance = my_car["win_rate"] + (hp_diff / 5000.0)
+    adjusted_chance = max(0.20, min(0.92, adjusted_chance))
+
+    is_win = (random.random() < adjusted_chance)
+
+    if is_win:
+        win_amt = bet * 2
+        new_bal = await db.add_balance(uid, win_amt, "race_win", my_car["id"])
+        await db.add_xp(message.chat.id, uid, 50)
+        final_text = (
+            f"🏆 🏁 <b>ФИНИШ! ПОБЕДА НА ТРАССЕ!</b> 🏁 🏆\n"
+            f"✦ ══ • ⊰ 🥇 🏎 🔥 ⊱ • ══ ✦\n\n"
+            f"👤 {html.escape(user_name)}:   ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓🏁 <b>ПОБЕДА!</b>\n"
+            f"🚘 Соперник:        ▓▓▓▓▓▓▓▓▓▓▓▓────🏁\n\n"
+            f"🎉 <b>Ваш {my_car['name']} вырвал победу перед финишной чертой!</b>\n"
+            f"💰 Выигрыш: <b>+{win_amt:,} 🪙</b> <i>(чистая прибыль: +{bet:,} 🪙)</i>\n"
+            f"🪙 Ваш баланс: <b>{new_bal:,} 🪙</b>\n"
+            f"⚡️ Опыт: <b>+50 XP</b>"
+        )
+    else:
+        new_bal = await db.get_balance(uid)
+        final_text = (
+            f"💔 🏁 <b>ФИНИШ! ПОРАЖЕНИЕ НА ТРАССЕ!</b> 🏁 🥀\n"
+            f"✦ ══ • ⊰ 🏁 💨 🥀 ⊱ • ══ ✦\n\n"
+            f"🚘 Соперник:        ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓🏁 <b>ПОБЕДИТЕЛЬ!</b>\n"
+            f"👤 {html.escape(user_name)}:   ▓▓▓▓▓▓▓▓▓▓▓▓────🏁\n\n"
+            f"🥀 Соперник обошёл вас на полкорпуса перед финишем...\n"
+            f"Потери: <b>−{bet:,} 🪙</b>\n"
+            f"🪙 Ваш баланс: <b>{new_bal:,} 🪙</b>"
+        )
+
+    try:
+        await race_msg.edit_text(final_text)
+    except Exception:
+        await message.reply(final_text)
