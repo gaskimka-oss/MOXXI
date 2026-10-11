@@ -108,3 +108,52 @@ async def delayed_delete_message(bot, chat_id: int, message_id: int, delay: int 
         await bot.delete_message(chat_id=chat_id, message_id=message_id)
     except Exception:
         pass
+
+
+def make_game_replay_kb(game_code: str, bet: int, uid: int, opt: str = "") -> InlineKeyboardMarkup:
+    """Инлайн-кнопки повтора и управления ставкой под результатами игр казино."""
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    from config import MAX_BET, MIN_BET
+
+    double_bet = min(MAX_BET, bet * 2)
+    half_bet = max(MIN_BET, bet // 2)
+
+    label_repeat = f"🔄 Ещё раз ({money(bet)})"
+    if game_code == "slots":
+        label_repeat = f"🎰 Крутить ({money(bet)})"
+    elif game_code == "cube":
+        label_repeat = f"🎲 Бросить ({money(bet)})"
+    elif game_code == "darts":
+        label_repeat = f"🎯 Бросить ({money(bet)})"
+    elif game_code == "coin":
+        side_icon = "🦅 Орёл" if opt == "орёл" else "🪙 Решка"
+        label_repeat = f"{side_icon} ({money(bet)})"
+    elif game_code == "wheel":
+        label_repeat = f"🎡 Крутить ({money(bet)})"
+    elif game_code == "roulette":
+        label_repeat = f"🎡 {opt.capitalize()} ({money(bet)})"
+    elif game_code == "bj":
+        label_repeat = f"🃏 Раздать карты ({money(bet)})"
+    elif game_code == "race":
+        h_idx = int(opt) if opt and opt.isdigit() else 1
+        h_names = {1: "⚡ Молния", 2: "🛡 Буцефал", 3: "🪽 Пегас", 4: "🌪 Торнадо", 5: "💨 Ветерок"}
+        label_repeat = f"🏇 {h_names.get(h_idx, 'Скачки')} ({money(bet)})"
+
+    call_rep = f"grep:{game_code}:{bet}:{uid}:{opt}"
+    call_x2 = f"grep:{game_code}:{double_bet}:{uid}:{opt}"
+    call_half = f"grep:{game_code}:{half_bet}:{uid}:{opt}"
+    call_jackpot = f"grep:jackpot:0:{uid}:{opt}"
+    call_close = f"grep:close:0:{uid}:{opt}"
+
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=label_repeat, callback_data=call_rep)],
+        [
+            InlineKeyboardButton(text=f"2x ({money(double_bet)})", callback_data=call_x2),
+            InlineKeyboardButton(text=f"½ ({money(half_bet)})", callback_data=call_half),
+        ],
+        [
+            InlineKeyboardButton(text="🔥 Джекпот чата", callback_data=call_jackpot),
+            InlineKeyboardButton(text="❌ Забрать", callback_data=call_close),
+        ]
+    ])
+
