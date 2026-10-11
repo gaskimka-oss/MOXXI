@@ -1,111 +1,72 @@
-"""Вспомогательные функции: форматирование, парсинг сумм, уровни, доступ."""
-from __future__ import annotations
-
-import html
-import re
-from typing import Optional
-
-from aiogram.types import Message, User
-
-from config import ADMINS, CURRENCY, LEVELS, OWNER_ID
+import functools
 
 
-def is_owner(user_id: int) -> bool:
-    return user_id == OWNER_ID
+def delegate_to_executor(*attrs):
+    def cls_builder(cls):
+        for attr_name in attrs:
+            setattr(cls, attr_name, _make_delegate_method(attr_name))
+        return cls
+
+    return cls_builder
 
 
-def is_admin(user_id: int) -> bool:
-    return user_id in ADMINS
+def proxy_method_directly(*attrs):
+    def cls_builder(cls):
+        for attr_name in attrs:
+            setattr(cls, attr_name, _make_proxy_method(attr_name))
+        return cls
+
+    return cls_builder
 
 
-def money(n: int) -> str:
-    return f"{n:,}".replace(",", " ") + f" {CURRENCY}"
+def proxy_property_directly(*attrs):
+    def cls_builder(cls):
+        for attr_name in attrs:
+            setattr(cls, attr_name, _make_proxy_property(attr_name))
+        return cls
+
+    return cls_builder
 
 
-def mention(user: User) -> str:
-    name = html.escape(user.first_name or "user")
-    return f'<a href="tg://user?id={user.id}">{name}</a>'
+def cond_delegate_to_executor(*attrs):
+    def cls_builder(cls):
+        for attr_name in attrs:
+            setattr(cls, attr_name, _make_cond_delegate_method(attr_name))
+        return cls
+
+    return cls_builder
 
 
-def mention_id(user_id: int, name: str | None = None) -> str:
-    return f'<a href="tg://user?id={user_id}">{html.escape(name or str(user_id))}</a>'
+def _make_delegate_method(attr_name):
+    async def method(self, *args, **kwargs):
+        cb = functools.partial(getattr(self._file, attr_name), *args, **kwargs)
+        return await self._loop.run_in_executor(self._executor, cb)
+
+    return method
 
 
-def level_of(xp: int) -> tuple[int, str, int, int]:
-    """-> (номер уровня, название, xp текущего порога, xp следующего порога)"""
-    idx = 0
-    for i, (need, _) in enumerate(LEVELS):
-        if xp >= need:
-            idx = i
-    cur_need, title = LEVELS[idx]
-    nxt = LEVELS[idx + 1][0] if idx + 1 < len(LEVELS) else cur_need
-    return idx + 1, title, cur_need, nxt
+def _make_proxy_method(attr_name):
+    def method(self, *args, **kwargs):
+        return getattr(self._file, attr_name)(*args, **kwargs)
+
+    return method
 
 
-def parse_amount(text: str, balance: int, minimum: int = 1) -> Optional[int]:
-    """Понимает: 100, 1k, 2.5кк, 10%, все/всё/all, половина/half."""
-    if not text:
-        return None
-    t = text.strip().lower().replace(" ", "")
-    if t in {"все", "всё", "all", "va", "макс", "max"}:
-        return balance if balance >= minimum else None
-    if t in {"половина", "half", "пол"}:
-        return balance // 2
-    m = re.fullmatch(r"(\d+(?:[.,]\d+)?)%", t)
-    if m:
-        pct = float(m.group(1).replace(",", "."))
-        return int(balance * min(pct, 100) / 100)
-    m = re.fullmatch(r"(\d+(?:[.,]\d+)?)(k|к|kk|кк|m|м|kkk|ккк|b|б)?", t)
-    if not m:
-        return None
-    val = float(m.group(1).replace(",", "."))
-    suf = m.group(2) or ""
-    mult = {"": 1, "k": 1e3, "к": 1e3, "kk": 1e6, "кк": 1e6, "m": 1e6, "м": 1e6,
-            "kkk": 1e9, "ккк": 1e9, "b": 1e9, "б": 1e9}[suf]
-    return int(val * mult)
+def _make_proxy_property(attr_name):
+    def proxy_property(self):
+        return getattr(self._file, attr_name)
+
+    return property(proxy_property)
 
 
-def hms(seconds: int) -> str:
-    h, rem = divmod(max(0, seconds), 3600)
-    m, s = divmod(rem, 60)
-    if h:
-        return f"{h} ч {m} мин"
-    if m:
-        return f"{m} мин {s} сек"
-    return f"{s} сек"
+def _make_cond_delegate_method(attr_name):
+    """For spooled temp files, delegate only if rolled to file object"""
 
+    async def method(self, *args, **kwargs):
+        if self._file._rolled:
+            cb = functools.partial(getattr(self._file, attr_name), *args, **kwargs)
+            return await self._loop.run_in_executor(self._executor, cb)
+        else:
+            return getattr(self._file, attr_name)(*args, **kwargs)
 
-async def target_user(message: Message) -> Optional[User]:
-    """Цель команды: реплай или @упоминание/числовой id в аргументах."""
-    if message.reply_to_message and message.reply_to_message.from_user:
-        return message.reply_to_message.from_user
-    if message.entities:
-        for ent in message.entities:
-            if ent.type == "text_mention" and ent.user:
-                return ent.user
-    return None
-
-
-def arg_text(message: Message) -> str:
-    parts = (message.text or message.caption or "").split(maxsplit=1)
-    return parts[1] if len(parts) > 1 else ""
-
-
-def args_list(message: Message) -> list[str]:
-    return (message.text or "").split()[1:]
-
-
-AUTO_DELETE_DELAY = 300  # 5 минут
-
-
-async def delayed_delete_message(bot, chat_id: int, message_id: int, delay: int = AUTO_DELETE_DELAY) -> None:
-    """Удаляет сообщение через delay секунд (по умолчанию 5 минут) в группах."""
-    if not bot or not chat_id or not message_id or chat_id >= 0:
-        return
-    import asyncio
-    try:
-        await asyncio.sleep(delay)
-        await bot.delete_message(chat_id=chat_id, message_id=message_id)
-    except Exception:
-        pass
-
+    return method
