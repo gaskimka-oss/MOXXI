@@ -7,13 +7,13 @@ import html
 
 from aiogram import Bot, F, Router
 from aiogram.filters import IS_MEMBER, IS_NOT_MEMBER, ChatMemberUpdatedFilter
-from aiogram.types import (ChatMemberUpdated, InlineKeyboardButton,
+from aiogram.types import (CallbackQuery, ChatMemberUpdated, InlineKeyboardButton,
                            InlineKeyboardMarkup, Message)
 
 import db
 from config import MSG_REWARD, MSG_REWARD_COOLDOWN, XP_PER_MESSAGE
-from core_ranks import get_rank, set_rank
-from core_registry import MAX_RANK, RANK_NAMES, stars
+from core_ranks import get_rank, require, set_rank
+from core_registry import Cmd, MAX_RANK, RANK_NAMES, stars
 from utils import mention, mention_id, money
 
 router = Router(name="passive")
@@ -129,6 +129,27 @@ async def on_new_members(message: Message, bot: Bot):
             await core_members.remember_member(message.chat.id, u.id, "member", True)
         except Exception:
             pass
+        # Проверка включена ли капча «Я человек»
+        captcha_on = (await db.get_setting(message.chat.id, "captcha", "0") == "1")
+        if captcha_on:
+            from h_mod_bans import MUTE_OFF
+            try:
+                await bot.restrict_chat_member(message.chat.id, u.id, MUTE_OFF)
+            except Exception:
+                pass
+            kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🤖 Я человек, впустите! ✅", callback_data=f"cpt:{message.chat.id}:{u.id}")
+            ]])
+            c_msg = await message.answer(
+                f"👋 Приветствуем, {mention(u)}!\n\n"
+                f"🛡 <b>В чате включена капча-защита от ботов.</b>\n"
+                f"Нажмите кнопку ниже в течение 3 минут, чтобы подтвердить, что вы человек, и получить право писать в чат:",
+                reply_markup=kb
+            )
+            import asyncio as _a
+            _a.create_task(_del_later(c_msg, 180))
+            continue
+
         ai_welc = (await db.get_setting(message.chat.id, "ai_welcome", "0") == "1")
         if ai_welc:
             try:
@@ -154,7 +175,7 @@ async def on_new_members(message: Message, bot: Bot):
             (message.chat.id, u.id, int(_t.time())))
 
         from h_userinfo import (TEMPLATE, get_form_topic, needs_form,
-                                       topic_link)
+                                topic_link)
         if await needs_form(message.chat.id, u.id):
             ft = await get_form_topic(message.chat.id)
             # Шаблон шлём ТОЛЬКО в тему описаний. В общий чат — короткую
@@ -182,7 +203,56 @@ async def on_new_members(message: Message, bot: Bot):
 
 
 async def _del_later(msg, delay: int = 60) -> None:
-    pass
+    try:
+        import asyncio
+        await asyncio.sleep(delay)
+        await msg.delete()
+    except Exception:
+        pass
+
+
+# ================== КАПЧА: ОБРАБОТЧИКИ И КОМАНДЫ ==================
+
+@router.callback_query(F.data.startswith("cpt:"))
+async def cb_captcha_verify(call: CallbackQuery, bot: Bot):
+    parts = call.data.split(":")
+    cid = int(parts[1])
+    uid = int(parts[2])
+    if call.from_user.id != uid:
+        return await call.answer("⛔️ Эта проверка предназначена для другого участника!", show_alert=True)
+    from h_mod_bans import MUTE_ON
+    try:
+        await bot.restrict_chat_member(cid, uid, MUTE_ON)
+    except Exception:
+        pass
+    await call.answer("✅ Проверка успешно пройдена! Добро пожаловать!", show_alert=False)
+    try:
+        await call.message.edit_text(f"✅ {mention(call.from_user)} успешно прошёл проверку «Я человек»! Добро пожаловать в чат! 🎉")
+    except Exception:
+        pass
+    import asyncio as _a
+    _a.create_task(_del_later(call.message, 5))
+
+
+@router.message(Cmd("капча", "защита от ботов", "антибот", section=6, rank=3,
+                    usage="капча вкл|выкл", desc="Проверка новых участников кнопкой «Я человек»"))
+async def cmd_captcha_toggle(message: Message, bot: Bot, args: str = "", **kw):
+    if not await require(message, bot, 3):
+        return
+    a = (args or "").strip().lower()
+    if a in {"вкл", "on", "1", "да"}:
+        await db.set_setting(message.chat.id, "captcha", "1")
+        return await message.reply("🛡 <b>Капча включена!</b>\nНовые участники будут замьючены, пока не нажмут кнопку «✅ Я человек».")
+    if a in {"выкл", "off", "0", "нет"}:
+        await db.set_setting(message.chat.id, "captcha", "0")
+        return await message.reply("⚪️ <b>Капча выключена.</b> Новые участники сразу могут писать в чат.")
+    cur = await db.get_setting(message.chat.id, "captcha", "0")
+    state = "🟢 включена" if cur == "1" else "🔴 выключена"
+    await message.reply(
+        f"🤖 <b>Защита от ботов (Капча):</b> {state}\n\n"
+        f"Включить: <code>капча вкл</code>\n"
+        f"Выключить: <code>капча выкл</code>"
+    )
 
 
 async def transcribe_voice(message: Message, bot: Bot) -> None:

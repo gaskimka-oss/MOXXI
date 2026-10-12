@@ -107,14 +107,6 @@ async def require(message: Message, bot: Bot, need: int, key: str = "") -> bool:
     if r >= need:
         return True
 
-    # Фраза без префикса случайно совпала с командой («всем привет») —
-    # молча пропускаем, ругаться на обычное сообщение нельзя.
-    text = (message.text or message.caption or "").strip()
-    if text and text[0] not in "!./":
-        low = text.lower()
-        if not (low.startswith("мокси") or low.startswith("бот")):
-            return False
-
     await message.reply(
         f"⛔️ Недостаточно прав.\n"
         f"Нужен ранг: <b>{rank_label(need)}</b>\n"

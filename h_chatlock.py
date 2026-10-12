@@ -96,7 +96,7 @@ async def _schedule_text(chat_id: int) -> str:
 
 
 # ---------------- +ЧАТ ----------------
-@router.message(Cmd("+чат", "+ чат", "открыть чат", "чат открыть", section=S, rank=2,
+@router.message(Cmd("+чат", "+ чат", "открыть чат", "чат открыть", "тишина выкл", "размок", section=S, rank=2,
                     usage="+чат [время]", desc="Открыть чат или задать авто-открытие"))
 async def cmd_open(message: Message, bot: Bot, args: str = "", **kw):
     if not await require(message, bot, 2):
@@ -129,7 +129,7 @@ async def cmd_open(message: Message, bot: Bot, args: str = "", **kw):
 
 
 # ---------------- −ЧАТ ----------------
-@router.message(Cmd("-чат", "- чат", "закрыть чат", "чат закрыть", section=S, rank=2,
+@router.message(Cmd("-чат", "- чат", "закрыть чат", "чат закрыть", "чат замок", "тишина", "тишина вкл", "замок", section=S, rank=2,
                     usage="-чат [время]", desc="Закрыть чат или задать авто-закрытие"))
 async def cmd_close(message: Message, bot: Bot, args: str = "", **kw):
     if not await require(message, bot, 2):

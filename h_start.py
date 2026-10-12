@@ -89,13 +89,13 @@ async def main_text(name: str | None, u: dict) -> str:
     if v_act:
         status_str = "🌟 VIP+ Diamond" if v_lvl >= 2 else "⭐️ VIP"
     else:
-        status_str = "⭐️ Участник клана"
+        status_str = "🔹 Участник"
 
     return (
-        f"👑 ✨ <b>MOXXI CLAN BOT — ГЛАВНОЕ МЕНЮ</b> ✨ 👑\n"
-        f"✦ ══ • ⊰ 💖 🔮 💙 🩵 💚 💛 🟣 🧡 ❤️ 🤍 ⊱ • ══ ✦\n\n"
+        f"🍸 ✨ <b>MOXXI 2.1 — ГЛАВНОЕ МЕНЮ</b> ✨ 🍸\n"
+        f"✦ ══ • ⊰ 💖 🔮 🎰 🏢 ⚔️ 🪙 🍷 👑 ⊱ • ══ ✦\n\n"
         f"👋 Рады видеть, <b>{html.escape(name or 'Боец')}</b>!\n"
-        f"🔥 <i>Самый мощный ИИ-менеджер, рейды, дуэли и экономика для бесед!</i>\n\n"
+        f"🔥 <i>Игровой мир азарта, экономики, рейдов и умного ИИ!</i>\n\n"
         f"┌ 💎 <b>Ваш статус:</b> {status_str}\n"
         f"├ 💰 <b>Баланс:</b> <code>{money(u_dict.get('balance', 0))}</code>\n"
         f"├ ⚡️ <b>Опыт:</b> <code>{xp_val} XP</code>\n"
@@ -111,46 +111,32 @@ async def main_kb(uid: int = 0, bot_username: str = "moxxichat_bot") -> InlineKe
               "+pin_messages+manage_chat")
     add_url = f"https://t.me/{bot_username}?startgroup=true&admin={rights}"
 
-    target_url = DEFAULT_WEBAPP_URL if DEFAULT_WEBAPP_URL.startswith("https://") else "https://moxxibot.vercel.app"
-
-    if "t.me/" in target_url:
-        webapp_btn = InlineKeyboardButton(text="📱 Открыть Moxxi Mini App (Казино & Игры)", url=target_url)
-    else:
-        webapp_btn = InlineKeyboardButton(text="📱 Открыть Moxxi Mini App (Казино & Игры)", web_app=WebAppInfo(url=target_url))
-
     rows = [
-        [webapp_btn],
         [
-            InlineKeyboardButton(text="➕ Добавить в беседу", url=add_url),
-            InlineKeyboardButton(text="⚙️ Установка и Инфо", callback_data="mm:setup")
+            InlineKeyboardButton(text="➕ Добавить бота в беседу", url=add_url)
+        ],
+        [
+            InlineKeyboardButton(text="🎰 Казино и Игры", callback_data="mm:grams"),
+            InlineKeyboardButton(text="🏢 Бизнесы и Рынок", callback_data="mm:biz"),
         ],
         [
             InlineKeyboardButton(text="🐉 Рейдовые Боссы", callback_data="mm:boss"),
-            InlineKeyboardButton(text="⚔️ PvP-Дуэли", callback_data="mm:duels")
+            InlineKeyboardButton(text="⚔️ PvP-Дуэли", callback_data="mm:duels"),
         ],
         [
             InlineKeyboardButton(text="🛍 Магазин и Кейсы", callback_data="mm:shop_menu"),
-            InlineKeyboardButton(text="🎣 Рыбалка и Крафт", callback_data="mm:fish")
-        ],
-        [
-            InlineKeyboardButton(text="🏢 Бизнесы и Рынок", callback_data="mm:biz"),
-            InlineKeyboardButton(text="🎰 Казино и Игры", callback_data="mm:grams")
+            InlineKeyboardButton(text="🎣 Рыбалка и Крафт", callback_data="mm:fish"),
         ],
         [
             InlineKeyboardButton(text="📜 Квесты и Ачивки", callback_data="mm:quests"),
-            InlineKeyboardButton(text="🏆 Топ Рейтинги", callback_data="mm:tops")
+            InlineKeyboardButton(text="🏆 Топ Рейтинги", callback_data="mm:tops"),
         ],
         [
             InlineKeyboardButton(text="🎁 Бонусы", callback_data="mm:bonus"),
-            InlineKeyboardButton(text="📖 Все Команды", callback_data="mm:cmds")
+            InlineKeyboardButton(text="📖 Все Команды", callback_data="mm:cmds"),
         ],
         [
-            InlineKeyboardButton(text="💬 Чат бота", url="https://t.me/moxxi_clan_chat"),
-            InlineKeyboardButton(text="⭐ Отзывы", callback_data="mm:reviews")
-        ],
-        [
-            InlineKeyboardButton(text="💡 Идеи и Предложка", callback_data="mm:ideas"),
-            InlineKeyboardButton(text="🆘 Техподдержка", callback_data="mm:support")
+            InlineKeyboardButton(text="🆘 Написать в техподдержку", callback_data="mm:support")
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -462,11 +448,8 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
 
     if what == "cmds":
         from h_helpmenu import _menu_kb, _menu_text
-        kb = _menu_kb(0)
-        rows = list(kb.inline_keyboard)
-        rows.append([InlineKeyboardButton(text="⬅️ В главное меню", callback_data="mm:main")])
         await call.message.edit_text(
-            _menu_text(), reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+            _menu_text(), reply_markup=_menu_kb(0),
             disable_web_page_preview=True)
         return await call.answer()
 

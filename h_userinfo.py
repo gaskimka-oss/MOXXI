@@ -9,13 +9,22 @@ import re
 import time
 
 from aiogram import Bot, F, Router
-from aiogram.types import ChatPermissions, Message
+from aiogram.types import (ChatPermissions, CallbackQuery,
+                           InlineKeyboardButton, InlineKeyboardMarkup, Message)
 
 import db
 from core_ranks import effective_rank, get_rank, rank_name
 from core_registry import Cmd, stars
 from core_resolve import real_reply, resolve_target
 from utils import mention_id
+
+try:
+    from config import MAIN_CHAT
+except (ImportError, AttributeError):
+    try:
+        from core_seed import MAIN_CHAT
+    except (ImportError, AttributeError):
+        MAIN_CHAT = -1003934033202
 
 router = Router(name="userinfo")
 S = 8
@@ -251,7 +260,10 @@ async def render_card(message: Message, bot: Bot, uid: int, name: str | None) ->
     link = (f'<a href="https://telegram.me/{uname}">{disp}</a>' if uname
             else mention_id(uid, disp))
 
-    out = [f"👤 <b>Это пользователь {link}</b>"]
+    from h_titles import get_display_prefix
+    prefix = await get_display_prefix(message.chat.id, uid)
+    prefix_str = f"<b>{html.escape(prefix)}</b> " if prefix else ""
+    out = [f"👤 {prefix_str}<b>Это пользователь {link}</b>"]
     if tg:
         out.append(f"👨🏻‍🔧 {tg}")
     if in_chat is True:
@@ -300,8 +312,29 @@ async def render_card(message: Message, bot: Bot, uid: int, name: str | None) ->
     except Exception:
         pass
 
+    try:
+        bio_row = await db.fetchone("SELECT bio FROM user_bios WHERE user_id=?", (uid,))
+        if bio_row and bio_row["bio"]:
+            out.append(f"💭 <i>«{html.escape(bio_row['bio'])}»</i>")
+
+        from h_veteran import get_user_seniority
+        sen = await get_user_seniority(message.chat.id, uid)
+        out.append(f"▫️ 🏛 Стаж: <b>{sen['days']} дн.</b> [{sen['title']}]")
+
+        from h_economy_plus import JOBS
+        job_row = await db.fetchone("SELECT job_key FROM user_jobs WHERE user_id=?", (uid,))
+        if job_row and job_row["job_key"] in JOBS:
+            j_title = JOBS[job_row["job_key"]]["title"]
+            out.append(f"▫️ 💼 Профессия: <b>{j_title}</b>")
+
+        comp_row = await db.fetchone("SELECT count FROM user_compliments WHERE user_id=?", (uid,))
+        if comp_row and comp_row["count"] > 0:
+            out.append(f"▫️ ❤️ Обаяние: <b>{comp_row['count']} симпатий</b>")
+    except Exception:
+        pass
+
     from h_modules import _rep_title
-    rep_badge = _rep_title(u.get("rep", 0))
+    rep_badge = _rep_title(u.get("rep", 0) if hasattr(u, "get") else (u["rep"] if "rep" in u.keys() else 0))
     out.append(f"Репутация: ⭐️ <b>{u['rep']}</b> ({rep_badge}) | 💬 <b>{u['messages']}</b>")
     out.append(f"Первое появление: "
                f"{time.strftime('%d.%m.%Y', time.localtime(first_ts)) if first_ts else '—'}"
@@ -325,22 +358,24 @@ async def render_card(message: Message, bot: Bot, uid: int, name: str | None) ->
     else:
         family_str = "Холост(а)"
 
+    is_main_clan = (message.chat.id == MAIN_CHAT or getattr(message.chat, "type", "") == "private")
     shown = []
-    if p["real_name"]:
-        shown.append(f"▫️ ☆ Имя: {html.escape(str(p['real_name']))}")
-    if p["age"]:
-        shown.append(f"▫️ ☆ Возраст: {html.escape(str(p['age']))}")
-    if p["country"]:
-        shown.append(f"▫️ ☆ Страна: {html.escape(str(p['country']))}")
-    if p["tz"]:
-        shown.append(f"▫️ ☆ Время по МСК: {html.escape(str(p['tz']))}")
-    shown.append(f"▫️ ☆ Семейное положение: {family_str}")
-    if u["nick"]:
-        shown.append(f"▫️ ☆ Ник: {html.escape(u['nick'])}")
-    elif p["hobby"] and len(p["hobby"]) <= 32:
-        shown.append(f"▫️ ☆ Ник: {html.escape(p['hobby'])}")
-    if p["gender"]:
-        shown.append(f"▫️ ☆ Пол: {html.escape(str(p['gender']))}")
+    if is_main_clan:
+        if p["real_name"]:
+            shown.append(f"▫️ ☆ Имя: {html.escape(str(p['real_name']))}")
+        if p["age"]:
+            shown.append(f"▫️ ☆ Возраст: {html.escape(str(p['age']))}")
+        if p["country"]:
+            shown.append(f"▫️ ☆ Страна: {html.escape(str(p['country']))}")
+        if p["tz"]:
+            shown.append(f"▫️ ☆ Время по МСК: {html.escape(str(p['tz']))}")
+        shown.append(f"▫️ ☆ Семейное положение: {family_str}")
+        if u["nick"]:
+            shown.append(f"▫️ ☆ Ник: {html.escape(u['nick'])}")
+        elif p["hobby"] and len(p["hobby"]) <= 32:
+            shown.append(f"▫️ ☆ Ник: {html.escape(p['hobby'])}")
+        if p["gender"]:
+            shown.append(f"▫️ ☆ Пол: {html.escape(str(p['gender']))}")
 
     if shown:
         out.append("")
@@ -511,6 +546,12 @@ async def cmd_description(message: Message, bot: Bot, args: str = "", **kw):
     else:
         uid, name = me, message.from_user.first_name
 
+    if getattr(message.chat, "type", "") in {"group", "supergroup"} and message.chat.id != MAIN_CHAT:
+        return await message.reply(
+            "ℹ️ <b>Описания участников клана доступны в основном чате:</b>\n"
+            "https://t.me/+-vFNcAElB3lmMzli",
+            disable_web_page_preview=True)
+
     u = await db.get_user(uid)
     p = await _profile(uid)
     mine = (uid == me)
@@ -519,7 +560,7 @@ async def cmd_description(message: Message, bot: Bot, args: str = "", **kw):
 
     # если админ вписал своё описание — показываем именно его
     custom = p["custom"] if "custom" in p.keys() else None
-    if custom:
+    if custom and not custom.startswith("🧠 ИИ проверил"):
         return await message.reply(f"{head}\n\n{html.escape(custom)}",
                                    disable_web_page_preview=True)
 
@@ -922,6 +963,8 @@ async def form_done(uid: int) -> bool:
 
 async def needs_form(chat_id: int, uid: int) -> bool:
     """Требуется ли этому участнику заполнить анкету."""
+    if chat_id != MAIN_CHAT:
+        return False
     if await db.get_setting(chat_id, "form_required", "0") != "1":
         return False
     return not await form_done(uid)
@@ -1069,41 +1112,97 @@ async def cmd_nick_show(message: Message, bot: Bot, args: str = "", **kw):
     await message.reply(f"🏷 <b>Ник</b> {who}\n\n{html.escape(nick)}")
 
 
-@router.message(Cmd("никлист", "ник лист", "список ников", "все ники",
-                    section=S, rank=1, usage="никлист",
-                    desc="Кто поставил себе ник (ранг 1+)"))
-async def cmd_nick_list(message: Message, bot: Bot, args: str = "", **kw):
-    from core_ranks import require
-    if not await require(message, bot, 1):
-        return
-
+async def _render_nick_list_page(page: int = 1) -> tuple[str, InlineKeyboardMarkup]:
+    PAGE_SIZE = 12
     rows = await db.fetchall(
-        "SELECT u.user_id, u.username, u.first_name, u.nick, p.hobby "
-        "FROM users u LEFT JOIN profiles p ON p.user_id=u.user_id "
-        "WHERE (u.nick IS NOT NULL AND u.nick<>'') "
-        "   OR (p.hobby IS NOT NULL AND p.hobby<>'') "
-        "ORDER BY u.user_id LIMIT 60")
-    total = await db.fetchone("SELECT COUNT(*) c FROM users")
+        "SELECT u.user_id, u.username, u.first_name, u.nick, p.hobby, p.real_name, p.nick2 "
+        "FROM profiles p LEFT JOIN users u ON u.user_id=p.user_id "
+        "WHERE (p.hobby IS NOT NULL AND p.hobby<>'' AND p.hobby<>'—') "
+        "   OR (u.nick IS NOT NULL AND u.nick<>'' AND u.nick<>'—') "
+        "ORDER BY p.user_id")
+    total_count = len(rows)
+    total_pages = max(1, (total_count + PAGE_SIZE - 1) // PAGE_SIZE)
+    page = max(1, min(page, total_pages))
+
+    total_u = await db.fetchone("SELECT COUNT(*) c FROM users")
+    all_users = total_u["c"] if total_u else total_count
 
     if not rows:
+        text = ("🏷 <b>Игровые ники клана</b>\n\n"
+                "Пока никто не поставил ник.\n\n"
+                "Поставить: <code>+ник ваш ник</code>")
+        kb = InlineKeyboardMarkup(inline_keyboard=[])
+        return text, kb
+
+    start_idx = (page - 1) * PAGE_SIZE
+    page_rows = rows[start_idx:start_idx + PAGE_SIZE]
+
+    out = [
+        f"🏷 <b>Список игровых ников клана</b>\n",
+        f"👥 Установлен ник: <b>{total_count}</b> из <b>{all_users}</b> участников",
+        f"📄 Страница: <b>{page}</b> из <b>{total_pages}</b>\n",
+    ]
+
+    for idx, r in enumerate(page_rows, start_idx + 1):
+        nick = r["hobby"] or r["nick"] or r["nick2"]
+        nm = r["real_name"] or r["first_name"] or (f"@{r['username']}" if r["username"] else str(r["user_id"]))
+        out.append(f"<b>{idx}.</b> {mention_id(r['user_id'], html.escape(nm))} — <b>{html.escape(str(nick)[:32])}</b>")
+
+    out.append("\n💡 <i>Поставить ник: «+ник ваш ник» · Убрать: «-ник»</i>")
+
+    nav_buttons = []
+    if page > 1:
+        nav_buttons.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"nl:p:{page - 1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton(text="◀️", callback_data="nl:noop"))
+
+    nav_buttons.append(InlineKeyboardButton(text=f"📄 {page}/{total_pages}", callback_data="nl:noop"))
+
+    if page < total_pages:
+        nav_buttons.append(InlineKeyboardButton(text="Вперёд ➡️", callback_data=f"nl:p:{page + 1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton(text="▶️", callback_data="nl:noop"))
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[nav_buttons])
+    return "\n".join(out), kb
+
+
+@router.message(Cmd("никлист", "ник лист", "ники лист", "лист ников", "ники", "список ников", "все ники",
+                    section=S, rank=0, usage="ник лист [стр]",
+                    desc="Список игровых ников клана с пагинацией"))
+async def cmd_nick_list(message: Message, bot: Bot, args: str = "", **kw):
+    if getattr(message.chat, "type", "") in {"group", "supergroup"} and message.chat.id != MAIN_CHAT:
         return await message.reply(
-            "🏷 <b>Ники</b>\n\nПока никто не поставил ник.\n\n"
-            "Поставить: <code>+ник ваш ник</code>")
+            "ℹ️ <b>Список игровых ников клана доступен в основном чате:</b>\n"
+            "https://t.me/+-vFNcAElB3lmMzli",
+            disable_web_page_preview=True)
 
-    out = [f"🏷 <b>Ники — {len(rows)} из {total['c']} участников</b>\n"]
-    for r in rows:
-        nick = r["nick"] or r["hobby"]
-        nm = r["first_name"] or (f"@{r['username']}" if r["username"] else str(r["user_id"]))
-        out.append(f"• {mention_id(r['user_id'], html.escape(nm))} — "
-                   f"<b>{html.escape(str(nick)[:32])}</b>")
-    await message.reply("\n".join(out)[:3900], disable_web_page_preview=True)
+    page = 1
+    a = (args or "").strip()
+    for part in a.split():
+        if part.isdigit() and int(part) > 0:
+            page = int(part)
+            break
+    text, kb = await _render_nick_list_page(page)
+    await message.reply(text, reply_markup=kb, disable_web_page_preview=True)
 
 
-@router.message(Cmd("описание лист", "описания лист", "описаниялист", "описаниелист",
-                    "список описаний", "список анкет", "анкеты лист", "анкета лист",
-                    "все описания", "все анкеты", "кто заполнил", "лист описаний", "лист анкет",
-                    section=S, usage="описание лист", desc="Список участников с анкетами/описаниями"))
-async def cmd_desc_list(message: Message, bot: Bot, args: str = "", **kw):
+@router.callback_query(F.data.startswith("nl:"))
+async def cb_nick_list(call: CallbackQuery, bot: Bot):
+    if call.data == "nl:noop":
+        return await call.answer()
+    if call.data.startswith("nl:p:"):
+        page = int(call.data.split(":")[2])
+        text, kb = await _render_nick_list_page(page)
+        try:
+            await call.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
+        except Exception:
+            pass
+        await call.answer()
+
+
+async def _render_desc_list_page(page: int = 1) -> tuple[str, InlineKeyboardMarkup]:
+    PAGE_SIZE = 10
     rows = await db.fetchall(
         "SELECT p.*, u.username, u.first_name, u.nick FROM profiles p "
         "LEFT JOIN users u ON u.user_id=p.user_id "
@@ -1111,36 +1210,96 @@ async def cmd_desc_list(message: Message, bot: Bot, args: str = "", **kw):
 
     done, empty = [], []
     for r in rows:
-        has = bool(("custom" in r.keys() and r["custom"]) or r["filled"]
+        has = bool(("custom" in r.keys() and r["custom"] and not r["custom"].startswith("🧠 ИИ проверил"))
+                   or r["filled"]
                    or sum(1 for _, _, c in FIELDS if r[c]) >= MIN_FIELDS)
         (done if has else empty).append(r)
 
-    total = await db.fetchone("SELECT COUNT(*) c FROM users")
+    total_done = len(done)
+    total_pages = max(1, (total_done + PAGE_SIZE - 1) // PAGE_SIZE)
+    page = max(1, min(page, total_pages))
+
+    total_u = await db.fetchone("SELECT COUNT(*) c FROM users")
+    all_users = total_u["c"] if total_u else len(rows)
+
     out = [
-        f"📝 <b>Список описаний (анкет участников)</b>\n",
-        f"✅ Заполнили описание: <b>{len(done)}</b>",
+        f"📝 <b>Список анкет участников клана</b>\n",
+        f"✅ Заполнили описание: <b>{total_done}</b>",
         f"❌ Без описания: <b>{len(empty)}</b>",
-        f"👥 Всего в базе: <b>{total['c']}</b>\n",
+        f"👥 Всего в базе: <b>{all_users}</b>",
+        f"📄 Страница: <b>{page}</b> из <b>{total_pages}</b>\n",
     ]
 
     if not done:
         out.append("<i>Пока никто не заполнил описание.</i>\nЗаполнить: напишите <code>шаблон</code>")
-    else:
-        out.append("<b>📋 Заполненные анкеты:</b>")
-        for idx, r in enumerate(done[:30], 1):
-            nm = r["real_name"] or r["nick"] or r["first_name"] or (f"@{r['username']}" if r["username"] else str(r["user_id"]))
-            details = []
-            if r["age"]:
-                details.append(f"{r['age']} лет")
-            if r["country"]:
-                details.append(r["country"])
-            if r["hobby"]:
-                details.append(f"ник: {r['hobby']}")
-            det_str = f" ({', '.join(details)})" if details else ""
-            out.append(f"<b>{idx}.</b> {mention_id(r['user_id'], html.escape(nm))}{html.escape(det_str)}")
+        kb = InlineKeyboardMarkup(inline_keyboard=[])
+        return "\n".join(out), kb
 
-        if len(done) > 30:
-            out.append(f"<i>…и ещё {len(done) - 30} анкет</i>")
+    start_idx = (page - 1) * PAGE_SIZE
+    page_rows = done[start_idx:start_idx + PAGE_SIZE]
+
+    out.append("<b>📋 Заполненные анкеты:</b>")
+    for idx, r in enumerate(page_rows, start_idx + 1):
+        nm = r["real_name"] or r["nick"] or r["first_name"] or (f"@{r['username']}" if r["username"] else str(r["user_id"]))
+        details = []
+        if r["age"]:
+            details.append(f"{r['age']} лет")
+        if r["country"]:
+            details.append(r["country"])
+        if r["hobby"]:
+            details.append(f"ник: {r['hobby']}")
+        det_str = f" ({', '.join(details)})" if details else ""
+        out.append(f"<b>{idx}.</b> {mention_id(r['user_id'], html.escape(nm))}{html.escape(det_str)}")
 
     out.append("\n💡 <i>Чтобы посмотреть полное описание участника — напишите «описание @юзер»</i>")
-    await message.reply("\n".join(out)[:3900], disable_web_page_preview=True)
+
+    nav_buttons = []
+    if page > 1:
+        nav_buttons.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"dl:p:{page - 1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton(text="◀️", callback_data="dl:noop"))
+
+    nav_buttons.append(InlineKeyboardButton(text=f"📄 {page}/{total_pages}", callback_data="dl:noop"))
+
+    if page < total_pages:
+        nav_buttons.append(InlineKeyboardButton(text="Вперёд ➡️", callback_data=f"dl:p:{page + 1}"))
+    else:
+        nav_buttons.append(InlineKeyboardButton(text="▶️", callback_data="dl:noop"))
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[nav_buttons])
+    return "\n".join(out), kb
+
+
+@router.message(Cmd("описание лист", "описания лист", "описаниялист", "описаниелист",
+                    "список описаний", "список анкет", "анкеты лист", "анкета лист",
+                    "все описания", "все анкеты", "кто заполнил", "лист описаний", "лист анкет",
+                    section=S, usage="описание лист [стр]", desc="Список участников с анкетами с пагинацией"))
+async def cmd_desc_list(message: Message, bot: Bot, args: str = "", **kw):
+    if getattr(message.chat, "type", "") in {"group", "supergroup"} and message.chat.id != MAIN_CHAT:
+        return await message.reply(
+            "ℹ️ <b>Список анкет участников клана доступен в основном чате:</b>\n"
+            "https://t.me/+-vFNcAElB3lmMzli",
+            disable_web_page_preview=True)
+
+    page = 1
+    a = (args or "").strip()
+    for part in a.split():
+        if part.isdigit() and int(part) > 0:
+            page = int(part)
+            break
+    text, kb = await _render_desc_list_page(page)
+    await message.reply(text, reply_markup=kb, disable_web_page_preview=True)
+
+
+@router.callback_query(F.data.startswith("dl:"))
+async def cb_desc_list(call: CallbackQuery, bot: Bot):
+    if call.data == "dl:noop":
+        return await call.answer()
+    if call.data.startswith("dl:p:"):
+        page = int(call.data.split(":")[2])
+        text, kb = await _render_desc_list_page(page)
+        try:
+            await call.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
+        except Exception:
+            pass
+        await call.answer()

@@ -71,6 +71,11 @@ import h_webapp as webapp
 import h_community_support as community_support
 import h_owner_panel as owner_panel
 import h_social_fun as social_fun
+import h_security_plus as security_plus
+import h_staff_plus as staff_plus
+import h_economy_plus as economy_plus
+import h_social_plus as social_plus
+import h_veteran as veteran
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s")
@@ -236,6 +241,8 @@ def _selfheal_config() -> None:
     admins = set(getattr(config, "ADMINS", []) or [])
     admins.add(config.OWNER_ID)
     config.ADMINS = sorted(admins - {0})
+    if not getattr(config, "MAIN_CHAT", 0):
+        config.MAIN_CHAT = -1003934033202
     if not getattr(config, "STORAGE_INFO", None):
         try:
             import core_storage as _st
@@ -301,7 +308,9 @@ async def main() -> None:
               dk.router, chatlock.router, fun.router, modules.router, rp.router,
               userinfo.router, tournament.router, relations.router, vip.router,
               pets.router, market.router, dungeon.router, jackpot.router, titles.router,
-              party_games.router, webapp.router, community_support.router):
+              party_games.router, webapp.router, community_support.router,
+              security_plus.router, staff_plus.router, economy_plus.router, social_plus.router,
+              veteran.router):
         r.message.middleware(access_middleware)
 
     dp.include_router(nav.router)
@@ -316,6 +325,11 @@ async def main() -> None:
     dp.include_router(callall.router)
     dp.include_router(mod_ranks.router)
     dp.include_router(mod_bans.router)
+    dp.include_router(security_plus.router)
+    dp.include_router(staff_plus.router)
+    dp.include_router(economy_plus.router)
+    dp.include_router(social_plus.router)
+    dp.include_router(veteran.router)
     dp.include_router(automod.router)
     dp.include_router(nightmode.router)
     dp.include_router(ai_features.router)
@@ -389,6 +403,14 @@ async def main() -> None:
     asyncio.create_task(yookassa.yookassa_poller(bot))
     asyncio.create_task(support_tickets_loop(bot))
     await health.start()          # порт для healthcheck хостинга
+
+    loop = asyncio.get_running_loop()
+    import signal
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, lambda: asyncio.create_task(dp.stop_polling()))
+        except (NotImplementedError, AttributeError):
+            pass
 
     try:
         await bot.delete_webhook(drop_pending_updates=True)

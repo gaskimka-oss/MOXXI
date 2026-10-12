@@ -17,6 +17,7 @@ from aiogram.types import (CallbackQuery, InlineKeyboardButton,
                            InlineKeyboardMarkup, Message)
 
 import db
+import core_backup
 from core_registry import Cmd
 from core_resolve import human_period, parse_period, resolve_target
 from utils import hms, mention, mention_id, parse_amount, money, make_game_replay_kb
@@ -966,6 +967,10 @@ async def cmd_buy_business(message: Message, args: str = "", **kw):
     await db.add_coins(uid, -total_cost, "biz_buy", biz_key)
     new_count = await db.change_user_business(uid, biz_key, count)
     new_bal = await db.get_coins(uid)
+    try:
+        core_backup.schedule_quick_backup(message.bot)
+    except Exception:
+        pass
 
     await message.reply(
         f"🎉 <b>Успешная покупка!</b>\n\n"
@@ -1016,6 +1021,10 @@ async def cmd_sell_business(message: Message, args: str = "", **kw):
 
     await db.change_user_business(uid, biz_key, -count)
     new_bal = await db.add_coins(uid, total_gain, "biz_sell", biz_key)
+    try:
+        core_backup.schedule_quick_backup(message.bot)
+    except Exception:
+        pass
 
     await message.reply(
         f"🏷 <b>Предприятие ликвидировано!</b>\n\n"
@@ -1067,6 +1076,10 @@ async def cb_businesses(call: CallbackQuery):
             return await call.answer("⏳ Прибыль ещё не накопилась (начисляется каждую минуту).", show_alert=True)
         await db.update_business_collect_time(uid, keys)
         await db.add_coins(uid, total, "biz_income")
+        try:
+            core_backup.schedule_quick_backup(call.bot)
+        except Exception:
+            pass
         await call.answer(f"💰 Собрано: +{total:,} 🪙!", show_alert=True)
         # Обновляем меню на текущей странице
         user_biz = await db.get_user_businesses(uid)
@@ -1092,6 +1105,10 @@ async def cb_businesses(call: CallbackQuery):
             return await call.answer(f"Недостаточно монет! Нужно {buy_p:,} 🪙", show_alert=True)
         await db.add_coins(uid, -buy_p, "biz_buy", biz_key)
         await db.change_user_business(uid, biz_key, 1)
+        try:
+            core_backup.schedule_quick_backup(call.bot)
+        except Exception:
+            pass
         await call.answer(f"🎉 Куплено: {info['name']}!", show_alert=True)
         user_biz = await db.get_user_businesses(uid)
         text, kb = _render_biz_menu(uid, user_biz, prof, page=cur_page)
@@ -1104,8 +1121,84 @@ async def cb_businesses(call: CallbackQuery):
 
 
 # ═══════════════ БИЗНЕС-АУКЦИОНЫ В ЧАТЕ ═══════════════
+def get_business_tier(biz_key: str) -> str:
+    """Определяет категорию бизнеса: cheap, mythic, legendary"""
+    info = BUSINESS_TYPES.get(biz_key, {})
+    biz_id = info.get("id", 1)
+    if biz_id <= 10:
+        return "cheap"
+    elif biz_id <= 20:
+        return "mythic"
+    else:
+        return "legendary"
+
+
+TIER_TITLES = {
+    "cheap": "🌱 Дешёвый / Обычный (1-10 LVL)",
+    "mythic": "🔮 Мифический (11-20 LVL)",
+    "legendary": "👑 Легендарный (21-30 LVL)",
+}
+
+_auction_votes: dict[int, dict[int, str]] = {}  # chat_id -> {user_id: tier}
+
+
+def _render_auction_vote_kb(chat_id: int) -> InlineKeyboardMarkup:
+    votes = _auction_votes.get(chat_id, {})
+    c_count = sum(1 for t in votes.values() if t == "cheap")
+    m_count = sum(1 for t in votes.values() if t == "mythic")
+    l_count = sum(1 for t in votes.values() if t == "legendary")
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=f"🌱 Дешёвый ({c_count})", callback_data=f"auc_vote:{chat_id}:cheap"),
+            InlineKeyboardButton(text=f"🔮 Мифический ({m_count})", callback_data=f"auc_vote:{chat_id}:mythic"),
+            InlineKeyboardButton(text=f"👑 Легендарный ({l_count})", callback_data=f"auc_vote:{chat_id}:legendary"),
+        ]
+    ])
+
+
+def _render_auction_voting_view(chat_id: int) -> tuple[str, InlineKeyboardMarkup]:
+    votes = _auction_votes.get(chat_id, {})
+    total_votes = len(votes)
+    c_count = sum(1 for t in votes.values() if t == "cheap")
+    m_count = sum(1 for t in votes.values() if t == "mythic")
+    l_count = sum(1 for t in votes.values() if t == "legendary")
+
+    def _bar(cnt: int, tot: int) -> str:
+        if tot <= 0:
+            return "░░░░░░░░░░ 0%"
+        pct = int(round((cnt / tot) * 100))
+        filled = min(10, max(0, int(round((cnt / tot) * 10))))
+        return f"{'█' * filled}{'░' * (10 - filled)} {pct}%"
+
+    text = (
+        "🗳 <b>ГОЛОСОВАНИЕ: КАТЕГОРИЯ СЛЕДУЮЩЕГО АУКЦИОНА</b> 🔨\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        "Игроки беседы решают, какая категория предприятия выпадет на следующих торгах!\n\n"
+        f"🌱 <b>Дешёвые / Обычные</b> (1–10 ур.):\n"
+        f"<code>{_bar(c_count, total_votes)}</code> ({c_count} голосов)\n"
+        "<i>Ферма, Дом, Завод, Торговый центр, Шахта, СТО...</i>\n\n"
+        f"🔮 <b>Мифические</b> (11–20 ур.):\n"
+        f"<code>{_bar(m_count, total_votes)}</code> ({m_count} голосов)\n"
+        "<i>Корпорация, Сфера Дайсона, Марсианская база...</i>\n\n"
+        f"👑 <b>Легендарные</b> (21–30 ур.):\n"
+        f"<code>{_bar(l_count, total_votes)}</code> ({l_count} голосов)\n"
+        "<i>Квантовый мир, Галактическая империя...</i>\n\n"
+        f"👥 Всего голосов: <b>{total_votes}</b>\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        "👇 <b>Нажмите на кнопку с категорией, чтобы проголосовать:</b>"
+    )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"🌱 Дешёвый (1-10 ур) · {c_count}", callback_data=f"auc_vote:{chat_id}:cheap")],
+        [InlineKeyboardButton(text=f"🔮 Мифический (11-20 ур) · {m_count}", callback_data=f"auc_vote:{chat_id}:mythic")],
+        [InlineKeyboardButton(text=f"👑 Легендарный (21-30 ур) · {l_count}", callback_data=f"auc_vote:{chat_id}:legendary")],
+        [InlineKeyboardButton(text="🔄 Обновить результаты", callback_data=f"auc_vote_rf:{chat_id}")]
+    ])
+    return text, kb
+
+
 class ChatAuction:
-    def __init__(self, chat_id: int, biz_key: str, start_bid: int, duration_sec: int = 180):
+    def __init__(self, chat_id: int, biz_key: str, start_bid: int, duration_sec: int = 600, tier_name: str = "Обычный"):
         self.chat_id = chat_id
         self.biz_key = biz_key
         self.start_bid = start_bid
@@ -1117,6 +1210,7 @@ class ChatAuction:
         self.msg_id: int | None = None
         self.thread_id: int | None = None
         self.task: asyncio.Task | None = None
+        self.tier_name: str = tier_name
 
 
 _active_auctions: dict[int, ChatAuction] = {}
@@ -1141,15 +1235,19 @@ def _render_auction_card(auc: ChatAuction) -> tuple[str, InlineKeyboardMarkup]:
     step2 = max(500, int(auc.current_bid * 0.15))
     step3 = max(1000, int(auc.current_bid * 0.35))
 
+    tier_label = getattr(auc, "tier_name", "Обычный")
+
     text = (
         f"🏛 <b>БИЗНЕС-АУКЦИОН В ЧАТЕ!</b> 🔨\n"
         f"✦ ══ • ⊰ 💎 🏢 ⚡️ 🛰 🚀 🏦 ⊱ • ══ ✦\n\n"
+        f"🏷 <b>Категория лота:</b> <b>{tier_label}</b>\n"
         f"📦 <b>Выставленный лот:</b> {emoji} <b>{name}</b>\n"
         f"🏷 <b>Рыночная цена:</b> <b>{c(base)}</b>\n"
         f"💵 <b>Пассивный доход:</b> <code>+{income:,} 🪙/мин</code>\n\n"
         f"💰 <b>Текущая ставка:</b> <b>{c(auc.current_bid)}</b>\n"
         f"👤 <b>Лидер аукциона:</b> {leader_str}\n"
         f"⏳ <b>До завершения торгов:</b> <b>{left_sec} сек.</b>\n\n"
+        f"⚠️ <i>Правило: игроки, у которых уже есть это предприятие, не могут участвовать!</i>\n\n"
         f"💡 <i>Перебить ставку:</i> напишите <code>ставка [сумма]</code>\n"
         f"<i>(например, <code>ставка {auc.current_bid + step1}</code>) или нажмите кнопки ниже:</i>"
     )
@@ -1181,21 +1279,39 @@ async def _auction_timer_task(bot: Bot, chat_id: int):
             emoji = info.get("emoji", "🏢")
 
             if auc.has_bids and auc.highest_bidder_id:
-                await db.change_user_business(auc.highest_bidder_id, auc.biz_key, 1)
-                win_text = (
-                    f"🔨 💥 <b>АУКЦИОН ЗАВЕРШЁН! ПРОДАНО!</b> 💥 🔨\n\n"
-                    f"👑 <b>Победитель:</b> {mention_id(auc.highest_bidder_id, auc.highest_bidder_name or 'Игрок')}\n"
-                    f"🏆 <b>Выигранный лот:</b> {emoji} <b>{name}</b> за <b>{c(auc.current_bid)}</b>!\n\n"
-                    f"🎉 Предприятие перешло в вашу собственность! Прибыль начисляется каждую минуту (<code>бизнесы</code>)."
-                )
+                user_biz = await db.get_user_businesses(auc.highest_bidder_id)
+                if user_biz.get(auc.biz_key, {}).get("count", 0) > 0:
+                    # У игрока уже есть такой бизнес — отменяем и возвращаем ставку
+                    await db.add_coins(auc.highest_bidder_id, auc.current_bid, "auction_refund", auc.biz_key)
+                    win_text = (
+                        f"⚠️ <b>Аукцион завершён без передачи лота!</b>\n\n"
+                        f"Лидер торгов {mention_id(auc.highest_bidder_id, auc.highest_bidder_name or 'Игрок')} уже имеет в собственности {emoji} <b>{name}</b>.\n"
+                        f"Ставка <b>{c(auc.current_bid)}</b> полностью возвращена на баланс."
+                    )
+                else:
+                    await db.change_user_business(auc.highest_bidder_id, auc.biz_key, 1)
+                    try:
+                        core_backup.schedule_quick_backup(bot)
+                    except Exception:
+                        pass
+                    win_text = (
+                        f"🔨 💥 <b>АУКЦИОН ЗАВЕРШЁН! ПРОДАНО!</b> 💥 🔨\n\n"
+                        f"👑 <b>Победитель:</b> {mention_id(auc.highest_bidder_id, auc.highest_bidder_name or 'Игрок')}\n"
+                        f"🏆 <b>Выигранный лот:</b> {emoji} <b>{name}</b> за <b>{c(auc.current_bid)}</b>!\n\n"
+                        f"🎉 Предприятие перешло в вашу собственность! Прибыль начисляется каждую минуту (<code>бизнесы</code>)."
+                    )
             else:
                 win_text = (
                     f"⌛️ <b>Аукцион завершён!</b>\n\n"
                     f"📦 Лот {emoji} <b>{name}</b> снят с торгов, так как никто не сделал начальную ставку <b>{c(auc.start_bid)}</b>."
                 )
 
+            # Добавляем интерактивное голосование за лот следующего аукциона!
+            vote_kb = _render_auction_vote_kb(chat_id)
+            win_text += "\n\n🗳 <b>Голосуйте, какую категорию бизнеса выставить на следующий аукцион:</b>"
+
             try:
-                await bot.send_message(chat_id, win_text, message_thread_id=auc.thread_id)
+                await bot.send_message(chat_id, win_text, reply_markup=vote_kb, message_thread_id=auc.thread_id)
             except Exception:
                 pass
             break
@@ -1207,16 +1323,42 @@ async def start_chat_auction(bot: Bot, chat_id: int, biz_key: str | None = None,
     if chat_id in _active_auctions:
         return False
 
+    votes = _auction_votes.get(chat_id, {})
+    chosen_tier = None
     if not biz_key or biz_key not in BUSINESS_TYPES:
-        biz_key = random.choice(list(BUSINESS_TYPES.keys()))
+        if votes:
+            c_cnt = sum(1 for t in votes.values() if t == "cheap")
+            m_cnt = sum(1 for t in votes.values() if t == "mythic")
+            l_cnt = sum(1 for t in votes.values() if t == "legendary")
+            best_cnt = max(c_cnt, m_cnt, l_cnt)
+            candidates = []
+            if c_cnt == best_cnt:
+                candidates.append("cheap")
+            if m_cnt == best_cnt:
+                candidates.append("mythic")
+            if l_cnt == best_cnt:
+                candidates.append("legendary")
+            chosen_tier = random.choice(candidates)
+        else:
+            # Сбалансированный шанс: дешёвые и доступные бизнесы падают регулярно!
+            chosen_tier = random.choices(["cheap", "mythic", "legendary"], weights=[40, 35, 25])[0]
+
+        tier_biz_keys = [k for k in BUSINESS_TYPES.keys() if get_business_tier(k) == chosen_tier]
+        biz_key = random.choice(tier_biz_keys)
+    else:
+        chosen_tier = get_business_tier(biz_key)
+
+    # сбрасываем голоса после старта
+    _auction_votes.pop(chat_id, None)
 
     info = BUSINESS_TYPES[biz_key]
+    tier_label = TIER_TITLES.get(chosen_tier, "Обычный")
     start_bid = max(100, int(info["base_price"] * 0.40))
 
     if thread_id is None:
         thread_id = await get_gram_topic(chat_id)
 
-    auc = ChatAuction(chat_id=chat_id, biz_key=biz_key, start_bid=start_bid, duration_sec=180)
+    auc = ChatAuction(chat_id=chat_id, biz_key=biz_key, start_bid=start_bid, duration_sec=600, tier_name=tier_label)
     auc.thread_id = thread_id
     _active_auctions[chat_id] = auc
 
@@ -1239,6 +1381,13 @@ async def place_auction_bid(bot: Bot, chat_id: int, user_id: int, user_name: str
     auc = _active_auctions.get(chat_id)
     if not auc:
         return False, "В этом чате сейчас нет активного аукциона."
+
+    # Проверка: если у человека уже есть это предприятие — не даём делать ставку!
+    user_biz = await db.get_user_businesses(user_id)
+    have_count = user_biz.get(auc.biz_key, {}).get("count", 0)
+    if have_count > 0:
+        info = BUSINESS_TYPES.get(auc.biz_key, {})
+        return False, f"❌ У вас уже есть {info.get('emoji', '🏢')} <b>{info.get('name', 'это предприятие')}</b> ({have_count} шт.)!\nНа аукционе можно бороться только за те предприятия, которых у вас ещё нет."
 
     now = int(time.time())
     if now >= auc.end_ts:
@@ -1267,9 +1416,9 @@ async def place_auction_bid(bot: Bot, chat_id: int, user_id: int, user_name: str
     auc.highest_bidder_id = user_id
     auc.highest_bidder_name = user_name
 
-    # Анти-снайп продление (+30 секунд если < 30 сек)
-    if auc.end_ts - now < 30:
-        auc.end_ts = now + 30
+    # Анти-снайп продление (+60 секунд если < 60 сек)
+    if auc.end_ts - now < 60:
+        auc.end_ts = now + 60
 
     # Обновляем карточку
     if auc.msg_id:
@@ -1462,6 +1611,82 @@ async def cb_auction_refresh(call: CallbackQuery):
     except Exception:
         pass
     await call.answer("Статус обновлён")
+
+
+@router.callback_query(F.data.startswith("auc_vote:"))
+async def cb_auction_vote(call: CallbackQuery):
+    parts = call.data.split(":")
+    cid = int(parts[1])
+    tier = parts[2]
+    uid = call.from_user.id
+    if tier not in ("cheap", "mythic", "legendary"):
+        return await call.answer("Неверная категория", show_alert=True)
+
+    if cid not in _auction_votes:
+        _auction_votes[cid] = {}
+    _auction_votes[cid][uid] = tier
+
+    tier_title = TIER_TITLES.get(tier, tier)
+    await call.answer(f"✅ Ваш голос принят: {tier_title}!", show_alert=True)
+
+    text_body = getattr(call.message, "text", "") or ""
+    if "ГОЛОСОВАНИЕ: КАТЕГОРИЯ" in text_body:
+        text, kb = _render_auction_voting_view(cid)
+        try:
+            await call.message.edit_text(text, reply_markup=kb)
+        except Exception:
+            pass
+    else:
+        vote_kb = _render_auction_vote_kb(cid)
+        try:
+            await call.message.edit_reply_markup(reply_markup=vote_kb)
+        except Exception:
+            pass
+
+
+@router.callback_query(F.data.startswith("auc_vote_rf:"))
+async def cb_auction_vote_refresh(call: CallbackQuery):
+    cid = int(call.data.split(":")[1])
+    text, kb = _render_auction_voting_view(cid)
+    try:
+        await call.message.edit_text(text, reply_markup=kb)
+    except Exception:
+        pass
+    await call.answer("Результаты голосования обновлены!")
+
+
+@router.message(Cmd("аукцион голос", "голос аукцион", "аук голос", "голос аукциона",
+                    "аукцион голосование", "голосование аукцион", "выбор аукциона",
+                    "аукцион кнопки", "аукцион категории",
+                    section=S, usage="аукцион голос [дешёвый/мифический/легендарный]",
+                    desc="Голосовать за категорию бизнеса на следующем аукционе"))
+async def cmd_auction_vote_message(message: Message, bot: Bot, args: str = "", **kw):
+    raw = (args or "").strip().lower()
+    cid = message.chat.id
+    uid = message.from_user.id
+
+    tier = None
+    if any(w in raw for w in ("деш", "дешев", "дешевый", "cheap", "1")):
+        tier = "cheap"
+    elif any(w in raw for w in ("миф", "мифич", "мифический", "mythic", "2")):
+        tier = "mythic"
+    elif any(w in raw for w in ("лег", "легенд", "легендарный", "legendary", "3")):
+        tier = "legendary"
+
+    if tier:
+        if cid not in _auction_votes:
+            _auction_votes[cid] = {}
+        _auction_votes[cid][uid] = tier
+
+    text, kb = _render_auction_voting_view(cid)
+    if tier:
+        tier_title = TIER_TITLES.get(tier, tier)
+        await message.reply(
+            f"✅ Ваш голос учтён: <b>{tier_title}</b>!\n\n" + text,
+            reply_markup=kb
+        )
+    else:
+        await message.reply(text, reply_markup=kb)
 
 
 # ═══════════════ СПИСОК ИГР ═══════════════
@@ -2585,6 +2810,37 @@ async def cmd_give_admin(message: Message, bot: Bot, args: str = "", **kw):
     bal = await db.add_balance(uid, amount, "admin_add", str(message.from_user.id))
     await message.reply(f"✅ {mention_id(uid, name)} получил <b>+{c(amount)}</b>\n"
                         f"Баланс: <b>{c(bal)}</b>")
+
+
+@router.message(Cmd("выдать бизнес", "дать бизнес", "бизнес выдать", "выдать предприятие", section=S, rank=6,
+                    usage="выдать бизнес {ссылка} {название} [кол-во]",
+                    desc="Выдать предприятие игроку (техадмин / 6+ ранг)"))
+async def cmd_give_business(message: Message, bot: Bot, args: str = "", **kw):
+    from core_ranks import require
+    if not await require(message, bot, 6):
+        return
+    uid, name, rest = await resolve_target(message, args, bot)
+    if not uid:
+        uid, name = message.from_user.id, message.from_user.first_name
+        rest = args
+    parts = (rest or "").strip().split()
+    if not parts:
+        return await message.reply("Использование: <code>выдать бизнес @user ферма 1</code>")
+    count = 1
+    if parts[-1].isdigit():
+        count = max(1, min(1000, int(parts[-1])))
+        name_q = " ".join(parts[:-1])
+    else:
+        name_q = " ".join(parts)
+    biz_key, info = find_business_by_alias(name_q)
+    if not biz_key:
+        return await message.reply("❌ Предприятие не найдено. Напишите <code>бизнесы</code>.")
+    new_count = await db.change_user_business(uid, biz_key, count)
+    try:
+        core_backup.schedule_quick_backup(bot)
+    except Exception:
+        pass
+    await message.reply(f"✅ {mention_id(uid, name)} выдано: {info['emoji']} <b>{info['name']}</b> × {count} шт. (всего: <b>{new_count} шт.</b>)")
 
 
 @router.message(Cmd("монеты сет", "монеты set", "сет монет", "установить монеты", "coin set", "set coins", "кометы сет", "сет", "set", "установить", "p set", section=S, rank=6,

@@ -49,6 +49,15 @@ async def _delete_flag(chat_id: int) -> bool:
     return await db.get_setting(chat_id, "automod_delete", "1") == "1"
 
 
+async def _autodel_msg(msg, delay: int = 5):
+    try:
+        import asyncio
+        await asyncio.sleep(delay)
+        await msg.delete()
+    except Exception:
+        pass
+
+
 def uid_self(message: Message) -> int:
     return message.from_user.id if message.from_user else 0
 
@@ -59,8 +68,6 @@ async def handle(message: Message, bot: Bot) -> bool:
         return False
     if not message.from_user or message.from_user.is_bot:
         return False
-    if not await is_enabled(message.chat.id):
-        return False
 
     text = (message.text or message.caption or "").strip()
     if len(text) < 2:
@@ -69,6 +76,57 @@ async def handle(message: Message, bot: Bot) -> bool:
     # модерацию не трогаем
     min_rank = int(await db.get_setting(message.chat.id, "automod_skip_rank", "1"))
     if await effective_rank(message, bot) >= min_rank:
+        return False
+
+    # 1. Проверка пользовательского чёрного списка запрещённых слов чата (+фильтр)
+    filters = await db.get_filtered_words(message.chat.id)
+    if filters:
+        text_lower = text.lower()
+        matched_word = None
+        filter_action = "warn"
+        for fw in filters:
+            w = fw["word"].lower().strip()
+            if w in text_lower:
+                matched_word = w
+                filter_action = fw.get("action") or "warn"
+                break
+
+        if matched_word:
+            try:
+                await message.delete()
+            except Exception:
+                pass
+
+            uid = message.from_user.id
+            import asyncio
+            if filter_action == "mute":
+                secs = 3600
+                until = datetime.now(timezone.utc) + timedelta(seconds=secs)
+                try:
+                    await bot.restrict_chat_member(message.chat.id, uid, MUTE_OFF, until_date=until)
+                except Exception:
+                    pass
+                await log_punish(message.chat.id, uid, "mute", f"фильтр слов: {matched_word}", secs, 0)
+                notice = await message.answer(
+                    f"🔇 {mention(message.from_user)} получил <b>мут на 1 час</b> за запрещённое слово!"
+                )
+            elif filter_action == "delete":
+                notice = await message.answer(
+                    f"🗑 Сообщение {mention(message.from_user)} удалено: содержит запрещённое слово из фильтра чата."
+                )
+            else:  # warn
+                await db.execute(
+                    "INSERT INTO warns (chat_id, user_id, reason, by_id, ts) VALUES (?,?,?,?,?)",
+                    (message.chat.id, uid, f"запрещённое слово ({matched_word})", 0, int(time.time()))
+                )
+                await log_punish(message.chat.id, uid, "warn", f"фильтр слов: {matched_word}", 0, 0)
+                notice = await message.answer(
+                    f"⚠️ {mention(message.from_user)} получил <b>предупреждение</b> за запрещённое слово!"
+                )
+            asyncio.create_task(_autodel_msg(notice, 7))
+            return True
+
+    if not await is_enabled(message.chat.id):
         return False
 
     use_ai = await db.get_setting(message.chat.id, "automod_ai", "1") == "1"
@@ -432,3 +490,91 @@ async def cmd_ask_ai(message: Message, bot: Bot, args: str = "", **kw):
     if len(ans) > 3900:
         ans = ans[:3900] + "\n\n<i>(ответ сокращён)</i>"
     await m.edit_text(f"🧠 <b>Ответ ИИ:</b>\n\n{html.escape(ans)}")
+
+
+# ═══════════════ ФИЛЬТР ЗАПРЕЩЁННЫХ СЛОВ ═══════════════
+
+@router.message(Cmd("+фильтр", "фильтр +", "фильтр добавить", section=S, rank=2,
+                    usage="+фильтр [слово]", desc="Добавить слово в чёрный список чата"))
+async def cmd_add_filter(message: Message, bot: Bot, args: str = "", **kw):
+    if not await require(message, bot, 2):
+        return
+    word = (args or "").strip().lower()
+    if not word or len(word) < 2:
+        return await message.reply("Укажите запрещённое слово или фразу:\nПример: <code>+фильтр спам</code>")
+    if len(word) > 50:
+        return await message.reply("Слово слишком длинное (максимум 50 символов).")
+
+    action = await db.get_setting(message.chat.id, "filter_action", "warn")
+    await db.add_filtered_word(message.chat.id, word, action)
+    act_str = "предупреждение (варн)" if action == "warn" else ("мут 1 час" if action == "mute" else "тихое удаление")
+    await message.reply(
+        f"✅ Слово «<b>{html.escape(word)}</b>» добавлено в чёрный список чата!\n"
+        f"⚡️ Действие при нарушении: <b>{act_str}</b>."
+    )
+
+
+@router.message(Cmd("-фильтр", "фильтр -", "фильтр удалить", section=S, rank=2,
+                    usage="-фильтр [слово]", desc="Удалить слово из чёрного списка чата"))
+async def cmd_remove_filter(message: Message, bot: Bot, args: str = "", **kw):
+    if not await require(message, bot, 2):
+        return
+    word = (args or "").strip().lower()
+    if not word:
+        return await message.reply("Укажите слово для удаления из фильтра:\nПример: <code>-фильтр спам</code>")
+    await db.remove_filtered_word(message.chat.id, word)
+    await message.reply(f"🗑 Слово «<b>{html.escape(word)}</b>» удалено из чёрного списка чата.")
+
+
+@router.message(Cmd("фильтры", "фильтр список", "черный список слов", "чс слов", section=S, rank=1,
+                    usage="фильтры", desc="Список запрещённых слов в чате"))
+async def cmd_list_filters(message: Message, bot: Bot, **kw):
+    if not await require(message, bot, 1):
+        return
+    words = await db.get_filtered_words(message.chat.id)
+    if not words:
+        return await message.reply(
+            "📋 В чёрном списке чата пока нет добавленных слов.\n\n"
+            "Добавить: <code>+фильтр [слово]</code>"
+        )
+    action = await db.get_setting(message.chat.id, "filter_action", "warn")
+    act_str = "предупреждение (варн)" if action == "warn" else ("мут 1 час" if action == "mute" else "тихое удаление")
+    lines = [
+        f"📋 <b>ЧЁРНЫЙ СПИСОК СЛОВ ЧАТА ({len(words)}):</b>",
+        f"⚙️ <i>Текущее действие: <b>{act_str}</b></i>\n"
+    ]
+    for idx, w in enumerate(words, 1):
+        lines.append(f"{idx}. <code>{html.escape(w['word'])}</code>")
+    lines.append("\n💡 <i>Добавить: <code>+фильтр [слово]</code> · Удалить: <code>-фильтр [слово]</code></i>")
+    await message.reply("\n".join(lines))
+
+
+@router.message(Cmd("фильтр режим", "фильтр действие", section=S, rank=4,
+                    usage="фильтр режим варн|мут|удаление", desc="Настроить действие фильтра слов"))
+async def cmd_filter_action(message: Message, bot: Bot, args: str = "", **kw):
+    if not await require(message, bot, 4):
+        return
+    a = (args or "").strip().lower()
+    if a in {"мут", "mute"}:
+        await db.set_setting(message.chat.id, "filter_action", "mute")
+        return await message.reply("🔇 Теперь за запрещённые слова выдаётся <b>мут на 1 час</b>.")
+    if a in {"варн", "warn", "предупреждение"}:
+        await db.set_setting(message.chat.id, "filter_action", "warn")
+        return await message.reply("⚠️ Теперь за запрещённые слова выдаётся <b>предупреждение (варн)</b>.")
+    if a in {"удаление", "удалять", "delete"}:
+        await db.set_setting(message.chat.id, "filter_action", "delete")
+        return await message.reply("🗑 Теперь запрещённые сообщения просто <b>удаляются</b> без наказания.")
+    cur = await db.get_setting(message.chat.id, "filter_action", "warn")
+    await message.reply(
+        f"⚙️ Текущий режим фильтра: <b>{cur}</b>\n\n"
+        f"Изменить: <code>фильтр режим мут</code> / <code>фильтр режим варн</code> / <code>фильтр режим удаление</code>"
+    )
+
+
+@router.message(Cmd("фильтр очистить", "фильтр сброс", section=S, rank=5,
+                    usage="фильтр очистить", desc="Очистить все запрещённые слова в чате"))
+async def cmd_clear_filters(message: Message, bot: Bot, **kw):
+    if not await require(message, bot, 5):
+        return
+    await db.clear_filtered_words(message.chat.id)
+    await message.reply("🧹 Чёрный список слов чата полностью очищен.")

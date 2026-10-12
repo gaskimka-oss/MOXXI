@@ -102,7 +102,7 @@ def _score(p: Path, mk: dict) -> tuple:
     boots = int(mk.get("boots", 0))
     # /app/data — штатное постоянное хранилище Bothost, ему приоритет
     preferred = 1 if str(p) in ("/app/data", os.getenv("DATA_DIR", "")) else 0
-    return (survived, boots, has_db, preferred)
+    return (has_db, survived, boots, preferred)
 
 
 def choose() -> tuple[Path, dict]:

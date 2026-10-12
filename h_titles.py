@@ -175,3 +175,62 @@ async def cb_titles_action(call: CallbackQuery, bot: Bot):
         await call.message.edit_text(text, reply_markup=_titles_kb(user_titles, active_title, is_vip_plus))
     except Exception:
         pass
+
+
+# ================== КАСТОМНЫЕ ПРЕФИКСЫ И ТИТУЛЫ В ЧАТЕ ==================
+
+RANK_PREFIXES = {
+    10: "[👑 Владелец]",
+    9: "[⚜️ Зам]",
+    8: "[💻 Техадмин]",
+    7: "[🏛 Гл. Админ]",
+    6: "[🛡 Ст. Админ]",
+    5: "[⚔️ Мл. Админ]",
+    4: "[🔮 Гл. Модер]",
+    3: "[🎖 Ст. Модер]",
+    2: "[🔰 Мл. Модер]",
+    1: "[🍃 Стажёр]",
+}
+
+
+async def get_display_prefix(chat_id: int, user_id: int) -> str:
+    """Возвращает отображаемый префикс пользователя: кастомный или по рангу должности."""
+    cust = await db.get_setting(chat_id, f"prefix_{user_id}", "")
+    if cust:
+        return cust
+    from core_ranks import get_rank
+    r = await get_rank(chat_id, user_id)
+    return RANK_PREFIXES.get(r, "")
+
+
+@router.message(Cmd("+префикс", "префикс", "установить префикс", section=S, rank=0,
+                    usage="+префикс [текст]", desc="Установить личный префикс в чате"))
+async def cmd_set_prefix(message: Message, bot: Bot, args: str = "", **kw):
+    uid = message.from_user.id
+    text = (args or "").strip()
+    if not text:
+        cur = await get_display_prefix(message.chat.id, uid)
+        cur_str = f"<b>{html.escape(cur)}</b>" if cur else "<i>не установлен (действует по рангу)</i>"
+        return await message.reply(
+            f"🏷 <b>Ваш текущий префикс в чате:</b> {cur_str}\n\n"
+            f"💡 Чтобы установить: <code>+префикс [Лидер]</code> или <code>+префикс [Босс]</code>\n"
+            f"🗑 Чтобы снять: <code>-префикс</code>"
+        )
+    if len(text) > 30:
+        return await message.reply("⛔️ Префикс слишком длинный (максимум 30 символов).")
+
+    if not (text.startswith("[") and text.endswith("]")):
+        text = f"[{text}]"
+
+    await db.set_setting(message.chat.id, f"prefix_{uid}", text)
+    await message.reply(f"✅ Установлен личный префикс в чате: <b>{html.escape(text)}</b>")
+
+
+@router.message(Cmd("-префикс", "снять префикс", "удалить префикс", section=S, rank=0,
+                    usage="-префикс", desc="Снять кастомный префикс"))
+async def cmd_remove_prefix(message: Message, bot: Bot, **kw):
+    uid = message.from_user.id
+    await db.set_setting(message.chat.id, f"prefix_{uid}", "")
+    def_prefix = await get_display_prefix(message.chat.id, uid)
+    def_str = f" (теперь действует по должности: <b>{html.escape(def_prefix)}</b>)" if def_prefix else ""
+    await message.reply(f"🧹 Личный префикс снят{def_str}.")

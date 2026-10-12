@@ -32,12 +32,32 @@ STAFF: dict[int, dict[str, tuple[str, int, int]]] = {
     MAIN_CHAT: {
         "Kaktys6390": ("Kaktys6390", 8, 8297844640),
         "L_I_ZAVETKA": ("༒𝐿𝑖𝑧𝑎𝑣𝑒𝑡𝑎༒", 7, 6592023977),
-        "Simba253": ("Simba", 6, 8412527198),
+        "Simba253": ("Simba", 7, 8412527198),
+        "welwesvpn": ("Simba", 7, 8412527198),
         "Ksyxa0201": ("D乇尺ZK卂ㄚ卂", 5, 682842064),
         "sneik132": ("Sssss🔥", 3, 5955897143),
         "Fil1003": ("Fil1003", 3, 0),
     },
 }
+
+
+async def seed_staff_ranks() -> None:
+    """Гарантирует, что модерация (включая Simba) всегда присутствует в ranks и staff."""
+    now = int(time.time())
+    for chat_id, members_dict in STAFF.items():
+        for username, (name, rank, uid) in members_dict.items():
+            if uid > 0:
+                await db.execute(
+                    "INSERT INTO ranks (chat_id, user_id, rank, granted_by, ts) VALUES (?, ?, ?, 0, ?) "
+                    "ON CONFLICT(chat_id, user_id) DO UPDATE SET rank=MAX(rank, excluded.rank)",
+                    (chat_id, uid, rank, now)
+                )
+            await db.execute(
+                "INSERT INTO staff (chat_id, username, name, rank, user_id, left_chat, ts, pos) "
+                "VALUES (?, ?, ?, ?, ?, 0, ?, 1) "
+                "ON CONFLICT(chat_id, username) DO UPDATE SET rank=MAX(rank, excluded.rank), user_id=excluded.user_id",
+                (chat_id, username, name, rank, uid, now)
+            )
 
 
 async def mark_filled_profiles() -> int:
@@ -200,6 +220,11 @@ async def apply() -> None:
         await cleanup_isolated_ranks()
     except Exception as e:
         log.warning("очистка изолированных рангов: %s", e)
+
+    try:
+        await seed_staff_ranks()
+    except Exception as e:
+        log.warning("заполнение состава рангов: %s", e)
 
     try:
         await mark_filled_profiles()

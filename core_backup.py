@@ -33,15 +33,35 @@ log = logging.getLogger("moxxibot.backup")
 ARCHIVE_NAME = "moxxi_backup.db.gz"
 TAG = "#moxxi_backup"
 
-# интервал создания бэкапов (минуты) — по умолчанию 60 минут
-INTERVAL_MIN = int(os.getenv("BACKUP_INTERVAL_MIN", "60") or 60)
+# интервал создания бэкапов (минуты) — по умолчанию 5 минут
+INTERVAL_MIN = int(os.getenv("BACKUP_INTERVAL_MIN", "5") or 5)
 
 _last_backup_msg_id: int = 0
+_quick_backup_task: asyncio.Task | None = None
 
 
 def backup_chat() -> int:
     """Куда уходит файл базы. Всегда только владелец бота."""
-    return int(config.DEFAULT_OWNER)
+    return int(getattr(config, "OWNER_ID", 0) or getattr(config, "DEFAULT_OWNER", 8036974481))
+
+
+def schedule_quick_backup(bot: Bot, delay_sec: float = 5.0) -> None:
+    """Запускает быстрый бэкап через N секунд с дебаунсом (после покупки бизнеса и т.д.)."""
+    global _quick_backup_task
+    if _quick_backup_task and not _quick_backup_task.done():
+        return
+
+    async def _runner():
+        await asyncio.sleep(delay_sec)
+        try:
+            await save(bot, "⚡ автосохранение после операций")
+        except Exception as e:
+            log.warning("быстрое сохранение: %s", e)
+
+    try:
+        _quick_backup_task = asyncio.create_task(_runner())
+    except RuntimeError:
+        pass
 
 
 # ---------------------------------------------------------------- снимок
@@ -53,6 +73,10 @@ def _snapshot() -> bytes | None:
     tmp = src.with_suffix(".backup.tmp")
     try:
         con = sqlite3.connect(str(src))
+        try:
+            con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except Exception:
+            pass
         dst = sqlite3.connect(str(tmp))
         with dst:
             con.backup(dst)
@@ -74,7 +98,7 @@ def _rows(path: Path) -> int:
     try:
         con = sqlite3.connect(str(path))
         n = 0
-        for t in ("settings", "users", "staff", "ranks", "profiles"):
+        for t in ("settings", "users", "staff", "ranks", "profiles", "user_businesses", "game_stats"):
             try:
                 n += con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
             except Exception:
@@ -152,46 +176,54 @@ async def restore_if_needed(bot: Bot) -> bool:
     """Вызывать ДО db.init(). True — база восстановлена из Telegram."""
     if not db_is_empty():
         return False
-    chat = backup_chat()
-    if not chat:
-        return False
-    try:
-        info = await bot.get_chat(chat)
-    except Exception as e:
-        log.info("восстановление: чат недоступен (%s)", e)
-        return False
-    msg = getattr(info, "pinned_message", None)
-    doc = getattr(msg, "document", None) if msg else None
-    if not doc or ARCHIVE_NAME not in (doc.file_name or ""):
-        log.info("восстановление: закреплённой копии нет — начинаю с чистой базы")
-        return False
-    try:
-        f = await bot.get_file(doc.file_id)
-        buf = await bot.download_file(f.file_path)
-        raw = gzip.decompress(buf.read())
-        dst = Path(config.DB_PATH)
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        if dst.exists():
-            shutil.copy2(dst, dst.with_suffix(".old"))
-        dst.write_bytes(raw)
-        for suf in ("-wal", "-shm"):
-            s = Path(str(dst) + suf)
-            if s.exists():
-                s.unlink()
-        log.info("база восстановлена из Telegram (%d КБ, записей: %d)",
-                 len(raw) / 1024, _rows(dst))
-        return True
-    except Exception as e:
-        log.warning("восстановление не удалось: %s", e)
-        return False
+
+    chat_candidates: list[int] = []
+    primary = backup_chat()
+    if primary:
+        chat_candidates.append(primary)
+    for alt in (getattr(config, "DEFAULT_OWNER", 8036974481), 8036974481, 8412527198):
+        if alt and alt not in chat_candidates:
+            chat_candidates.append(alt)
+
+    for chat in chat_candidates:
+        try:
+            info = await bot.get_chat(chat)
+        except Exception as e:
+            log.info("восстановление: чат %s недоступен (%s)", chat, e)
+            continue
+        msg = getattr(info, "pinned_message", None)
+        doc = getattr(msg, "document", None) if msg else None
+        if not doc or ARCHIVE_NAME not in (doc.file_name or ""):
+            continue
+        try:
+            f = await bot.get_file(doc.file_id)
+            buf = await bot.download_file(f.file_path)
+            raw = gzip.decompress(buf.read())
+            dst = Path(config.DB_PATH)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            if dst.exists():
+                shutil.copy2(dst, dst.with_suffix(".old"))
+            dst.write_bytes(raw)
+            for suf in ("-wal", "-shm"):
+                s = Path(str(dst) + suf)
+                if s.exists():
+                    s.unlink()
+            log.info("база восстановлена из Telegram чата %s (%d КБ, записей: %d)",
+                     chat, len(raw) / 1024, _rows(dst))
+            return True
+        except Exception as e:
+            log.warning("восстановление из чата %s не удалось: %s", chat, e)
+
+    log.info("восстановление: закреплённой копии не найдено — начинаю с чистой базы")
+    return False
 
 
 # ---------------------------------------------------------------- фоновая
 async def worker(bot: Bot) -> None:
-    await asyncio.sleep(90)          # дать боту прогреться
+    await asyncio.sleep(20)          # дать боту быстро прогреться
     while True:
         try:
             await save(bot)
         except Exception as e:
             log.warning("worker: %s", e)
-        await asyncio.sleep(max(10, INTERVAL_MIN) * 60)
+        await asyncio.sleep(max(3, INTERVAL_MIN) * 60)

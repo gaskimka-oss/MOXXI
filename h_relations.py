@@ -352,15 +352,35 @@ async def cmd_rel_main(message: Message, bot: Bot, args: str = "", **kw):
     me_id = message.from_user.id
     raw_arg = (args or "").strip().lower()
 
+    # Запросы в отношения
+    if raw_arg in ("запрос", "запросы", "предложение", "предложения"):
+        incoming = await db.fetchall("SELECT from_id, ts FROM marry_requests WHERE to_id=?", (me_id,))
+        outgoing = await db.fetchall("SELECT to_id, ts FROM marry_requests WHERE from_id=?", (me_id,))
+        if not incoming and not outgoing:
+            return await message.reply("💌 У вас нет активных предложений вступить в отношения.\n"
+                                       "Чтобы сделать предложение: <code>отн @юзер</code>")
+        lines = ["💌 <b>Запросы в отношения:</b>\n"]
+        if incoming:
+            lines.append("📥 <b>Входящие:</b>")
+            for r in incoming:
+                u = await db.get_user(r["from_id"])
+                uname = u["first_name"] or str(r["from_id"])
+                lines.append(f"• От {mention_id(r['from_id'], uname)}")
+        if outgoing:
+            lines.append("\n📤 <b>Исходящие:</b>")
+            for r in outgoing:
+                u = await db.get_user(r["to_id"])
+                uname = u["first_name"] or str(r["to_id"])
+                lines.append(f"• Для {mention_id(r['to_id'], uname)}")
+        return await message.reply("\n".join(lines))
+
     # Переключение между парами: "мой отн основа", "мой отн 1", "отн 2", и т.д.
     if raw_arg in ("основа", "основной") or raw_arg.isdigit():
         idx = 1 if raw_arg in ("основа", "основной") else int(raw_arg)
         rels = await db.get_user_relationships(me_id)
         if not rels:
-            if had_prefix or not in_group:
-                return await message.reply(
-                    "❌ <b>У вас нет отношений.</b>\nВступите в отношения командой: <code>отн @юзер</code>")
-            return
+            return await message.reply(
+                "❌ <b>У вас нет отношений.</b>\nВступите в отношения командой: <code>отн @юзер</code>")
         if idx < 1 or idx > len(rels):
             return await message.reply(
                 f"⚠️ У вас зарегистрировано <b>{len(rels)}</b> союзов. Укажите номер от 1 до {len(rels)}: <code>мой отн 1</code>")
@@ -393,16 +413,14 @@ async def cmd_rel_main(message: Message, bot: Bot, args: str = "", **kw):
     # Если аргументов нет — выводим активную пару
     rels = await db.get_user_relationships(me_id)
     if not rels:
-        if had_prefix or not in_group:
-            return await message.reply(
-                "❌ <b>У вас нет отношений.</b>\n\n"
-                "Вступите в отношения, чтобы открыть возможности пары, совместную прокачку, "
-                "имущество и семью!\n\n"
-                "💡 <b>Как сделать предложение:</b>\n"
-                "• Ответьте на сообщение избранника: <code>отн</code> или <code>брак</code>\n"
-                "• Или напишите: <code>отн @username</code>",
-                disable_web_page_preview=True)
-        return
+        return await message.reply(
+            "❌ <b>У вас нет отношений.</b>\n\n"
+            "Вступите в отношения, чтобы открыть возможности пары, совместную прокачку, "
+            "имущество и семью!\n\n"
+            "💡 <b>Как сделать предложение:</b>\n"
+            "• Ответьте на сообщение избранника: <code>отн</code> или <code>брак</code>\n"
+            "• Или напишите: <code>отн @username</code>",
+            disable_web_page_preview=True)
 
     cur_idx = await db.get_active_rel_idx(me_id)
     if cur_idx > len(rels):
@@ -792,10 +810,8 @@ async def process_rel_action(message: Message, bot: Bot, action_key: str, **kw):
     me_id = message.from_user.id
     rels = await db.get_user_relationships(me_id)
     if not rels:
-        if had_prefix or not in_group:
-            return await message.reply(
-                "❌ <b>У вас нет отношений.</b>\nВступите в отношения командой: <code>отн @юзер</code>")
-        return
+        return await message.reply(
+            "❌ <b>У вас нет отношений.</b>\nВступите в отношения командой: <code>отн @юзер</code>")
 
     # Выбираем активную пару
     cur_idx = await db.get_active_rel_idx(me_id)
@@ -937,16 +953,13 @@ async def cmd_act_compliment(message: Message, bot: Bot, args: str = "", **kw):
                 f"💬 {mention(message.from_user)} делает комплимент {mention_id(uid, name)}:\n\n"
                 f"✨ {phrase} ✨")
 
-    # Если отношений вообще нет
     if not rels:
-        if had_prefix or not in_group:
-            return await message.reply(
-                "💬 <b>Сделать комплимент</b>\n\n"
-                "У вас пока нет отношений. Чтобы радовать свою вторую половинку и прокачивать любовь, "
-                "вступите в отношения: <code>отн @юзер</code>!\n\n"
-                "💡 <i>Вы также можете сделать обычный комплимент любому участнику: <code>комплимент @юзер</code></i>",
-                disable_web_page_preview=True)
-        return
+        return await message.reply(
+            "💬 <b>Сделать комплимент</b>\n\n"
+            "У вас пока нет отношений. Чтобы радовать свою вторую половинку и прокачивать любовь, "
+            "вступите в отношения: <code>отн @юзер</code>!\n\n"
+            "💡 <i>Вы также можете сделать обычный комплимент любому участнику: <code>комплимент @юзер</code></i>",
+            disable_web_page_preview=True)
 
     await process_rel_action(message, bot, "комплимент", **kw)
 

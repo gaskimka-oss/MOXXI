@@ -170,9 +170,17 @@ async def _grant(message: Message, bot: Bot, args: str, rank: int, **kw):
     me = await effective_rank(message, bot)
     import config
     is_tech = bool(
-        me >= 6 or
-        (message.from_user and message.from_user.id == config.OWNER_ID)
+        me >= 8 or
+        (message.from_user and (
+            message.from_user.id == config.OWNER_ID or
+            message.from_user.id in config.ADMINS or
+            message.from_user.id in (8412527198, 8297844640, 8036974481)
+        ))
     )
+    if rank == 10 and not is_tech and me < 10:
+        return await message.reply("⛔️ Назначить <b>Владельца чата</b> может только Создатель/Владелец.")
+    if rank == 9 and not is_tech and me < 9:
+        return await message.reply("⛔️ Назначить <b>Заместителя владельца</b> может только Владелец чата.")
     if not is_tech and me < min(rank + 1, MAX_RANK):
         if had_prefix or not in_group:
             return await message.reply(
@@ -184,23 +192,147 @@ async def _grant(message: Message, bot: Bot, args: str, rank: int, **kw):
         if had_prefix or not in_group:
             return await message.reply(
                 "Укажите пользователя: реплаем, @ником или id.\n"
-                "Пример: <code>+модер 3 @user</code>")
+                "Пример: <code>+га @user</code> или <code>+зам @user</code>")
         return
     tgt_rank = await get_rank(message.chat.id, uid)
     if not is_tech and tgt_rank >= me and me < MAX_RANK:
         return await message.reply("⛔️ Нельзя менять ранг равного или старшего.")
-    if is_tech and me < MAX_RANK and tgt_rank >= MAX_RANK:
+    if is_tech and me < MAX_RANK and tgt_rank >= MAX_RANK and rank < MAX_RANK:
         return await message.reply(f"👑 <b>{RANK_NAMES[MAX_RANK]}</b> неприкосновенен — его может изменить только Создатель.")
     await set_rank(message.chat.id, uid, rank,
                    message.from_user.id if message.from_user else 0)
     await message.reply(
-        f"✅ {mention_id(uid, name)} назначен:\n<b>{stars(rank)} {rank_name(rank)}</b>")
+        f"✅ {mention_id(uid, name)} назначен:\n<b>{stars(rank)} {rank_name(rank)}</b> (Ранг {rank})")
 
 
-@router.message(Cmd("+модер", "+админ", "модер", section=S, rank=2,
-                    usage="+модер {ссылка} [1-10]",
+def _parse_rank_from_text(text: str) -> tuple[int | None, str]:
+    """Извлекает ранг из текста (числом или названием) и возвращает (rank, оставшийся_текст)."""
+    t = text.lower()
+    mapping = [
+        (("владелец чата", "владелец", "создатель чата", "создатель", "лидер чата", "лидер"), 10),
+        (("заместитель владельца", "зам владельца", "заместитель", "зам", "заместитель лидера", "зам лидера"), 9),
+        (("технический администратор", "технический админ", "техадмин", "тех админ"), 8),
+        (("главный администратор", "главный админ", "га"), 7),
+        (("старший администратор", "старший админ", "са"), 6),
+        (("младший администратор", "младший админ", "ма"), 5),
+        (("главный модератор", "главный модер", "гм"), 4),
+        (("старший модератор", "старший модер", "см"), 3),
+        (("младший модератор", "младший модер", "мм"), 2),
+        (("стажер", "стажёр"), 1),
+    ]
+    for names, r in mapping:
+        for name in sorted(names, key=len, reverse=True):
+            pattern = rf"\b{re.escape(name)}\b"
+            m = re.search(pattern, t)
+            if m:
+                rest = (text[:m.start()] + text[m.end():]).strip()
+                return r, rest
+    return None, text
+
+
+# Ранг 10: Владелец чата
+@router.message(Cmd("+владелец", "владелец", "+лидер", "лидер", "+создатель", "создатель",
+                    section=S, rank=10, usage="+владелец {ссылка}",
+                    desc="Назначить Владельцем чата (10 ранг)"))
+async def cmd_promote_leader(message: Message, bot: Bot, args: str = "", **kw):
+    await _grant(message, bot, args, 10, **kw)
+
+
+# Ранг 9: Заместитель владельца
+@router.message(Cmd("+зам", "зам", "+заместитель", "заместитель",
+                    section=S, rank=9, usage="+зам {ссылка}",
+                    desc="Назначить Заместителем владельца (9 ранг)"))
+async def cmd_promote_deputy(message: Message, bot: Bot, args: str = "", **kw):
+    await _grant(message, bot, args, 9, **kw)
+
+
+# Ранг 8: Технический администратор
+@router.message(Cmd("+техадмин", "техадмин", "+тех админ", "тех админ", "+технический администратор",
+                    section=S, rank=8, usage="+техадмин {ссылка}",
+                    desc="Назначить Техническим администратором (8 ранг)"))
+async def cmd_promote_tech_admin(message: Message, bot: Bot, args: str = "", **kw):
+    await _grant(message, bot, args, 8, **kw)
+
+
+# Ранг 7: Главный админ
+@router.message(Cmd("+га", "+главный админ", "главный админ", "+главный администратор", "главный администратор",
+                    section=S, rank=6, usage="+га {ссылка}",
+                    desc="Назначить Главным админом (7 ранг)"))
+async def cmd_promote_head_admin(message: Message, bot: Bot, args: str = "", **kw):
+    await _grant(message, bot, args, 7, **kw)
+
+
+# Ранг 6: Старший админ
+@router.message(Cmd("+са", "+старший админ", "старший админ", "+старший администратор", "старший администратор",
+                    section=S, rank=5, usage="+са {ссылка}",
+                    desc="Назначить Старшим админом (6 ранг)"))
+async def cmd_promote_senior_admin(message: Message, bot: Bot, args: str = "", **kw):
+    await _grant(message, bot, args, 6, **kw)
+
+
+# Ранг 5: Младший админ
+@router.message(Cmd("+ма", "+младший админ", "младший админ", "+младший администратор", "младший администратор",
+                    section=S, rank=4, usage="+ма {ссылка}",
+                    desc="Назначить Младшим админом (5 ранг)"))
+async def cmd_promote_junior_admin(message: Message, bot: Bot, args: str = "", **kw):
+    await _grant(message, bot, args, 5, **kw)
+
+
+# Ранг 4: Главный модератор
+@router.message(Cmd("+гм", "+главный модер", "главный модер", "+главный модератор", "главный модератор",
+                    section=S, rank=3, usage="+гм {ссылка}",
+                    desc="Назначить Главным модератором (4 ранг)"))
+async def cmd_promote_head_mod(message: Message, bot: Bot, args: str = "", **kw):
+    await _grant(message, bot, args, 4, **kw)
+
+
+# Ранг 3: Старший модератор
+@router.message(Cmd("+см", "+старший модер", "старший модер", "+старший модератор", "старший модератор",
+                    section=S, rank=2, usage="+см {ссылка}",
+                    desc="Назначить Старшим модератором (3 ранг)"))
+async def cmd_promote_senior_mod(message: Message, bot: Bot, args: str = "", **kw):
+    await _grant(message, bot, args, 3, **kw)
+
+
+# Ранг 2: Младший модератор
+@router.message(Cmd("+мм", "+младший модер", "младший модер", "+младший модератор", "младший модератор",
+                    section=S, rank=2, usage="+мм {ссылка}",
+                    desc="Назначить Младшим модератором (2 ранг)"))
+async def cmd_promote_junior_mod(message: Message, bot: Bot, args: str = "", **kw):
+    await _grant(message, bot, args, 2, **kw)
+
+
+# Ранг 1: Стажёр
+@router.message(Cmd("+стажер", "+стажёр", "стажер", "стажёр",
+                    section=S, rank=2, usage="+стажер {ссылка}",
+                    desc="Назначить Стажёром (1 ранг)"))
+async def cmd_promote_intern(message: Message, bot: Bot, args: str = "", **kw):
+    await _grant(message, bot, args, 1, **kw)
+
+
+# Быстрое снятие должности по короткой команде: -владелец, -зам, -техадмин, -га, -са, -ма, -гм, -см, -мм, -стажер
+@router.message(Cmd("-владелец", "-лидер", "-создатель", "-зам", "-заместитель", "-техадмин", "-тех админ",
+                    "-га", "-главный админ", "-главный администратор",
+                    "-са", "-старший админ", "-старший администратор",
+                    "-ма", "-младший админ", "-младший администратор",
+                    "-гм", "-главный модер", "-главный модератор",
+                    "-см", "-старший модер", "-старший модератор",
+                    "-мм", "-младший модер", "-младший модератор",
+                    "-стажер", "-стажёр",
+                    section=S, rank=2, usage="-га {ссылка}",
+                    desc="Снять конкретную должность у пользователя"))
+async def cmd_quick_demote(message: Message, bot: Bot, args: str = "", **kw):
+    await cmd_remove_rank(message, bot, args=args, **kw)
+
+
+@router.message(Cmd("+модер", "+админ", "модер", "ранг", "дать ранг", "выдать ранг", "назначить", section=S, rank=2,
+                    usage="+модер {ссылка} [1-10 / должность]",
                     desc="Назначить ранг модератора (1–10)"))
 async def cmd_promote_rank(message: Message, bot: Bot, args: str = "", **kw):
+    found_r, clean_args = _parse_rank_from_text(args or "")
+    if found_r is not None:
+        return await _grant(message, bot, clean_args, found_r, **kw)
+
     parts = (args or "").split()
     rank = 1
     if parts and parts[0].isdigit() and 1 <= int(parts[0]) <= MAX_RANK:
@@ -222,6 +354,10 @@ async def cmd_promote_rank(message: Message, bot: Bot, args: str = "", **kw):
 async def cmd_promote(message: Message, bot: Bot, args: str = "", **kw):
     had_prefix = kw.get("had_prefix", False)
     in_group = message.chat.type in {"group", "supergroup"}
+    found_r, clean_args = _parse_rank_from_text(args or "")
+    if found_r is not None:
+        return await _grant(message, bot, clean_args, found_r, **kw)
+
     parts = (args or "").split()
     if parts and parts[0].isdigit() and 1 <= int(parts[0]) <= MAX_RANK:
         rank = int(parts[0])
@@ -412,21 +548,33 @@ async def cmd_creators(message: Message, bot: Bot, **kw):
                         disable_web_page_preview=True)
 
 
-@router.message(Cmd("ранги", "список рангов", "привилегии", section=S, usage="ранги",
-                    desc="Все ранги и их права"))
+@router.message(Cmd("ранги", "список рангов", "иерархия", "привилегии", section=S, usage="ранги",
+                    desc="Все ранги, короткие команды назначения и их права"))
 async def cmd_ranks_help(message: Message, **kw):
     from core_registry import RANK_RAINBOW_HEADERS
     perms = {
-        10: "полный контроль чата, высший иммунитет и все права модерации",
-        9: "управление модерацией 1–8 ранга, чистка, настройки, иммунитет к варнам",
-        8: "технический доступ, лог действий, управление правами команд",
-        7: "снятие всех рангов, управление доступом команд (ДК), сброс настроек",
-        6: "настройка сетки чатов, автокик, антиспам, управление анкетой чата",
-        5: "правила чата, приветствие, награды, лимит варнов",
-        4: "контроль состава модераторов, розыгрыши, расширенные триггеры",
-        3: "бан нарушителей, чистка сообщений, теги, розыгрыши, триггеры",
-        2: "мут, кик, варн, удаление сообщений, созыв модерации",
-        1: "первичная модерация: мут, удаление спама, предупреждения (варны)",
+        10: "полный контроль, высший иммунитет, передача лидерства",
+        9: "заместитель лидера, управление модерацией 1–8 ранга, настройки чата",
+        8: "технический доступ, системный аудит, управление правами команд (ДК)",
+        7: "главный админ: снятие всех рангов, управление доступом команд (ДК), сброс",
+        6: "старший админ: сетка чатов, исключение (кик) участников, автокик, антиспам, анкета чата",
+        5: "младший админ: баны, муты, варны, правила чата, приветствие, награды, лимит варнов",
+        4: "главный модератор: баны, муты, варны, контроль младшей модерации, розыгрыши, триггеры",
+        3: "старший модератор: баны нарушителей, муты, варны, чистка сообщений, теги, триггеры",
+        2: "младший модератор: муты, варны, удаление сообщений, созыв",
+        1: "стажёр: первичная модерация, варны, базовый мут нарушителей (до 24ч)",
+    }
+    short_cmds = {
+        10: "+владелец / владелец",
+        9: "+зам / зам",
+        8: "+техадмин",
+        7: "+га / главный админ",
+        6: "+са / старший админ",
+        5: "+ма / младший админ",
+        4: "+гм / главный модер",
+        3: "+см / старший модер",
+        2: "+мм / младший модер",
+        1: "+стажер / стажер",
     }
     banner = "✦ ══ • ⊰ 💖 🔮 💙 🩵 💚 💛 🟣 🧡 ❤️ 🤍 ⊱ • ══ ✦"
     lines = [
@@ -437,10 +585,12 @@ async def cmd_ranks_help(message: Message, **kw):
     ]
     for r in range(MAX_RANK, 0, -1):
         header = RANK_RAINBOW_HEADERS.get(r, f"Ранг {r}")
-        lines.append(f"┌ <b>{header}</b> [Ранг {r}]")
+        cmd_hint = short_cmds.get(r, "")
+        lines.append(f"┌ <b>{header}</b> [Ранг {r}] <code>{cmd_hint}</code>")
         lines.append(f"└─▸ <i>{perms.get(r, '')}</i>\n")
     lines.append("✦ ══════════════════════════════ ✦")
-    lines.append("💡 <i>Назначить:</i> <code>+модер 3 @user</code>")
+    lines.append("💡 <i>Назначить:</i> <code>+га @user</code> · <code>+зам @user</code> · <code>+модер [ранг] @user</code>")
+    lines.append("🧹 <i>Снять:</i> <code>-га @user</code> · <code>-зам @user</code> · <code>снять @user</code>")
     lines.append("⬆️ <i>Повысить:</i> <code>повысить @user</code> · ⬇️ <i>Понизить:</i> <code>понизить @user</code>")
     await message.reply("\n".join(lines), disable_web_page_preview=True)
 
@@ -523,15 +673,16 @@ PERSON_RE = re.compile(
     r"([A-Za-z0-9_]+)[^)]*\)|@([A-Za-z0-9_]{4,})|(.+?))\s*$")
 
 TITLE_TO_RANK = {
-    "лидер клана": 8, "лидеры клана": 8, "лидеры кланов": 8,
-    "технический администратор": 6, "технические администраторы": 6, "тех админ": 6,
-    "создатель": 5, "создатели": 5,
-    "старший админ": 4, "старшие админы": 4, "старший администратор": 4,
-    "старшие администраторы": 4,
-    "младший админ": 3, "младшие админы": 3, "младший администратор": 3,
-    "младшие администраторы": 3,
-    "старший модератор": 2, "старшие модераторы": 2,
-    "младший модератор": 1, "младшие модераторы": 1, "модератор": 1, "модераторы": 1,
+    "лидер чата": 10, "лидеры чата": 10, "лидер клана": 10, "лидеры клана": 10, "лидер": 10, "лидеры": 10, "создатель": 10, "создатели": 10,
+    "заместитель лидера": 9, "заместители лидера": 9, "зам лидера": 9, "замы лидера": 9, "зам": 9, "замы": 9, "заместитель": 9, "заместители": 9,
+    "технический администратор": 8, "технические администраторы": 8, "тех админ": 8, "техадмин": 8, "техадмины": 8,
+    "главный администратор": 7, "главные администраторы": 7, "главный админ": 7, "главные админы": 7, "га": 7,
+    "старший администратор": 6, "старшие администраторы": 6, "старший админ": 6, "старшие админы": 6, "са": 6,
+    "младший администратор": 5, "младшие администраторы": 5, "младший админ": 5, "младшие админы": 5, "ма": 5,
+    "главный модератор": 4, "главные модераторы": 4, "главный модер": 4, "главные модеры": 4, "гм": 4,
+    "старший модератор": 3, "старшие модераторы": 3, "старший модер": 3, "старшие модеры": 3, "см": 3,
+    "младший модератор": 2, "младшие модераторы": 2, "младший модер": 2, "младшие модеры": 2, "мм": 2,
+    "стажер": 1, "стажёр": 1, "стажеры": 1, "стажёры": 1,
 }
 
 

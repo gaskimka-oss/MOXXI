@@ -87,10 +87,9 @@ async def check(message, bot, key: str, base_rank: int,
     if quiet:
         return ""
 
-    # Человек написал обычную фразу без префикса («всем привет»,
-    # «сбор в 5»), а она случайно совпала с командой. Ругаться на это
-    # нельзя — просто молчим, будто ничего не было.
-    if not had_prefix:
+    # Случайные разговорные фразы без префикса («спасибо», «кто») пропускаем молча
+    from core_registry import EXPLICIT_ADDRESS_NAMES
+    if not had_prefix and key in EXPLICIT_ADDRESS_NAMES:
         return ""
 
     return (f"⛔️ Недостаточно прав для этой команды.\n"
@@ -106,21 +105,24 @@ ALLOWED_WITHOUT_FORM = {
 
 async def form_gate(message, bot) -> bool:
     """True — сообщение пропускаем. False — участник не заполнил анкету."""
-    chat = message.chat
-    if chat.type == "private":
-        return True
-    if not message.from_user or message.from_user.is_bot:
-        return True
+    try:
+        chat = message.chat
+        if chat.type == "private":
+            return True
+        if not message.from_user or message.from_user.is_bot:
+            return True
 
-    from h_userinfo import needs_form
-    if not await needs_form(chat.id, message.from_user.id):
-        return True
+        from h_userinfo import needs_form
+        if not await needs_form(chat.id, message.from_user.id):
+            return True
 
-    # модерация не блокируется
-    from core_ranks import effective_rank
-    if await effective_rank(message, bot) >= 1:
+        # модерация не блокируется
+        from core_ranks import effective_rank
+        if await effective_rank(message, bot) >= 1:
+            return True
+        return False
+    except Exception:
         return True
-    return False
 
 
 async def access_middleware(handler, event, data: dict):
@@ -158,7 +160,11 @@ async def access_middleware(handler, event, data: dict):
         # незаполнившим анкету доступны только базовые команды
         if key not in ALLOWED_WITHOUT_FORM:
             bot = data.get("bot")
-            if not await form_gate(event, bot):
+            try:
+                gate_ok = await form_gate(event, bot)
+            except Exception:
+                gate_ok = True
+            if not gate_ok:
                 from h_userinfo import (get_form_topic, topic_id,
                                                topic_link)
                 ft = await get_form_topic(event.chat.id)

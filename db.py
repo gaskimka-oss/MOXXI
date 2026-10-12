@@ -168,6 +168,12 @@ CREATE TABLE IF NOT EXISTS mod_log (
     ts INTEGER);
 CREATE INDEX IF NOT EXISTS idx_modlog_chat ON mod_log(chat_id, ts);
 
+CREATE TABLE IF NOT EXISTS word_filters (
+    chat_id INTEGER NOT NULL,
+    word TEXT NOT NULL,
+    action TEXT DEFAULT 'warn',
+    PRIMARY KEY (chat_id, word));
+
 CREATE TABLE IF NOT EXISTS lift_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id INTEGER NOT NULL, log_id INTEGER, punish_id INTEGER,
@@ -710,14 +716,201 @@ CREATE TABLE IF NOT EXISTS announcement_votes (
     PRIMARY KEY (ann_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_ann_chat ON announcements(chat_id, created_at);
+
+CREATE TABLE IF NOT EXISTS chat_antiraid (
+    chat_id INTEGER PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    threshold INTEGER NOT NULL DEFAULT 5,
+    media_block_seconds INTEGER NOT NULL DEFAULT 0,
+    anti_links INTEGER NOT NULL DEFAULT 0,
+    slowmode_auto INTEGER NOT NULL DEFAULT 0,
+    shield_until INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS chat_blacklist (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    by_id INTEGER NOT NULL DEFAULT 0,
+    ts INTEGER NOT NULL,
+    UNIQUE(chat_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS deleted_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    user_name TEXT NOT NULL,
+    text TEXT NOT NULL,
+    ts INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS staff_vacations (
+    chat_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    until_ts INTEGER NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY(chat_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS staff_norms (
+    chat_id INTEGER PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    quota INTEGER NOT NULL DEFAULT 5
+);
+
+CREATE TABLE IF NOT EXISTS user_jobs (
+    user_id INTEGER PRIMARY KEY,
+    job_key TEXT NOT NULL,
+    last_worked INTEGER NOT NULL DEFAULT 0,
+    total_earned INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS user_deposits (
+    chat_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    amount INTEGER NOT NULL DEFAULT 0,
+    last_interest INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(chat_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS chat_crypto (
+    rate REAL NOT NULL DEFAULT 100.0,
+    last_update INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS user_crypto (
+    user_id INTEGER PRIMARY KEY,
+    amount REAL NOT NULL DEFAULT 0.0
+);
+
+CREATE TABLE IF NOT EXISTS chat_lottery (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    tickets INTEGER NOT NULL DEFAULT 1,
+    ts INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS business_upgrades (
+    user_id INTEGER NOT NULL,
+    biz_key TEXT NOT NULL,
+    level INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY(user_id, biz_key)
+);
+
+CREATE TABLE IF NOT EXISTS business_partners (
+    chat_id INTEGER NOT NULL,
+    biz_key TEXT NOT NULL,
+    user1_id INTEGER NOT NULL,
+    user2_id INTEGER NOT NULL,
+    PRIMARY KEY(chat_id, biz_key, user1_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_bios (
+    user_id INTEGER PRIMARY KEY,
+    bio TEXT NOT NULL,
+    updated_ts INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS profile_wall (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_id INTEGER NOT NULL,
+    author_id INTEGER NOT NULL,
+    author_name TEXT NOT NULL,
+    text TEXT NOT NULL,
+    ts INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS mentorships (
+    teacher_id INTEGER NOT NULL,
+    student_id INTEGER PRIMARY KEY,
+    ts INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_compliments (
+    user_id INTEGER PRIMARY KEY,
+    count INTEGER NOT NULL DEFAULT 0,
+    last_given INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS chat_birthdays (
+    chat_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    day INTEGER NOT NULL,
+    month INTEGER NOT NULL,
+    PRIMARY KEY(chat_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS promocodes (
+    code TEXT PRIMARY KEY,
+    chat_id INTEGER NOT NULL,
+    reward INTEGER NOT NULL,
+    uses_left INTEGER NOT NULL,
+    created_by INTEGER NOT NULL,
+    ts INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS promocode_activations (
+    code TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    ts INTEGER NOT NULL,
+    PRIMARY KEY(code, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS clan_districts (
+    district_id TEXT PRIMARY KEY,
+    clan_id INTEGER NOT NULL,
+    captured_ts INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS clan_alliances (
+    clan1_id INTEGER NOT NULL,
+    clan2_id INTEGER NOT NULL,
+    ts INTEGER NOT NULL,
+    PRIMARY KEY(clan1_id, clan2_id)
+);
+
+CREATE TABLE IF NOT EXISTS staff_spy (
+    chat_id INTEGER NOT NULL,
+    target_id INTEGER NOT NULL,
+    by_id INTEGER NOT NULL,
+    ts INTEGER NOT NULL,
+    PRIMARY KEY(chat_id, target_id)
+);
+
+CREATE TABLE IF NOT EXISTS veteran_bonus_claims (
+    chat_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    last_claimed INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(chat_id, user_id)
+);
 """
+
+
+class DictRow(dict):
+    """Строка БД: поддерживает доступ по ключу, индексу и метод .get()."""
+    def __init__(self, cursor, values):
+        fields = [col[0] for col in cursor.description]
+        super().__init__(zip(fields, values))
+        self._values = values
+
+    def __getitem__(self, item):
+        if isinstance(item, int):
+            return self._values[item]
+        return super().__getitem__(item)
+
+    def get(self, key, default=None):
+        val = super().get(key, default)
+        return default if val is None else val
 
 
 async def init() -> None:
     global _conn
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     _conn = await aiosqlite.connect(DB_PATH)
-    _conn.row_factory = aiosqlite.Row
+    _conn.row_factory = DictRow
     await _conn.execute("PRAGMA journal_mode=WAL")
     await _conn.execute("PRAGMA foreign_keys=ON")
     await _conn.executescript(SCHEMA)
@@ -1558,6 +1751,19 @@ async def change_user_business(user_id: int, biz_key: str, count_delta: int) -> 
         return new_cnt
 
 
+async def update_business_collect_time(user_id: int, biz_keys: Iterable[str]) -> None:
+    now = int(time.time())
+    keys = list(biz_keys)
+    if not keys:
+        return
+    placeholders = ", ".join("?" for _ in keys)
+    await execute(
+        f"UPDATE user_businesses SET last_collect=? WHERE user_id=? AND biz_key IN ({placeholders})",
+        (now, user_id, *keys)
+    )
+
+
+
 # --- Питомцы (RPG Pets) ------------------------------------------------
 async def get_user_pet(user_id: int) -> dict | None:
     return await fetchone("SELECT * FROM user_pets WHERE user_id=?", (user_id,))
@@ -2013,6 +2219,30 @@ async def set_pair_of_day(chat_id: int, date_str: str, u1_id: int, u2_id: int,
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (chat_id, date_str, u1_id, u2_id, u1_name, u2_name, compat, story)
     )
+
+
+# --- Фильтр запрещённых слов ----------------------------------------
+async def add_filtered_word(chat_id: int, word: str, action: str = "warn") -> None:
+    await execute(
+        "INSERT INTO word_filters (chat_id, word, action) VALUES (?,?,?) "
+        "ON CONFLICT(chat_id, word) DO UPDATE SET action=excluded.action",
+        (chat_id, word.lower().strip(), action)
+    )
+
+
+async def remove_filtered_word(chat_id: int, word: str) -> None:
+    await execute(
+        "DELETE FROM word_filters WHERE chat_id=? AND lower(word)=lower(?)",
+        (chat_id, word.strip())
+    )
+
+
+async def get_filtered_words(chat_id: int) -> list[dict]:
+    return await fetchall("SELECT word, action FROM word_filters WHERE chat_id=?", (chat_id,))
+
+
+async def clear_filtered_words(chat_id: int) -> None:
+    await execute("DELETE FROM word_filters WHERE chat_id=?", (chat_id,))
 
 
 async def close() -> None:

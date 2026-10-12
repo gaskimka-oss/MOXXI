@@ -32,6 +32,9 @@ def _owner() -> int:
 OWNER_ID: int = _owner()
 ADMINS: list[int] = list({OWNER_ID, *_int_list(os.getenv("ADMINS", ""))} - {0})
 
+# Основной чат клана (где действует требование описания и анкета)
+MAIN_CHAT: int = int(os.getenv("MAIN_CHAT", "-1003934033202") or -1003934033202)
+
 # Каталог для базы выбирается автоматически: ищем то место на хостинге,
 # которое переживает перезапуск (см. core/storage.py).
 import core_storage as _storage               # noqa: E402

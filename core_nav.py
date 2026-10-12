@@ -10,7 +10,7 @@ from aiogram import Bot, F, Router
 from aiogram.types import (CallbackQuery, InlineKeyboardButton,
                            InlineKeyboardMarkup)
 
-HOME = "🏠 В меню"
+HOME = "⬅️ В главное меню"
 BACK = "⬅️ Назад"
 
 HOME_CB = "nav:home"
