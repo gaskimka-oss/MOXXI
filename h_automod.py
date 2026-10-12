@@ -359,10 +359,10 @@ async def cmd_strict(message: Message, bot: Bot, args: str = "", **kw):
 
 
 # ═══════════════ ИИ-НАДЗОР ═══════════════
-@router.message(Cmd("ии", "ai", "нейросеть", "ии надзор", section=S, rank=6,
-                    usage="ии", desc="🧠 ИИ-надзор: статус и настройка"))
+@router.message(Cmd("ии надзор", "ии статус", "автомут ии", "нейросеть статус", "ии настройки",
+                    section=S, rank=6, usage="ии надзор", desc="🧠 ИИ-надзор: статус и настройка"))
 async def cmd_ai(message: Message, bot: Bot, args: str = "", **kw):
-    """Статус ИИ, включение оповещений, сводка по чату."""
+    """Статус ИИ, включение оповещений."""
     if not await require(message, bot, 6):
         return
     import core_ai as ai
@@ -377,47 +377,59 @@ async def cmd_ai(message: Message, bot: Bot, args: str = "", **kw):
             f"🔔 Оповещения о спорных наказаниях: "
             f"<b>{'включены' if val == '1' else 'выключены'}</b>")
 
-    # ии сводка — что происходит в чате
-    if a.startswith(("сводка", "отчет", "отчёт", "анализ")):
-        if not ai.available():
-            return await message.reply("⚠️ Ключ ИИ не задан.")
-        m = await message.reply("🧠 Читаю переписку…")
-        ctx = await modlog.build_context(cid, 0)
-        res = await ai.chat_summary(ctx)
-        if not res:
-            return await m.edit_text("😕 ИИ не ответил. Попробуйте позже.")
-        mood = str(res.get("mood", "—"))
-        out = [f"{ai.MOOD_ICON.get(mood, '💬')} <b>Обстановка: {mood}</b>\n",
-               html.escape(str(res.get("summary", ""))[:600])]
-        if res.get("problems"):
-            out.append(f"\n⚠️ <b>Проблемы:</b>\n{html.escape(str(res['problems'])[:400])}")
-        if res.get("advice"):
-            out.append(f"\n💡 <b>Совет:</b>\n{html.escape(str(res['advice'])[:400])}")
-        return await m.edit_text("\n".join(out))
 
-    # ии проверь <текст> — разовая проверка
-    if a.startswith(("проверь", "тест")):
-        probe = (args or "")[len(a.split()[0]):].strip()
-        if not probe:
-            return await message.reply("Формат: <code>ии проверь ты дебил</code>")
-        if not ai.available():
-            return await message.reply("⚠️ Ключ ИИ не задан.")
-        m = await message.reply("🧠 Думаю…")
-        ctx = await modlog.build_context(cid, 0)
-        res = await ai.watch_message(probe, ctx)
-        if not res:
-            return await m.edit_text("😕 ИИ не ответил.")
-        names = {0: "✅ норма", 1: "🟡 грубость",
-                 2: "🟠 оскорбление", 3: "🔴 мат/травля"}
-        extra = (f"\n👤 Зачинщик: {html.escape(res['instigator'])}"
-                 if res.get("instigator") else "")
-        category = (f"\n📌 Правило: {html.escape(res['category'])}"
-                    if res.get("category") else "")
-        return await m.edit_text(
-            f"🧠 <b>Оценка ИИ по правилам клана</b>\n\n"
-            f"«{html.escape(probe[:150])}»\n\n"
-            f"Вердикт: <b>{names[res['level']]}</b>{category}\n"
-            f"💬 {html.escape(res['reason'])}{extra}")
+@router.message(Cmd("ии сводка", "сводка чата", "отчет чата", section=S, rank=4,
+                    usage="ии сводка", desc="📊 ИИ-сводка обстановки в чате"))
+async def cmd_ai_summary(message: Message, bot: Bot, **kw):
+    if not await require(message, bot, 4):
+        return
+    import core_ai as ai
+    cid = message.chat.id
+    if not ai.available():
+        return await message.reply("⚠️ Ключ ИИ не задан.")
+    m = await message.reply("🧠 Читаю переписку…")
+    ctx = await modlog.build_context(cid, 0)
+    res = await ai.chat_summary(ctx)
+    if not res:
+        return await m.edit_text("😕 ИИ не ответил. Попробуйте позже.")
+    mood = str(res.get("mood", "—"))
+    out = [f"{ai.MOOD_ICON.get(mood, '💬')} <b>Обстановка: {mood}</b>\n",
+           html.escape(str(res.get("summary", ""))[:600])]
+    if res.get("problems"):
+        out.append(f"\n⚠️ <b>Проблемы:</b>\n{html.escape(str(res['problems'])[:400])}")
+    if res.get("advice"):
+        out.append(f"\n💡 <b>Совет:</b>\n{html.escape(str(res['advice'])[:400])}")
+    return await m.edit_text("\n".join(out))
+
+
+@router.message(Cmd("ии проверь", "ии тест", section=S, rank=2,
+                    usage="ии проверь [текст]", desc="🔍 Разовая проверка фразы через ИИ"))
+async def cmd_ai_check(message: Message, bot: Bot, args: str = "", **kw):
+    if not await require(message, bot, 2):
+        return
+    import core_ai as ai
+    cid = message.chat.id
+    probe = (args or "").strip()
+    if not probe:
+        return await message.reply("Формат: <code>ии проверь ты дебил</code>")
+    if not ai.available():
+        return await message.reply("⚠️ Ключ ИИ не задан.")
+    m = await message.reply("🧠 Думаю…")
+    ctx = await modlog.build_context(cid, 0)
+    res = await ai.watch_message(probe, ctx)
+    if not res:
+        return await m.edit_text("😕 ИИ не ответил.")
+    names = {0: "✅ норма", 1: "🟡 грубость",
+             2: "🟠 оскорбление", 3: "🔴 мат/травля"}
+    extra = (f"\n👤 Зачинщик: {html.escape(res['instigator'])}"
+             if res.get("instigator") else "")
+    category = (f"\n📌 Правило: {html.escape(res['category'])}"
+                if res.get("category") else "")
+    return await m.edit_text(
+        f"🧠 <b>Оценка ИИ по правилам чата</b>\n\n"
+        f"«{html.escape(probe[:150])}»\n\n"
+        f"Вердикт: <b>{names[res['level']]}</b>{category}\n"
+        f"💬 {html.escape(res['reason'])}{extra}")
 
     # статус
     alerts = await db.get_setting(cid, "ai_alerts", "1") == "1"
@@ -514,7 +526,7 @@ async def cmd_add_filter(message: Message, bot: Bot, args: str = "", **kw):
     )
 
 
-@router.message(Cmd("-фильтр", "фильтр -", "фильтр удалить", section=S, rank=2,
+@router.message(Cmd("-фильтр", section=S, rank=2,
                     usage="-фильтр [слово]", desc="Удалить слово из чёрного списка чата"))
 async def cmd_remove_filter(message: Message, bot: Bot, args: str = "", **kw):
     if not await require(message, bot, 2):

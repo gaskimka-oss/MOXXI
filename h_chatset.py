@@ -911,7 +911,10 @@ async def cb_check_rights(call: CallbackQuery, bot: Bot):
         return await call.answer(str(e)[:180], show_alert=True)
     if m.status != "administrator":
         return await call.answer(
-            "❌ Я ещё не администратор.\nВыдайте права кнопкой выше.", show_alert=True)
+            "❌ Бот ещё не администратор этой беседы!\n\n"
+            "Как выдать:\n"
+            "1. Нажмите «Выдать права администратора» и выберите этот чат в списке.\n"
+            "2. Либо: Настройки группы ➔ Администраторы ➔ Добавить MOXXI.", show_alert=True)
     need = {
         "🔧 Управление группой": getattr(m, "can_change_info", False),
         "🗑 Удаление сообщений": getattr(m, "can_delete_messages", False),

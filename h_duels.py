@@ -51,7 +51,8 @@ async def cmd_duel_create(message: Message, bot: Bot, args: str = "", **kw):
         target_id = rep.from_user.id
         target_name = rep.from_user.first_name or "Боец"
         if args:
-            bet = parse_amount(args.strip())
+            amt = parse_amount(args.strip())
+            bet = max(0, amt) if amt is not None else 0
     else:
         # Парсим аргументы: @username [bet] или [bet]
         parts = (args or "").strip().split()
@@ -60,7 +61,7 @@ async def cmd_duel_create(message: Message, bot: Bot, args: str = "", **kw):
             target_str = ""
             for p in parts:
                 amt = parse_amount(p)
-                if amt > 0 and bet == 0:
+                if amt is not None and amt > 0 and bet == 0:
                     bet = amt
                 else:
                     target_str += (" " + p)

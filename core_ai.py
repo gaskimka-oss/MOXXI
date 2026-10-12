@@ -54,8 +54,9 @@ _PROV_TYPE, _URL_GUESS, _MODEL_GUESS = _guess_provider_and_model(_K_SAMPLE)
 PROVIDER_TYPE = os.getenv("AI_PROVIDER_TYPE") or _PROV_TYPE
 URL = (os.getenv("AI_API_URL") or _URL_GUESS).strip()
 MODEL = (os.getenv("AI_MODEL") or _MODEL_GUESS).strip()
-TIMEOUT = int(os.getenv("AI_TIMEOUT", "8") or 8)
-GEMINI_MODELS = [MODEL, "gemini-3.1-flash-lite-preview", "gemini-flash-latest"]
+TIMEOUT = int(os.getenv("AI_TIMEOUT", "15") or 15)
+_g_models = [MODEL, "gemini-flash-latest", "gemini-flash-lite-latest", "gemini-3-flash-preview", "gemini-3.1-flash-lite-preview"]
+GEMINI_MODELS = list(dict.fromkeys(m for m in _g_models if m))
 
 
 def available() -> bool:
@@ -94,21 +95,30 @@ def provider() -> str:
 
 def _call_gemini_sync(key: str, system: str, user: str, max_tokens: int, temperature: float = 0.0, json_mode: bool = False) -> str | None:
     """Синхронный запрос к Google Gemini REST API с перебором моделей при ошибках."""
-    full_prompt = f"{system}\n\n{user}".strip() if system else user
+    effective_max_tokens = max(max_tokens, 800)
     gen_config: dict = {
         "temperature": temperature,
-        "maxOutputTokens": max_tokens
+        "maxOutputTokens": effective_max_tokens,
+        "thinkingConfig": {
+            "thinkingBudget": 0
+        }
     }
     if json_mode:
         gen_config["responseMimeType"] = "application/json"
 
-    payload = {
+    # Добавляем жесткую системную инструкцию отвечать строго на русском
+    system_text = (system + "\n\nОТВЕЧАЙ СТРОГО НА РУССКОМ ЯЗЫКЕ! Твой ответ — только прямая речь, без мыслей или рассуждений на английском.").strip() if system else "ОТВЕЧАЙ СТРОГО НА РУССКОМ ЯЗЫКЕ!"
+
+    payload: dict = {
         "contents": [
             {
                 "role": "user",
-                "parts": [{"text": full_prompt[:12000]}]
+                "parts": [{"text": user[:12000]}]
             }
         ],
+        "system_instruction": {
+            "parts": [{"text": system_text}]
+        },
         "generationConfig": gen_config
     }
     body = json.dumps(payload).encode("utf-8")
@@ -126,8 +136,35 @@ def _call_gemini_sync(key: str, system: str, user: str, max_tokens: int, tempera
                 parts = candidates[0].get("content", {}).get("parts") or []
                 if not parts:
                     continue
-                return str(parts[0].get("text", "")).strip()
+                # Исключаем служебные мысли ("thought": True) модели Gemini:
+                clean_parts = [p for p in parts if not p.get("thought")]
+                if not clean_parts:
+                    clean_parts = parts
+                text = "".join(p.get("text", "") for p in clean_parts).strip()
+                # Удаляем служебные теги мыслей, если они попали в текст
+                text = re.sub(r"<thought>[\s\S]*?</thought>", "", text, flags=re.IGNORECASE).strip()
+                text = re.sub(r"^\*Refining for Moxxi's voice:\*[\s\S]*?\n\n", "", text, flags=re.IGNORECASE).strip()
+                if text:
+                    return text
         except urllib.error.HTTPError as e:
+            if e.code == 400 and "thinkingConfig" in gen_config:
+                try:
+                    retry_config = dict(gen_config)
+                    retry_config.pop("thinkingConfig", None)
+                    retry_payload = dict(payload, generationConfig=retry_config)
+                    retry_req = urllib.request.Request(endpoint, data=json.dumps(retry_payload).encode("utf-8"), headers=headers)
+                    with urllib.request.urlopen(retry_req, timeout=TIMEOUT) as resp2:
+                        res_data2 = json.loads(resp2.read().decode("utf-8"))
+                        cand2 = res_data2.get("candidates") or []
+                        if cand2:
+                            pts2 = cand2[0].get("content", {}).get("parts") or []
+                            cpts2 = [p for p in pts2 if not p.get("thought")] or pts2
+                            t2 = "".join(p.get("text", "") for p in cpts2).strip()
+                            if t2:
+                                return t2
+                except Exception:
+                    pass
+
             if e.code in (404, 429, 503):
                 continue
             log.warning("Gemini model %s HTTP %s: %s", m, e.code, str(e)[:120])
@@ -135,6 +172,7 @@ def _call_gemini_sync(key: str, system: str, user: str, max_tokens: int, tempera
             log.warning("Gemini model %s error: %s", m, str(e)[:120])
 
     return None
+
 
 
 def _call_openai_sync(key: str, system: str, user: str, max_tokens: int, temperature: float = 0.0, json_mode: bool = False) -> str | None:
@@ -243,29 +281,29 @@ async def ask_text(prompt: str, system: str = "", max_tokens: int = 800) -> str 
     return None
 
 
-# ══════════════════ ПРАВИЛА КЛАНА ══════════════════
-CLAN_RULES = """
-Обязательные правила игрового клана и беседы:
-1. Клановая активность: обязательное участие в запланированных событиях (КВ, Турниры, Кастомки, Съёмки). При невозможности — предупредить за 24 часа.
-2. Запрещены читы, софты, багоюз, создание помех и руин игр/съёмок.
-3. Общение: вежливость и уважение. Запрещены травля, буллинг, адресные оскорбления и провокация конфликтов.
-4. Запрещены спам, реклама сторонних каналов/ботов/ссылок, скам, мошенничество и обман.
-5. Запрещены политические и религиозные дискуссии, материалы 18+, деанон и разглашение личных данных.
-6. Лестница наказаний:
+# ══════════════════ ПРАВИЛА СООБЩЕСТВА ══════════════════
+COMMUNITY_RULES = """
+Обязательные правила сообщества и беседы:
+1. Запрещены читы, софты, багоюз, создание помех и руин игр/мероприятий.
+2. Общение: вежливость и уважение. Запрещены травля, буллинг, адресные оскорбления и провокация конфликтов.
+3. Запрещены спам, реклама сторонних каналов/ботов/ссылок, скам, мошенничество и обман.
+4. Запрещены политические и религиозные дискуссии, материалы 18+, деанон и разглашение личных данных.
+5. Лестница наказаний:
    • Лёгкие нарушения (капс, флуд, лёгкий оффтоп, мелкая грубость): 1-е — мут 15-60 мин, 2-е — мут 3-6 часов, 3-е — варн.
-   • Грубые нарушения (оскорбления, токсичность, мат в адрес игрока, помехи на КВ/съёмках): 1-е — 1 варн, 2-е — 2-й варн, 3-е — мут 12-24 часа.
+   • Грубые нарушения (оскорбления, токсичность, мат в адрес участника, помехи): 1-е — 1 варн, 2-е — 2-й варн, 3-е — мут 12-24 часа.
    • Критические (читы, реклама, спам, скам, 18+, деанон): перманентный бан / кик.
-7. Обжалование наказаний доступно в боте @moxxichat_bot.
+6. Обжалование наказаний доступно в боте @moxxichat_bot.
 """.strip()
+CLAN_RULES = COMMUNITY_RULES
 
 
 # ══════════════════ 1. НАДЗОР ЗА НАКАЗАНИЯМИ ══════════════════
 REVIEW_PROMPT = (
-    "Ты — независимый арбитр русскоязычного игрового клана. "
+    "Ты — независимый арбитр русскоязычного сообщества и чата. "
     "По переписке, причине и предоставленной истории реши, было ли нарушение "
     "и соответствует ли наказание правилам. Не считай обвинение доказанным "
     "только потому, что оно написано в причине.\n\n"
-    + CLAN_RULES + "\n\n"
+    + COMMUNITY_RULES + "\n\n"
     "Ответь СТРОГО в JSON:\n"
     '{"verdict": "ok|soft|harsh|wrong", "score": 0-10, '
     '"reason": "одно предложение", "advice": "что стоило сделать"}\n\n'
@@ -472,9 +510,9 @@ async def evaluate_action(kind: str, reason: str, target: str, moderator: str,
 
 # ══════════════════ 2. НАБЛЮДЕНИЕ ЗА ЧАТОМ ══════════════════
 WATCH_PROMPT = (
-    "Ты модератор русскоязычного игрового клана. Проверь ПОСЛЕДНЕЕ сообщение "
+    "Ты модератор русскоязычного сообщества и чата. Проверь ПОСЛЕДНЕЕ сообщение "
     "по КАЖДОМУ правилу, учитывая переписку вокруг него.\n\n"
-    + CLAN_RULES + "\n\n"
+    + COMMUNITY_RULES + "\n\n"
     "Шкала:\n"
     "0 — нарушения нет;\n"
     "1 — лёгкое: единичный капс/офтоп/грубость/флуд, нужен контекст или "
@@ -484,8 +522,7 @@ WATCH_PROMPT = (
     "3 — грубое/опасное: угрозы, травля, мошенничество, читы, разглашение "
     "личных данных, материалы 18+.\n\n"
     "Не наказывай цитату правил, жалобу на нарушение, спокойное обжалование, "
-    "дружеский подкол или мат без адресата. Не делай вывод о пропуске события "
-    "или сроке 24 часа, если этого не доказывает контекст. Если человек "
+    "дружеский подкол или мат без адресата. Если человек "
     "защищается от травли, учитывай зачинщика.\n\n"
     'Ответь СТРОГО в JSON: {"level": 0-3, "category": "правило или норма", '
     '"reason": "кратко", "instigator": "ник зачинщика или пусто"}'
@@ -513,10 +550,10 @@ async def watch_message(text: str, context: str = "") -> dict | None:
 
 # ══════════════════ 3. СВОДКА ПО ЧАТУ ══════════════════
 SUMMARY_PROMPT = (
-    "Ты аналитик русскоязычного игрового клана. Проверь переписку по всем "
+    "Ты аналитик русскоязычного сообщества и чата. Проверь переписку по всем "
     "правилам ниже и сделай короткую доказательную сводку для владельца. "
     "Не выдумывай нарушения и отличай обсуждение правила от его нарушения.\n\n"
-    + CLAN_RULES + "\n\n"
+    + COMMUNITY_RULES + "\n\n"
     'Ответь СТРОГО в JSON: {"mood": "спокойно|оживленно|напряженно|конфликт", '
     '"summary": "2-3 предложения о чем говорят", '
     '"problems": "какие правила нарушены и кем, либо пусто", '

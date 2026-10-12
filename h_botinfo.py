@@ -102,7 +102,7 @@ async def bot_status_text(bot: Bot, message: Message | None = None) -> str:
             f"📖 Все команды — <code>команды</code>")
 
 
-@router.message(Cmd("бот", "статус", "бот статус", "status", section=S,
+@router.message(Cmd("бот", "мокси", "статус", "бот статус", "status", section=S,
                     usage="бот", desc="Статус бота: онлайн, пинг, аптайм"))
 async def cmd_bot(message: Message, bot: Bot, **kw):
     await message.reply(await bot_status_text(bot, message), disable_web_page_preview=True)

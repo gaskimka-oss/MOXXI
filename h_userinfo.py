@@ -103,7 +103,13 @@ def _autodel(msg, delay: int = 120) -> None:
         pass
 
 
-async def _profile(uid: int):
+async def _profile(uid: int, chat_id: int = 0):
+    if chat_id < 0:
+        row = await db.fetchone("SELECT * FROM chat_profiles WHERE chat_id=? AND user_id=?", (chat_id, uid))
+        if not row:
+            await db.execute("INSERT OR IGNORE INTO chat_profiles (chat_id, user_id) VALUES (?, ?)", (chat_id, uid))
+            row = await db.fetchone("SELECT * FROM chat_profiles WHERE chat_id=? AND user_id=?", (chat_id, uid))
+        return row
     row = await db.fetchone("SELECT * FROM profiles WHERE user_id=?", (uid,))
     if not row:
         await db.execute("INSERT OR IGNORE INTO profiles (user_id) VALUES (?)", (uid,))
@@ -358,24 +364,23 @@ async def render_card(message: Message, bot: Bot, uid: int, name: str | None) ->
     else:
         family_str = "Холост(а)"
 
-    is_main_clan = (message.chat.id == MAIN_CHAT or getattr(message.chat, "type", "") == "private")
     shown = []
-    if is_main_clan:
-        if p["real_name"]:
-            shown.append(f"▫️ ☆ Имя: {html.escape(str(p['real_name']))}")
-        if p["age"]:
-            shown.append(f"▫️ ☆ Возраст: {html.escape(str(p['age']))}")
-        if p["country"]:
-            shown.append(f"▫️ ☆ Страна: {html.escape(str(p['country']))}")
-        if p["tz"]:
-            shown.append(f"▫️ ☆ Время по МСК: {html.escape(str(p['tz']))}")
-        shown.append(f"▫️ ☆ Семейное положение: {family_str}")
-        if u["nick"]:
-            shown.append(f"▫️ ☆ Ник: {html.escape(u['nick'])}")
-        elif p["hobby"] and len(p["hobby"]) <= 32:
-            shown.append(f"▫️ ☆ Ник: {html.escape(p['hobby'])}")
-        if p["gender"]:
-            shown.append(f"▫️ ☆ Пол: {html.escape(str(p['gender']))}")
+    if p["real_name"]:
+        shown.append(f"▫️ ☆ Имя: {html.escape(str(p['real_name']))}")
+    if p["age"]:
+        shown.append(f"▫️ ☆ Возраст: {html.escape(str(p['age']))}")
+    if p["country"]:
+        shown.append(f"▫️ ☆ Страна: {html.escape(str(p['country']))}")
+    if p["tz"]:
+        shown.append(f"▫️ ☆ Время по МСК: {html.escape(str(p['tz']))}")
+    shown.append(f"▫️ ☆ Семейное положение: {family_str}")
+    cur_nick = await get_nick(uid, message.chat.id)
+    if cur_nick:
+        shown.append(f"▫️ ☆ Ник: {html.escape(cur_nick)}")
+    elif p["hobby"] and len(p["hobby"]) <= 32:
+        shown.append(f"▫️ ☆ Ник: {html.escape(p['hobby'])}")
+    if p["gender"]:
+        shown.append(f"▫️ ☆ Пол: {html.escape(str(p['gender']))}")
 
     if shown:
         out.append("")
@@ -546,12 +551,6 @@ async def cmd_description(message: Message, bot: Bot, args: str = "", **kw):
     else:
         uid, name = me, message.from_user.first_name
 
-    if getattr(message.chat, "type", "") in {"group", "supergroup"} and message.chat.id != MAIN_CHAT:
-        return await message.reply(
-            "ℹ️ <b>Описания участников клана доступны в основном чате:</b>\n"
-            "https://t.me/+-vFNcAElB3lmMzli",
-            disable_web_page_preview=True)
-
     u = await db.get_user(uid)
     p = await _profile(uid)
     mine = (uid == me)
@@ -620,6 +619,12 @@ async def cmd_wipe_description(message: Message, bot: Bot, args: str = "", **kw)
             f"Ответьте на его сообщение или укажите ID.")
 
     cols = ", ".join(f"{c}=NULL" for _, _, c in FIELDS)
+    cid = message.chat.id
+    if cid < 0:
+        await _profile(uid, cid)
+        await db.execute(
+            f"UPDATE chat_profiles SET {cols}, about=NULL, custom=NULL, custom_by=NULL, "
+            f"custom_ts=NULL, filled=0, filled_ts=NULL WHERE chat_id=? AND user_id=?", (cid, uid))
     await _profile(uid)
     await db.execute(
         f"UPDATE profiles SET {cols}, about=NULL, custom=NULL, custom_by=NULL, "
@@ -723,7 +728,14 @@ async def cmd_edit_description(message: Message, bot: Bot, args: str = "", **kw)
     # текст мог остаться в первой строке после ника
     text = (rest.strip() + ("\n" + body if body else "")).strip() or body
 
+    cid = message.chat.id
+    now = int(time.time())
     if text.lower() in {"сброс", "убрать", "очистить", "удалить", "-"}:
+        if cid < 0:
+            await _profile(uid, cid)
+            await db.execute(
+                "UPDATE chat_profiles SET custom=NULL, custom_by=NULL, custom_ts=NULL "
+                "WHERE chat_id=? AND user_id=?", (cid, uid))
         await _profile(uid)
         await db.execute(
             "UPDATE profiles SET custom=NULL, custom_by=NULL, custom_ts=NULL "
@@ -739,11 +751,17 @@ async def cmd_edit_description(message: Message, bot: Bot, args: str = "", **kw)
             f"Тут любой текст</code>")
 
     text = text[:2000]
+    if cid < 0:
+        await _profile(uid, cid)
+        await db.execute(
+            "UPDATE chat_profiles SET custom=?, custom_by=?, custom_ts=?, "
+            "filled=1, filled_ts=COALESCE(filled_ts, ?) WHERE chat_id=? AND user_id=?",
+            (text, message.from_user.id, now, now, cid, uid))
     await _profile(uid)
     await db.execute(
         "UPDATE profiles SET custom=?, custom_by=?, custom_ts=?, "
         "filled=1, filled_ts=COALESCE(filled_ts, ?) WHERE user_id=?",
-        (text, message.from_user.id, int(time.time()), int(time.time()), uid))
+        (text, message.from_user.id, now, now, uid))
 
     await message.reply(
         f"✅ <b>Описание изменено</b>\n"
@@ -828,16 +846,28 @@ def looks_like_form(text: str) -> bool:
 async def _save_form(message: Message, text: str) -> None:
     data = parse_form(text)
     uid = message.from_user.id
+    cid = message.chat.id
+    now = int(time.time())
 
     # Свободное описание: полей по шаблону мало, но человек явно рассказал
     # о себе. Сохраняем текст целиком — как есть, со всеми смайликами.
     if len(data) < MIN_FIELDS and looks_like_form(text):
-        await _profile(uid)
         clean = text.strip()[:2000]
+        if cid < 0:
+            await _profile(uid, cid)
+            await db.execute(
+                "UPDATE chat_profiles SET custom=?, custom_ts=?, filled=1, "
+                "filled_ts=COALESCE(filled_ts, ?) WHERE chat_id=? AND user_id=?",
+                (clean, now, now, cid, uid))
+            if data:
+                sets = ", ".join(f"{c}=?" for c in data)
+                await db.execute(f"UPDATE chat_profiles SET {sets} WHERE chat_id=? AND user_id=?",
+                                 (*data.values(), cid, uid))
+        await _profile(uid)
         await db.execute(
             "UPDATE profiles SET custom=?, custom_ts=?, filled=1, "
             "filled_ts=COALESCE(filled_ts, ?) WHERE user_id=?",
-            (clean, int(time.time()), int(time.time()), uid))
+            (clean, now, now, uid))
         # заодно сохраняем то, что всё же распозналось
         if data:
             sets = ", ".join(f"{c}=?" for c in data)
@@ -845,8 +875,6 @@ async def _save_form(message: Message, text: str) -> None:
                              (*data.values(), uid))
         return await message.reply(
             "✅ <b>Описание принято!</b>\n\n"
-            "Теперь можете писать в любой теме и в любом чате — "
-            "заполнять второй раз не нужно.\n\n"
             "Посмотреть: <code>описание</code>")
 
     if not data:
@@ -854,24 +882,30 @@ async def _save_form(message: Message, text: str) -> None:
             "📝 Не понял, где тут описание.\n\n"
             "Расскажите о себе — хотя бы 3 строки, "
             "или возьмите форму командой <code>шаблон</code>.")
+
+    if cid < 0:
+        await _profile(uid, cid)
+        sets = ", ".join(f"{c}=?" for c in data)
+        await db.execute(f"UPDATE chat_profiles SET {sets} WHERE chat_id=? AND user_id=?",
+                         (*data.values(), cid, uid))
     await _profile(uid)
     sets = ", ".join(f"{c}=?" for c in data)
     await db.execute(f"UPDATE profiles SET {sets} WHERE user_id=?",
                      (*data.values(), uid))
     # описание готово, если заполнено хотя бы MIN_FIELDS полей
-    p = await _profile(uid)
+    p = await _profile(uid, cid)
     filled = sum(1 for _, _, c in FIELDS if p[c])
     was_done = bool(p["filled"])
     if filled >= MIN_FIELDS and not was_done:
-        # ставим метку один раз и навсегда: больше нигде не переспросим
+        if cid < 0:
+            await db.execute("UPDATE chat_profiles SET filled=1, filled_ts=? WHERE chat_id=? AND user_id=?",
+                             (now, cid, uid))
         await db.execute("UPDATE profiles SET filled=1, filled_ts=? WHERE user_id=?",
-                         (int(time.time()), uid))
+                         (now, uid))
     ok = ", ".join(lbl for _, lbl, c in FIELDS if c in data)
     tail = ""
     if filled >= MIN_FIELDS and not was_done:
-        tail = ("\n\n✅ <b>Описание принято!</b>\n"
-                "Теперь можете писать в любой теме и в любом чате — "
-                "заполнять второй раз не нужно.")
+        tail = ("\n\n✅ <b>Описание принято!</b>")
     elif filled < MIN_FIELDS:
         need = MIN_FIELDS - filled
         tail = (f"\n\n⚠️ Заполните ещё {need} "
@@ -944,13 +978,9 @@ def topic_link(chat_id: int, tid: int) -> str:
 MIN_FIELDS = 2
 
 
-async def form_done(uid: int) -> bool:
-    """Заполнено ли описание. Описание одно на человека — на все чаты и темы.
-
-    Достаточно заполнить один раз в теме описаний: дальше человек свободно
-    пишет в любой теме и в любом чате сетки, повторять не нужно.
-    """
-    p = await db.fetchone("SELECT * FROM profiles WHERE user_id=?", (uid,))
+async def form_done(uid: int, chat_id: int = 0) -> bool:
+    """Заполнено ли описание для этого конкретного чата."""
+    p = await _profile(uid, chat_id)
     if not p:
         return False
     # админ вписал описание вручную — считаем заполненным
@@ -962,12 +992,10 @@ async def form_done(uid: int) -> bool:
 
 
 async def needs_form(chat_id: int, uid: int) -> bool:
-    """Требуется ли этому участнику заполнить анкету."""
-    if chat_id != MAIN_CHAT:
-        return False
+    """Требуется ли этому участнику заполнить анкету в данном чате."""
     if await db.get_setting(chat_id, "form_required", "0") != "1":
         return False
-    return not await form_done(uid)
+    return not await form_done(uid, chat_id)
 
 
 
@@ -1030,13 +1058,17 @@ async def cmd_form_topic(message: Message, bot: Bot, args: str = "", **kw):
 
 
 # ═══════════════ НИКИ ═══════════════
-async def get_nick(uid: int) -> str:
-    """Ник человека. Свой заданный важнее, иначе берём из описания."""
+async def get_nick(uid: int, chat_id: int = 0) -> str:
+    """Ник человека. В группе приоритет у ника этой группы, иначе глобальный, иначе из описания."""
+    if chat_id < 0:
+        row = await db.fetchone("SELECT nick FROM chat_nicks WHERE chat_id=? AND user_id=?", (chat_id, uid))
+        if row and row["nick"]:
+            return str(row["nick"])
     u = await db.get_user(uid)
     if u["nick"]:
         return str(u["nick"])
     p = await _profile(uid)
-    return str(p["hobby"] or "")          # «Ник» из анкеты
+    return str(p["hobby"] or "")
 
 
 @router.message(Cmd("+ник", "+ ник", "поставить ник", "задать ник",
@@ -1045,19 +1077,26 @@ async def get_nick(uid: int) -> str:
                     desc="Поставить или сменить свой ник"))
 async def cmd_nick_set(message: Message, bot: Bot, args: str = "", **kw):
     uid = message.from_user.id
+    cid = message.chat.id
     nick = (args or "").strip()
 
     if not nick:
-        cur = await get_nick(uid)
+        cur = await get_nick(uid, cid)
         return await message.reply(
             f"🏷 <b>Ваш ник:</b> {html.escape(cur) if cur else '<i>не задан</i>'}\n\n"
-            f"Поставить: <code>+ник ZRG Sofia</code>\n"
+            f"Поставить: <code>+ник ваш ник</code>\n"
             f"Убрать: <code>-ник</code>\n\n"
-            f"<i>Если ник не задан, он берётся из вашего описания.</i>")
+            f"<i>В каждой группе вы можете установить свой собственный ник!</i>")
 
     if len(nick) > 32:
         return await message.reply("🏷 Ник слишком длинный — не больше 32 символов.")
 
+    if cid < 0:
+        await db.execute(
+            "INSERT INTO chat_nicks (chat_id, user_id, nick) VALUES (?, ?, ?) "
+            "ON CONFLICT(chat_id, user_id) DO UPDATE SET nick=excluded.nick",
+            (cid, uid, nick)
+        )
     await db.get_user(uid)
     await db.execute("UPDATE users SET nick=? WHERE user_id=?", (nick, uid))
     await _profile(uid)
@@ -1069,6 +1108,7 @@ async def cmd_nick_set(message: Message, bot: Bot, args: str = "", **kw):
                     section=S, usage="-ник", desc="Убрать свой ник"))
 async def cmd_nick_off(message: Message, bot: Bot, args: str = "", **kw):
     uid = message.from_user.id
+    cid = message.chat.id
     a = (args or "").strip()
 
     # админ может снять ник другому
@@ -1077,14 +1117,18 @@ async def cmd_nick_off(message: Message, bot: Bot, args: str = "", **kw):
         if await effective_rank(message, bot) >= 4:
             tid, tname, _ = await resolve_target(message, a, bot)
             if tid:
+                if cid < 0:
+                    await db.execute("DELETE FROM chat_nicks WHERE chat_id=? AND user_id=?", (cid, tid))
                 await db.execute("UPDATE users SET nick=NULL WHERE user_id=?", (tid,))
                 await db.execute("UPDATE profiles SET hobby=NULL WHERE user_id=?", (tid,))
                 return await message.reply(
                     f"🏷 Ник снят у {mention_id(tid, html.escape(tname or str(tid)))}")
 
-    cur = await get_nick(uid)
+    cur = await get_nick(uid, cid)
     if not cur:
         return await message.reply("🏷 У вас и так нет ника.")
+    if cid < 0:
+        await db.execute("DELETE FROM chat_nicks WHERE chat_id=? AND user_id=?", (cid, uid))
     await db.execute("UPDATE users SET nick=NULL WHERE user_id=?", (uid,))
     await db.execute("UPDATE profiles SET hobby=NULL WHERE user_id=?", (uid,))
     await message.reply("🏷 Ник убран.")
@@ -1095,6 +1139,7 @@ async def cmd_nick_off(message: Message, bot: Bot, args: str = "", **kw):
 async def cmd_nick_show(message: Message, bot: Bot, args: str = "", **kw):
     a = (args or "").strip()
     me = message.from_user.id
+    cid = message.chat.id
 
     if a or real_reply(message):
         uid, name, _ = await resolve_target(message, a, bot)
@@ -1104,7 +1149,7 @@ async def cmd_nick_show(message: Message, bot: Bot, args: str = "", **kw):
     else:
         uid, name = me, message.from_user.first_name
 
-    nick = await get_nick(uid)
+    nick = await get_nick(uid, cid)
     who = mention_id(uid, html.escape(name or str(uid)))
     if not nick:
         tail = ("\n\nПоставить: <code>+ник ваш ник</code>" if uid == me else "")
@@ -1112,24 +1157,67 @@ async def cmd_nick_show(message: Message, bot: Bot, args: str = "", **kw):
     await message.reply(f"🏷 <b>Ник</b> {who}\n\n{html.escape(nick)}")
 
 
-async def _render_nick_list_page(page: int = 1) -> tuple[str, InlineKeyboardMarkup]:
+async def _get_chat_active_uids(chat_id: int, bot: Bot) -> tuple[int, set[int]]:
+    """Возвращает (реальное_число_участников_в_тг, множество_user_id_в_этом_чате)."""
+    try:
+        real_count = await bot.get_chat_member_count(chat_id) if chat_id < 0 else 1
+    except Exception:
+        real_count = 0
+
+    if chat_id >= 0:
+        return real_count, set()
+
+    # Исключённые (забаненные в этом чате или отмеченные как вышедшие)
+    banned_rows = await db.fetchall("SELECT user_id FROM bans WHERE chat_id=?", (chat_id,))
+    excluded = {r["user_id"] for r in banned_rows}
+    left_rows = await db.fetchall("SELECT user_id FROM chat_members WHERE chat_id=? AND is_member=0", (chat_id,))
+    excluded |= {r["user_id"] for r in left_rows}
+
+    # Те, кто точно в чате по нашей базе (активные участники, статистика, ранги, ники, анкеты чата)
+    c_mems = await db.fetchall("SELECT user_id FROM chat_members WHERE chat_id=? AND is_member=1", (chat_id,))
+    c_stats = await db.fetchall("SELECT user_id FROM chat_stats WHERE chat_id=?", (chat_id,))
+    c_ranks = await db.fetchall("SELECT user_id FROM ranks WHERE chat_id=?", (chat_id,))
+    c_nicks = await db.fetchall("SELECT user_id FROM chat_nicks WHERE chat_id=?", (chat_id,))
+    c_profs = await db.fetchall("SELECT user_id FROM chat_profiles WHERE chat_id=?", (chat_id,))
+    known_uids = {r["user_id"] for r in (c_mems + c_stats + c_ranks + c_nicks + c_profs) if r.get("user_id")} - excluded
+
+    return real_count, known_uids
+
+
+async def _render_nick_list_page(chat_id: int, bot: Bot, page: int = 1) -> tuple[str, InlineKeyboardMarkup]:
     PAGE_SIZE = 12
-    rows = await db.fetchall(
-        "SELECT u.user_id, u.username, u.first_name, u.nick, p.hobby, p.real_name, p.nick2 "
-        "FROM profiles p LEFT JOIN users u ON u.user_id=p.user_id "
-        "WHERE (p.hobby IS NOT NULL AND p.hobby<>'' AND p.hobby<>'—') "
-        "   OR (u.nick IS NOT NULL AND u.nick<>'' AND u.nick<>'—') "
-        "ORDER BY p.user_id")
+    real_count, known_uids = await _get_chat_active_uids(chat_id, bot)
+
+    if chat_id < 0:
+        raw_rows = await db.fetchall(
+            "SELECT u.user_id, u.username, u.first_name, "
+            "COALESCE(cn.nick, cp.hobby) as user_nick "
+            "FROM users u "
+            "LEFT JOIN chat_nicks cn ON (cn.chat_id=? AND cn.user_id=u.user_id) "
+            "LEFT JOIN chat_profiles cp ON (cp.chat_id=? AND cp.user_id=u.user_id) "
+            "WHERE (cn.nick IS NOT NULL AND cn.nick<>'' AND cn.nick<>'—') "
+            "   OR (cp.hobby IS NOT NULL AND cp.hobby<>'' AND cp.hobby<>'—') "
+            "ORDER BY u.user_id",
+            (chat_id, chat_id)
+        )
+        rows = [r for r in raw_rows if r["user_id"] in known_uids]
+    else:
+        rows = await db.fetchall(
+            "SELECT u.user_id, u.username, u.first_name, COALESCE(u.nick, p.hobby) as user_nick "
+            "FROM users u LEFT JOIN profiles p ON p.user_id=u.user_id "
+            "WHERE (u.nick IS NOT NULL AND u.nick<>'' AND u.nick<>'—') "
+            "   OR (p.hobby IS NOT NULL AND p.hobby<>'' AND p.hobby<>'—') "
+            "ORDER BY u.user_id"
+        )
+
     total_count = len(rows)
+    all_users = real_count if real_count > 0 else total_count
     total_pages = max(1, (total_count + PAGE_SIZE - 1) // PAGE_SIZE)
     page = max(1, min(page, total_pages))
 
-    total_u = await db.fetchone("SELECT COUNT(*) c FROM users")
-    all_users = total_u["c"] if total_u else total_count
-
     if not rows:
-        text = ("🏷 <b>Игровые ники клана</b>\n\n"
-                "Пока никто не поставил ник.\n\n"
+        text = ("🏷 <b>Список ников участников чата</b>\n\n"
+                "В этом чате пока никто не установил ник.\n\n"
                 "Поставить: <code>+ник ваш ник</code>")
         kb = InlineKeyboardMarkup(inline_keyboard=[])
         return text, kb
@@ -1138,28 +1226,28 @@ async def _render_nick_list_page(page: int = 1) -> tuple[str, InlineKeyboardMark
     page_rows = rows[start_idx:start_idx + PAGE_SIZE]
 
     out = [
-        f"🏷 <b>Список игровых ников клана</b>\n",
+        f"🏷 <b>Список ников участников чата</b>\n",
         f"👥 Установлен ник: <b>{total_count}</b> из <b>{all_users}</b> участников",
         f"📄 Страница: <b>{page}</b> из <b>{total_pages}</b>\n",
     ]
 
     for idx, r in enumerate(page_rows, start_idx + 1):
-        nick = r["hobby"] or r["nick"] or r["nick2"]
-        nm = r["real_name"] or r["first_name"] or (f"@{r['username']}" if r["username"] else str(r["user_id"]))
+        nick = r["user_nick"]
+        nm = r["first_name"] or (f"@{r['username']}" if r["username"] else str(r["user_id"]))
         out.append(f"<b>{idx}.</b> {mention_id(r['user_id'], html.escape(nm))} — <b>{html.escape(str(nick)[:32])}</b>")
 
     out.append("\n💡 <i>Поставить ник: «+ник ваш ник» · Убрать: «-ник»</i>")
 
     nav_buttons = []
     if page > 1:
-        nav_buttons.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"nl:p:{page - 1}"))
+        nav_buttons.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"nl:p:{page - 1}:{chat_id}"))
     else:
         nav_buttons.append(InlineKeyboardButton(text="◀️", callback_data="nl:noop"))
 
     nav_buttons.append(InlineKeyboardButton(text=f"📄 {page}/{total_pages}", callback_data="nl:noop"))
 
     if page < total_pages:
-        nav_buttons.append(InlineKeyboardButton(text="Вперёд ➡️", callback_data=f"nl:p:{page + 1}"))
+        nav_buttons.append(InlineKeyboardButton(text="Вперёд ➡️", callback_data=f"nl:p:{page + 1}:{chat_id}"))
     else:
         nav_buttons.append(InlineKeyboardButton(text="▶️", callback_data="nl:noop"))
 
@@ -1169,21 +1257,15 @@ async def _render_nick_list_page(page: int = 1) -> tuple[str, InlineKeyboardMark
 
 @router.message(Cmd("никлист", "ник лист", "ники лист", "лист ников", "ники", "список ников", "все ники",
                     section=S, rank=0, usage="ник лист [стр]",
-                    desc="Список игровых ников клана с пагинацией"))
+                    desc="Список игровых ников участников чата с пагинацией"))
 async def cmd_nick_list(message: Message, bot: Bot, args: str = "", **kw):
-    if getattr(message.chat, "type", "") in {"group", "supergroup"} and message.chat.id != MAIN_CHAT:
-        return await message.reply(
-            "ℹ️ <b>Список игровых ников клана доступен в основном чате:</b>\n"
-            "https://t.me/+-vFNcAElB3lmMzli",
-            disable_web_page_preview=True)
-
     page = 1
     a = (args or "").strip()
     for part in a.split():
         if part.isdigit() and int(part) > 0:
             page = int(part)
             break
-    text, kb = await _render_nick_list_page(page)
+    text, kb = await _render_nick_list_page(message.chat.id, bot, page)
     await message.reply(text, reply_markup=kb, disable_web_page_preview=True)
 
 
@@ -1191,9 +1273,11 @@ async def cmd_nick_list(message: Message, bot: Bot, args: str = "", **kw):
 async def cb_nick_list(call: CallbackQuery, bot: Bot):
     if call.data == "nl:noop":
         return await call.answer()
-    if call.data.startswith("nl:p:"):
-        page = int(call.data.split(":")[2])
-        text, kb = await _render_nick_list_page(page)
+    parts = call.data.split(":")
+    if len(parts) >= 3 and parts[1] == "p":
+        page = int(parts[2])
+        cid = int(parts[3]) if len(parts) > 3 else (call.message.chat.id if call.message and call.message.chat else 0)
+        text, kb = await _render_nick_list_page(cid, bot, page)
         try:
             await call.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
         except Exception:
@@ -1201,37 +1285,52 @@ async def cb_nick_list(call: CallbackQuery, bot: Bot):
         await call.answer()
 
 
-async def _render_desc_list_page(page: int = 1) -> tuple[str, InlineKeyboardMarkup]:
+async def _render_desc_list_page(chat_id: int, bot: Bot, page: int = 1) -> tuple[str, InlineKeyboardMarkup]:
     PAGE_SIZE = 10
-    rows = await db.fetchall(
-        "SELECT p.*, u.username, u.first_name, u.nick FROM profiles p "
-        "LEFT JOIN users u ON u.user_id=p.user_id "
-        "ORDER BY p.filled_ts DESC, p.user_id ASC")
+    real_count, known_uids = await _get_chat_active_uids(chat_id, bot)
 
-    done, empty = [], []
-    for r in rows:
+    if chat_id < 0:
+        rows = await db.fetchall(
+            "SELECT cp.*, u.username, u.first_name, COALESCE(cn.nick, u.nick) as nick "
+            "FROM chat_profiles cp "
+            "LEFT JOIN users u ON u.user_id=cp.user_id "
+            "LEFT JOIN chat_nicks cn ON (cn.chat_id=cp.chat_id AND cn.user_id=cp.user_id) "
+            "WHERE cp.chat_id=? "
+            "ORDER BY cp.filled_ts DESC, cp.user_id ASC",
+            (chat_id,)
+        )
+        chat_rows = [r for r in rows if r["user_id"] in known_uids]
+    else:
+        rows = await db.fetchall(
+            "SELECT p.*, u.username, u.first_name, u.nick FROM profiles p "
+            "LEFT JOIN users u ON u.user_id=p.user_id "
+            "ORDER BY p.filled_ts DESC, p.user_id ASC")
+        chat_rows = list(rows)
+
+    done = []
+    for r in chat_rows:
         has = bool(("custom" in r.keys() and r["custom"] and not r["custom"].startswith("🧠 ИИ проверил"))
                    or r["filled"]
                    or sum(1 for _, _, c in FIELDS if r[c]) >= MIN_FIELDS)
-        (done if has else empty).append(r)
+        if has:
+            done.append(r)
 
     total_done = len(done)
+    all_users = real_count if real_count > 0 else total_done
+    empty_count = max(0, all_users - total_done)
     total_pages = max(1, (total_done + PAGE_SIZE - 1) // PAGE_SIZE)
     page = max(1, min(page, total_pages))
 
-    total_u = await db.fetchone("SELECT COUNT(*) c FROM users")
-    all_users = total_u["c"] if total_u else len(rows)
-
     out = [
-        f"📝 <b>Список анкет участников клана</b>\n",
+        f"📝 <b>Список анкет участников чата</b>\n",
         f"✅ Заполнили описание: <b>{total_done}</b>",
-        f"❌ Без описания: <b>{len(empty)}</b>",
-        f"👥 Всего в базе: <b>{all_users}</b>",
+        f"❌ Без описания: <b>{empty_count}</b>",
+        f"👥 Всего участников: <b>{all_users}</b>",
         f"📄 Страница: <b>{page}</b> из <b>{total_pages}</b>\n",
     ]
 
     if not done:
-        out.append("<i>Пока никто не заполнил описание.</i>\nЗаполнить: напишите <code>шаблон</code>")
+        out.append("<i>Пока никто не заполнил описание в этом чате.</i>\nЗаполнить: напишите <code>шаблон</code>")
         kb = InlineKeyboardMarkup(inline_keyboard=[])
         return "\n".join(out), kb
 
@@ -1255,14 +1354,14 @@ async def _render_desc_list_page(page: int = 1) -> tuple[str, InlineKeyboardMark
 
     nav_buttons = []
     if page > 1:
-        nav_buttons.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"dl:p:{page - 1}"))
+        nav_buttons.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"dl:p:{page - 1}:{chat_id}"))
     else:
         nav_buttons.append(InlineKeyboardButton(text="◀️", callback_data="dl:noop"))
 
     nav_buttons.append(InlineKeyboardButton(text=f"📄 {page}/{total_pages}", callback_data="dl:noop"))
 
     if page < total_pages:
-        nav_buttons.append(InlineKeyboardButton(text="Вперёд ➡️", callback_data=f"dl:p:{page + 1}"))
+        nav_buttons.append(InlineKeyboardButton(text="Вперёд ➡️", callback_data=f"dl:p:{page + 1}:{chat_id}"))
     else:
         nav_buttons.append(InlineKeyboardButton(text="▶️", callback_data="dl:noop"))
 
@@ -1275,19 +1374,13 @@ async def _render_desc_list_page(page: int = 1) -> tuple[str, InlineKeyboardMark
                     "все описания", "все анкеты", "кто заполнил", "лист описаний", "лист анкет",
                     section=S, usage="описание лист [стр]", desc="Список участников с анкетами с пагинацией"))
 async def cmd_desc_list(message: Message, bot: Bot, args: str = "", **kw):
-    if getattr(message.chat, "type", "") in {"group", "supergroup"} and message.chat.id != MAIN_CHAT:
-        return await message.reply(
-            "ℹ️ <b>Список анкет участников клана доступен в основном чате:</b>\n"
-            "https://t.me/+-vFNcAElB3lmMzli",
-            disable_web_page_preview=True)
-
     page = 1
     a = (args or "").strip()
     for part in a.split():
         if part.isdigit() and int(part) > 0:
             page = int(part)
             break
-    text, kb = await _render_desc_list_page(page)
+    text, kb = await _render_desc_list_page(message.chat.id, bot, page)
     await message.reply(text, reply_markup=kb, disable_web_page_preview=True)
 
 
@@ -1295,9 +1388,11 @@ async def cmd_desc_list(message: Message, bot: Bot, args: str = "", **kw):
 async def cb_desc_list(call: CallbackQuery, bot: Bot):
     if call.data == "dl:noop":
         return await call.answer()
-    if call.data.startswith("dl:p:"):
-        page = int(call.data.split(":")[2])
-        text, kb = await _render_desc_list_page(page)
+    parts = call.data.split(":")
+    if len(parts) >= 3 and parts[1] == "p":
+        page = int(parts[2])
+        cid = int(parts[3]) if len(parts) > 3 else (call.message.chat.id if call.message and call.message.chat else 0)
+        text, kb = await _render_desc_list_page(cid, bot, page)
         try:
             await call.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
         except Exception:

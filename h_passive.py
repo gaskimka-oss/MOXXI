@@ -26,7 +26,7 @@ NEEDED_RIGHTS = (
 
 RIGHTS_TEXT = """👋 <b>Спасибо за добавление!</b>
 
-Чтобы я работал полноценно, выдайте мне права администратора:
+Чтобы команды работали без слэша (<code>бан</code>, <code>мут</code>, <code>команды</code>) и бот видел сообщения, выдайте мне права администратора:
 
 🔧 <b>Управление группой</b>
 🗑 <b>Удаление сообщений</b>
@@ -34,8 +34,9 @@ RIGHTS_TEXT = """👋 <b>Спасибо за добавление!</b>
 📌 <b>Закрепление сообщений</b>
 🔗 <b>Приглашение по ссылке</b>
 
-Нажмите кнопку ниже — Telegram сразу предложит нужные галочки.
-Либо вручную: <i>Управление группой → Администраторы → добавить меня</i>."""
+👇 <b>Как выдать права:</b>
+• <b>Способ 1:</b> Нажмите кнопку ниже ➔ <u>выберите в списке этот чат</u> ➔ Telegram сразу откроет галочки прав!
+• <b>Способ 2 (вручную):</b> <i>Настройки группы → Администраторы → Добавить администратора → MOXXI</i>."""
 
 
 def _rights_kb(bot_username: str, chat_id: int) -> InlineKeyboardMarkup:
@@ -61,7 +62,7 @@ async def on_added(event: ChatMemberUpdated, bot: Bot):
             if adm.status == "creator" and adm.user and not adm.user.is_bot:
                 await set_rank(event.chat.id, adm.user.id, MAX_RANK, by=0)
                 await db.touch_user(adm.user.id, adm.user.username, adm.user.first_name)
-                creator_info = f"\n\n👑 <b>Создателю беседы {mention_id(adm.user.id, adm.user.first_name)} присвоен высший ранг: ⭐⭐⭐⭐⭐⭐⭐ Лидер клана!</b>"
+                creator_info = f"\n\n👑 <b>Создателю беседы {mention_id(adm.user.id, adm.user.first_name)} присвоен высший ранг: ⭐⭐⭐⭐⭐⭐⭐ Лидер чата!</b>"
                 break
     except Exception:
         pass

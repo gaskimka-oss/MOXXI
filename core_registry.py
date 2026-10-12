@@ -242,10 +242,13 @@ class Cmd(Filter):
         else:
             low = _norm(body)
             for w in PREFIX_WORDS:
-                if low == w or low.startswith(w + " ") or low.startswith(w + ","):
+                if low.startswith(w + " ") or low.startswith(w + ","):
+                    if w in self.names:
+                        break
                     body = body[len(w):].lstrip(" ,").strip()
                     had_prefix = True
                     break
+
 
         if self.need_prefix and not had_prefix:
             return False

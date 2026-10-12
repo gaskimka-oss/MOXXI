@@ -253,6 +253,9 @@ async def cmd_add_staff(message: Message, bot: Bot, args: str = "", **kw):
     if not target_id:
         return await message.reply("❌ Не удалось определить целевого пользователя.")
 
+    if config.is_bot_owner(target_id):
+        return await message.reply("👑 Пользователь уже является Владельцем бота.")
+
     if rank_to_set < 1 or rank_to_set > 3:
         return await message.reply("❌ Ранг стаффа должен быть от 1 до 3.")
 
@@ -302,6 +305,9 @@ async def cmd_remove_staff(message: Message, bot: Bot, args: str = "", **kw):
     if not target_id:
         return await message.reply("Формат: <code>-стафф [id/@user]</code> (или ответом на сообщение)")
 
+    if config.is_bot_owner(target_id):
+        return await message.reply("👑 Нельзя снять Владельца бота.")
+
     await db.remove_bot_staff(target_id)
     try:
         await bot.send_message(target_id, "ℹ️ Ваши полномочия сотрудника Moxxi Bot были отозваны владельцем.")
@@ -319,9 +325,8 @@ async def cmd_list_staff(message: Message, bot: Bot, **kw):
         return
 
     staff_list = await db.get_all_bot_staff()
-    owner_id = getattr(config, "OWNER_ID", 8412527198)
-
-    lines = [f"👑 <b>Владелец проекта:</b> {mention_id(owner_id, 'Simba')} (<code>{owner_id}</code>)\n"]
+    owners_str = ", ".join(mention_id(oid, "Владелец") + f" (<code>{oid}</code>)" for oid in sorted(config.BOT_OWNERS))
+    lines = [f"👑 <b>Владельцы проекта:</b> {owners_str}\n"]
     if staff_list:
         lines.append("👥 <b>Действующий состав:</b>")
         for s in staff_list:
@@ -341,7 +346,8 @@ async def cb_staff_list(call: CallbackQuery):
     if rank < 4:
         return await call.answer("🔒 Доступно только Владельцу.", show_alert=True)
     staff_list = await db.get_all_bot_staff()
-    lines = [f"👑 <b>Владелец:</b> {mention_id(config.OWNER_ID, 'Simba')} (<code>{config.OWNER_ID}</code>)\n"]
+    owners_str = ", ".join(mention_id(oid, "Владелец") + f" (<code>{oid}</code>)" for oid in sorted(config.BOT_OWNERS))
+    lines = [f"👑 <b>Владельцы:</b> {owners_str}\n"]
     if staff_list:
         for s in staff_list:
             r_title = STAFF_RANKS_DESC.get(s["rank"], f"Ранг {s['rank']}")

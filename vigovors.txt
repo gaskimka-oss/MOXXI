@@ -1,0 +1,10 @@
+h_botinfo.py:241: "• ⚠️ <b>Выговоры модераторам:</b> система предов составу (<code>пред состав</code>, <code>снять пре
+h_staff_plus.py:4: 12. Выговоры персоналу
+h_staff_plus.py:128: # ---------------- 12. ВЫГОВОРЫ ПЕРСОНАЛУ ----------------
+h_staff_plus.py:129: @router.message(Cmd("+выговор", "дать выговор", "выговор выдать", rank=6,
+h_staff_plus.py:130: usage="+выговор {ссылка} {причина}", desc="⚠️ Выдать дисциплинарный выговор модератору"))
+h_staff_plus.py:142: return await message.reply("⛔️ Нельзя выдавать выговор равному или старшему по рангу.")
+h_staff_plus.py:148: (message.chat.id, uid, message.from_user.id, f"[ВЫГОВОР] {reason}", now)
+h_staff_plus.py:155: f"⚠️ <b>ВЫГОВОР ВЫДАН!</b>\n\n"
+h_staff_plus.py:158: f"📊 Всего выговоров: <b>{c_warns}/3</b>\n"
+h_staff_plus.py:419: f"⚠️ <b>Дисциплинарные выговоры:</b> {wc}/3\n\n"

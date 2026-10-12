@@ -22,8 +22,8 @@ from utils import mention_id
 router = Router(name="clan_sync")
 log = logging.getLogger("moxxibot.clan_sync")
 
-LEAVE_REASON = "Лив с клана"
-ROLE_NAMES = {"admin": "админская", "clan": "клановая"}
+LEAVE_REASON = "Выход из группы"
+ROLE_NAMES = {"admin": "админская", "clan": "основная"}
 PRESENT = {"member", "administrator", "creator"}
 
 
@@ -150,6 +150,15 @@ async def _cross_ban(bot: Bot, user_id: int, user_name: str, source_chat: int,
                 await log_punish(chat_id, user_id, "ban", LEAVE_REASON, 0, 0)
         except Exception as exc:
             failures.append((chat_id, str(exc)))
+
+    # Очищаем анкету, описание и ник вышедшего игрока
+    try:
+        await db.execute("DELETE FROM chat_profiles WHERE user_id=?", (user_id,))
+        await db.execute("DELETE FROM chat_nicks WHERE user_id=?", (user_id,))
+        await db.execute("DELETE FROM profiles WHERE user_id=?", (user_id,))
+        await db.execute("UPDATE users SET nick=NULL WHERE user_id=?", (user_id,))
+    except Exception:
+        pass
 
     # Сообщаем в исходную группу. Если писать туда нельзя — пробуем вторую.
     trigger_name = {"left": "вышел", "kicked": "был исключён/забанен"}.get(

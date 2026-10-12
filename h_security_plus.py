@@ -362,11 +362,10 @@ async def cmd_chat_shield(message: Message, bot: Bot, args: str = "", **kw):
     )
 
 
-# ---------------- ХЭНДЛЕР ФОНОВОЙ ЗАЩИТЫ (MIDDLEWARE / EVENT) ----------------
-@router.message()
-async def security_passive_filter(message: Message, bot: Bot):
+# ---------------- ХЭНДЛЕР ФОНОВОЙ ЗАЩИТЫ (ПРОВЕРКА НАРУШЕНИЙ) ----------------
+async def check_security_violations(message: Message, bot: Bot) -> bool:
     if not message.chat or message.chat.type not in ("group", "supergroup") or not message.from_user:
-        return
+        return False
 
     chat_id = message.chat.id
     user_id = message.from_user.id
@@ -380,11 +379,11 @@ async def security_passive_filter(message: Message, bot: Bot):
             await bot.ban_chat_member(chat_id, user_id)
         except Exception:
             pass
-        return
+        return True
 
     row = await db.fetchone("SELECT * FROM chat_antiraid WHERE chat_id=?", (chat_id,))
     if not row:
-        return
+        return False
 
     # 2. Проверка медиа-блока для новичков (ранг 0)
     if rank == 0 and row.get("media_block_seconds", 0) > 0:
@@ -409,7 +408,7 @@ async def security_passive_filter(message: Message, bot: Bot):
                     asyncio.create_task(_autodel(warn_msg, 6))
                 except Exception:
                     pass
-                return
+                return True
 
     # 3. Проверка анти-ссылок
     if rank < 2 and row.get("anti_links", 0) == 1:
@@ -423,4 +422,6 @@ async def security_passive_filter(message: Message, bot: Bot):
                 asyncio.create_task(_autodel(warn_msg, 5))
             except Exception:
                 pass
-            return
+            return True
+
+    return False

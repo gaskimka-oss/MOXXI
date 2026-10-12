@@ -311,7 +311,7 @@ async def cmd_community_chat(message: Message, bot: Bot, **kw):
         f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
         f"Вступайте в наш официальный чат общения и поддержки игроков!\n\n"
         f"👥 <b>В чате вы можете:</b>\n"
-        f"• Общаться с другими игроками и создателями кланов;\n"
+        f"• Общаться с другими игроками и создателями групп;\n"
         f"• Участвовать в турнирах, викторинах и совместных рейдах;\n"
         f"• Задавать любые вопросы по боту — наш умный ИИ и администраторы всегда на связи!\n\n"
         f"🔗 <b>Присоединяйтесь по ссылке:</b> {chat_url}"
@@ -366,8 +366,7 @@ async def cmd_support(message: Message, bot: Bot, args: str = "", **kw):
         f"🤖 <i>Резервный ИИ-помощник подключится, если ответ задержится более чем на 6 часов.</i>"
     )
 
-    # Отправляем уведомление владельцу / администраторам / в привязанную группу поддержки
-    owner_id = getattr(config, "OWNER_ID", 8412527198)
+    # Отправляем уведомление владельцам / персоналу / в привязанную группу поддержки
     admin_notify = (
         f"🆘 🔔 <b>НОВЫЙ ТИКЕТ В ТЕХПОДДЕРЖКУ #{ticket_id}</b>\n"
         f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
@@ -376,15 +375,16 @@ async def cmd_support(message: Message, bot: Bot, args: str = "", **kw):
         f"💡 <b>Чтобы ответить пользователю:</b>\n"
         f"<code>+ответ {ticket_id} [текст вашего ответа]</code>"
     )
-    try:
-        await bot.send_message(owner_id, admin_notify)
-    except Exception:
-        pass
+    for oid in config.BOT_OWNERS:
+        try:
+            await bot.send_message(oid, admin_notify)
+        except Exception:
+            pass
 
     try:
         staff_list = await db.get_all_bot_staff()
         for s in staff_list:
-            if s["user_id"] != owner_id and s["rank"] >= 1:
+            if not config.is_bot_owner(s["user_id"]) and s["rank"] >= 1:
                 try:
                     await bot.send_message(s["user_id"], admin_notify)
                 except Exception:

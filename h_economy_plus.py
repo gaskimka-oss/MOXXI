@@ -231,7 +231,7 @@ async def cmd_deposit_info(message: Message, bot: Bot, **kw):
 async def cmd_deposit_put(message: Message, bot: Bot, args: str = "", **kw):
     a = (args or "").strip().lower()
     user = await db.get_user(message.from_user.id)
-    cur_bal = user["coins"] if user else 0
+    cur_bal = user["balance"] if user else 0
 
     if a in ("все", "всё", "all"):
         amount = cur_bal
@@ -363,7 +363,7 @@ async def cmd_buy_crypto(message: Message, bot: Bot, args: str = "", **kw):
     cost = int(qty * rate)
 
     user = await db.get_user(message.from_user.id)
-    cur_bal = user["coins"] if user else 0
+    cur_bal = user["balance"] if user else 0
     if cur_bal < cost:
         return await message.reply(f"Недостаточно монет! Для покупки {qty} MXC требуется <b>{cost:,} монет</b>.")
 
@@ -433,7 +433,7 @@ async def cmd_buy_lottery_ticket(message: Message, bot: Bot, args: str = "", **k
 
     cost = qty * 500
     user = await db.get_user(message.from_user.id)
-    cur_bal = user["coins"] if user else 0
+    cur_bal = user["balance"] if user else 0
     if cur_bal < cost:
         return await message.reply(f"Недостаточно монет! Стоимость {qty} билетов: <b>{cost:,} монет</b>.")
 

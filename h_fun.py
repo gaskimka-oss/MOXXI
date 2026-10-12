@@ -209,8 +209,18 @@ async def cmd_hide_bag(message: Message, **kw):
                     desc="Случайный присутствующий участник (только с обращением)"))
 async def cmd_who(message: Message, bot: Bot, args: str = "", **kw):
     """Отвечает только на явную команду; обычное «кто играть?» игнорируется."""
+
+    q_low = (args or "").strip().lower()
+    if q_low.startswith("админ") or q_low.startswith("модер"):
+        from h_mod_ranks import cmd_staff
+        return await cmd_staff(message, bot, **kw)
+    if q_low.startswith("такой ") or q_low.startswith("такая "):
+        from h_ai_features import cmd_ai_chat
+        return await cmd_ai_chat(message, bot, args=f"кто {args}", **kw)
+
     q = html.escape(args) if args else "самый крутой"
     if message.chat.type == "private":
+
         return await message.reply(f"🤔 Кто {q}? Конечно ты!")
 
     rows = await members.known_chat_rows(message.chat.id, limit=100)

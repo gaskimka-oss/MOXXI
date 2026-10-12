@@ -21,7 +21,7 @@ from config import WARN_LIMIT, WARN_MUTE_HOURS
 import core_modlog as modlog
 from core_punish import (KIND_NAMES, KIND_EMOJI, check_reason, explain_error, guard_target,
                          lift_punish, log_punish, render_history, render_list,
-                         strip_forever)
+                         strip_forever, usage_hint)
 from core_ranks import effective_rank, get_rank, rank_label, rank_name, require, set_rank
 from core_registry import Cmd
 from core_resolve import human_period, parse_period, resolve_target
@@ -317,7 +317,9 @@ async def cmd_ban(message: Message, bot: Bot, args: str = "", **kw):
     except Exception as e:
         return await message.reply(explain_error(e, "забанить"))
     await members.remember_member(message.chat.id, uid, "kicked", False)
-    # Очищаем анкету, описание и ник забаненного игрока
+    # Очищаем анкету, описание и ник забаненного игрока для этого чата
+    await db.execute("DELETE FROM chat_profiles WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
+    await db.execute("DELETE FROM chat_nicks WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
     await db.execute("DELETE FROM profiles WHERE user_id=?", (uid,))
     await db.execute("UPDATE users SET nick=NULL WHERE user_id=?", (uid,))
 
@@ -399,6 +401,70 @@ async def cmd_banlist(message: Message, bot: Bot, **kw):
         return
     await message.reply(await render_list(message.chat.id, "ban"),
                         disable_web_page_preview=True)
+
+
+@router.message(Cmd("бан вышедших", "забанить вышедших", "бан вышедшых", "очистить вышедших",
+                    section=S_BAN, rank=4, usage="бан вышедших",
+                    desc="Забанить и снести анкеты/ники всех участников, покинувших чат"))
+async def cmd_ban_left(message: Message, bot: Bot, **kw):
+    if not await require(message, bot, 4):
+        return
+    cid = message.chat.id
+    status_msg = await message.reply("🔍 <b>Проверяю список участников и анкеты...</b>")
+
+    rows_cp = await db.fetchall("SELECT DISTINCT user_id FROM chat_profiles WHERE chat_id=?", (cid,))
+    rows_p = await db.fetchall("SELECT DISTINCT user_id FROM profiles")
+    rows_r = await db.fetchall("SELECT DISTINCT user_id FROM ranks WHERE chat_id=?", (cid,))
+    rows_s = await db.fetchall("SELECT DISTINCT user_id FROM chat_stats WHERE chat_id=?", (cid,))
+    rows_m = await db.fetchall("SELECT DISTINCT user_id FROM chat_members WHERE chat_id=?", (cid,))
+    rows_cn = await db.fetchall("SELECT DISTINCT user_id FROM chat_nicks WHERE chat_id=?", (cid,))
+
+    all_uids = list({r["user_id"] for r in (rows_cp + rows_p + rows_r + rows_s + rows_m + rows_cn) if r.get("user_id") and r["user_id"] > 0})
+    banned_count = 0
+    now = int(time.time())
+
+    from config import OWNER_ID
+    for uid in all_uids:
+        if uid == OWNER_ID or uid == message.from_user.id:
+            continue
+        try:
+            m = await bot.get_chat_member(cid, uid)
+            if m.status in {"left", "kicked"}:
+                try:
+                    await bot.ban_chat_member(cid, uid)
+                except Exception:
+                    pass
+                await db.execute("DELETE FROM chat_profiles WHERE chat_id=? AND user_id=?", (cid, uid))
+                await db.execute("DELETE FROM chat_nicks WHERE chat_id=? AND user_id=?", (cid, uid))
+                await db.execute("DELETE FROM ranks WHERE chat_id=? AND user_id=? AND rank < 10", (cid, uid))
+                await db.execute(
+                    "INSERT INTO chat_members (chat_id, user_id, status, is_member, updated_at) "
+                    "VALUES (?, ?, 'kicked', 0, ?) ON CONFLICT(chat_id, user_id) DO UPDATE SET is_member=0, status='kicked', updated_at=excluded.updated_at",
+                    (cid, uid, now)
+                )
+                await db.execute(
+                    "INSERT INTO bans (chat_id,user_id,reason,by_id,until,ts) VALUES (?,?,?,?,?,?) "
+                    "ON CONFLICT(chat_id,user_id) DO UPDATE SET reason=excluded.reason, until=excluded.until",
+                    (cid, uid, "Выход из группы", message.from_user.id, 0, now)
+                )
+                banned_count += 1
+                await asyncio.sleep(0.05)
+            elif m.status in {"member", "administrator", "creator", "restricted"}:
+                await db.execute(
+                    "INSERT INTO chat_members (chat_id, user_id, status, is_member, updated_at) "
+                    "VALUES (?, ?, ?, 1, ?) ON CONFLICT(chat_id, user_id) DO UPDATE SET is_member=1, status=excluded.status, updated_at=excluded.updated_at",
+                    (cid, uid, m.status, now)
+                )
+        except Exception:
+            continue
+
+    await status_msg.edit_text(
+        f"🧹 <b>Очистка вышедших завершена!</b>\n\n"
+        f"• Найдено и обработано: <b>{banned_count} чел.</b>\n"
+        f"• Выдан бан (Выход из группы)\n"
+        f"• Анкеты и ники этого чата очищены\n"
+        f"• Ранги модерации сброшены"
+    )
 
 
 @router.message(Cmd("кик", "кикнуть", "выгнать", "kick", section=S_BAN, rank=6,
@@ -821,11 +887,20 @@ async def cmd_dossier(message: Message, bot: Bot, args: str = "", **kw):
         return
     a = (args or "").strip()
     from core_resolve import real_reply
-    if not a and not real_reply(message):
+    had_prefix = kw.get("had_prefix", False)
+    is_reply = bool(real_reply(message))
+    if not had_prefix and not is_reply:
+        # Без префикса и не реплаем реагируем только на явные идентификаторы (@user, ID, t.me)
+        if not a or not (a.startswith("@") or a.isdigit() or "t.me/" in a):
+            return
+
+    if not a and not is_reply:
         return await message.reply("🕵️ Укажите участника для проверки:\n<code>чек @username</code> или ответом на сообщение.")
 
     uid, name, _ = await resolve_target(message, a, bot)
     if not uid:
+        if not had_prefix and not is_reply:
+            return
         return await message.reply(f"🤔 Не удалось найти участника {html.escape(a[:32])}.")
 
     text, kb = await _render_user_dossier(message.chat.id, uid, bot)

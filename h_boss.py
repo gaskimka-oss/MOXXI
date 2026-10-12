@@ -257,24 +257,17 @@ async def cmd_boss_info(message: Message, bot: Bot, **kw):
     await message.reply(_boss_card(row), reply_markup=_attack_kb(cid))
 
 
-@router.message(Cmd("заспавнить босса", "призвать босса", "спавн босс", section=S, rank=4,
+@router.message(Cmd("заспавнить босса", "призвать босса", "спавн босс", "спавн босса",
+                    "спавнить босса", "вызвать босса", "призыв босса", "заспавни босса",
+                    "призови босса", "босс спавн", "босс призыв", section=S, rank=3,
                     usage="заспавнить босса", desc="👑 Принудительно призвать рейдового босса"))
 async def cmd_spawn_boss(message: Message, bot: Bot, **kw):
-    if not await require(message, bot, 4):
+    if not await require(message, bot, 3):
         return
 
     cid = message.chat.id
     btopic = await get_boss_topic(cid)
-
-    # Проверка на форумы / темы
-    if getattr(message.chat, "is_forum", False) and not btopic:
-        return await message.reply(
-            f"⚠️ <b>Для проведения рейдов привяжите тему для боссов!</b>\n\n"
-            f"Чтобы битвы с боссами не засоряли основной чат:\n"
-            f"1. Создайте тему (напр. «🐉 Рейдовые Боссы»)\n"
-            f"2. Перейдите в неё и напишите команду: <code>+тема босс</code>\n\n"
-            f"После этого спавны будут проходить строго в назначенной ветке!"
-        )
+    here = _topic_id(message)
 
     active = await db.fetchone("SELECT * FROM chat_boss WHERE chat_id=? AND active=1", (cid,))
     if active and active["current_hp"] > 0:
@@ -311,7 +304,13 @@ async def cmd_spawn_boss(message: Message, bot: Bot, **kw):
         + _boss_card(row)
     )
 
-    target_thread = btopic if btopic > 0 else (message.message_thread_id or None)
+    if btopic and btopic > 0:
+        target_thread = btopic
+    elif here > 0:
+        target_thread = here
+    else:
+        target_thread = None
+
     try:
         sent = await bot.send_message(
             cid, card,
@@ -326,8 +325,10 @@ async def cmd_spawn_boss(message: Message, bot: Bot, **kw):
 
 # ══════════════════ 3. АТАКА БОССА ══════════════════
 
-@router.message(Cmd("ударить босса", "атака босса", "бить босса", "атаковать босса", "выстрел в босса", "удар по боссу", section=S, rank=0,
-                    usage="ударить босса", desc="⚔️ Нанести удар по активному боссу"))
+@router.message(Cmd("ударить босса", "атака босса", "бить босса", "атаковать босса",
+                    "выстрел в босса", "удар по боссу", "удар босс", "удар босса",
+                    "босс удар", "атаковать", "ударить", "атака", "выстрел", "бить",
+                    section=S, rank=0, usage="ударить босса", desc="⚔️ Нанести удар по активному боссу"))
 async def cmd_attack_boss(message: Message, bot: Bot, **kw):
     if message.chat.type == "private":
         return
@@ -336,8 +337,8 @@ async def cmd_attack_boss(message: Message, bot: Bot, **kw):
     btopic = await get_boss_topic(cid)
     here = _topic_id(message)
 
-    # Изоляция темы
-    if btopic and here != btopic:
+    # Изоляция темы: если тема боссов назначена, а игрок бьет в другой теме
+    if btopic and here != btopic and here > 0:
         return await message.reply(
             f"🐉 <b>Битва с боссом проходит в спец-теме:</b>\n"
             f"👉 {_topic_link(cid, btopic)}",

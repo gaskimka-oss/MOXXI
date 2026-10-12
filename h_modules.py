@@ -192,7 +192,7 @@ def _rep_title(rep: int) -> str:
     if rep >= 500:
         return "🌌 Владыка уважения"
     if rep >= 250:
-        return "👑 Легенда клана"
+        return "👑 Легенда чата"
     if rep >= 100:
         return "⚜️ Авторитет"
     if rep >= 50:

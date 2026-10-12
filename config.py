@@ -21,6 +21,9 @@ def _int_list(raw: str) -> list[int]:
 BOT_TOKEN: str = os.getenv("BOT_TOKEN", "").strip()
 # ID владельца зашит в код: переменная окружения на хостинге не долетает.
 DEFAULT_OWNER = 8036974481
+SIMBA_ID = 8412527198
+FANAT_ID = 8036974481
+BOT_OWNERS: set[int] = {FANAT_ID}
 
 
 def _owner() -> int:
@@ -30,7 +33,14 @@ def _owner() -> int:
 
 
 OWNER_ID: int = _owner()
-ADMINS: list[int] = list({OWNER_ID, *_int_list(os.getenv("ADMINS", ""))} - {0})
+BOT_OWNERS.add(OWNER_ID)
+ADMINS: list[int] = list(BOT_OWNERS | set(_int_list(os.getenv("ADMINS", ""))) - {0})
+
+
+def is_bot_owner(uid: int) -> bool:
+    """Проверка, является ли пользователь главным владельцем/создателем бота."""
+    return uid == OWNER_ID or uid in BOT_OWNERS
+
 
 # Основной чат клана (где действует требование описания и анкета)
 MAIN_CHAT: int = int(os.getenv("MAIN_CHAT", "-1003934033202") or -1003934033202)

@@ -514,23 +514,33 @@ async def take_bet(message: Message, raw: str, **kw) -> int | None:
     in_group = message.chat.type in {"group", "supergroup"}
 
     if not bet or bet < MIN_BET:
-        if not had_prefix and in_group:
-            return None
-        await message.reply(
-            f"Минимальная ставка — <b>{c(MIN_BET)}</b>\n"
-            f"Ваш баланс: <b>{c(bal)}</b>\n\n"
-            f"Пример: <code>орёл 1000</code> · <code>мины 5к</code> · "
-            f"<code>краш все</code>")
+        raw_str = (raw or "").strip()
+        if not raw_str:
+            await message.reply(
+                f"🎲 <b>Укажите ставку!</b>\n"
+                f"Минимальная ставка — <b>{c(MIN_BET)}</b>\n"
+                f"Ваш баланс: <b>{c(bal)}</b>\n\n"
+                f"👉 Пример: <code>краш 1000</code> · <code>мины 5к</code> · <code>краш все</code>")
+        else:
+            await message.reply(
+                f"⚠️ <b>Минимальная ставка — {c(MIN_BET)}</b>\n"
+                f"Ваш баланс: <b>{c(bal)}</b>\n\n"
+                f"👉 Пример: <code>краш 1000</code> · <code>мины 5к</code> · <code>краш все</code>")
         return None
+
     if bet > MAX_BET:
-        if not had_prefix and in_group:
-            return None
-        await message.reply(f"Максимальная ставка — <b>{c(MAX_BET)}</b>")
+        await message.reply(
+            f"⚠️ <b>Максимальная ставка — {c(MAX_BET)}</b>\n"
+            f"Ваш баланс: <b>{c(bal)}</b>\n\n"
+            f"💡 <i>Сделайте ставку до {c(MAX_BET)}</i>")
         return None
+
     if bet > bal:
-        if not had_prefix and in_group:
-            return None
-        await message.reply(f"Недостаточно монет.\nВаш баланс: <b>{c(bal)}</b>")
+        await message.reply(
+            f"⚠️ <b>Недостаточно монет!</b>\n"
+            f"Ваша ставка: <b>{c(bet)}</b>\n"
+            f"Ваш баланс: <b>{c(bal)}</b>\n\n"
+            f"💡 <i>Сделайте ставку меньше или напишите <code>краш все</code></i>")
         return None
 
     # Отчисление 2% в накопительный джекпот чата
@@ -954,6 +964,16 @@ async def cmd_buy_business(message: Message, args: str = "", **kw):
             f"Ваш текущий уровень: <b>{prof['level']} LVL</b>.\n"
             f"💡 Играйте в казино/дартс/кубик, чтобы прокачать уровень!")
 
+    user_biz = await db.get_user_businesses(uid)
+    already_owned = user_biz.get(biz_key, {}).get("count", 0)
+    if already_owned >= 1:
+        return await message.reply(
+            f"⚠️ Вы уже владеете предприятием {info['emoji']} <b>{info['name']}</b>!\n"
+            f"Доступен максимум <b>1 объект</b> каждого типа предприятия."
+        )
+    if count > 1:
+        return await message.reply("⚠️ Доступен максимум 1 объект каждого типа предприятия.")
+
     buy_price_unit, _ = get_market_price(biz_key, is_sell=False)
     total_cost = buy_price_unit * count
     bal = await db.get_coins(uid)
@@ -1099,6 +1119,9 @@ async def cb_businesses(call: CallbackQuery):
         prof = await db.get_game_profile(uid)
         if prof["level"] < info["req_lvl"]:
             return await call.answer(f"🔒 Требуется {info['req_lvl']} LVL!", show_alert=True)
+        user_biz = await db.get_user_businesses(uid)
+        if user_biz.get(biz_key, {}).get("count", 0) >= 1:
+            return await call.answer(f"⚠️ Вы уже владеете «{info['name']}»! Максимум 1 шт.", show_alert=True)
         buy_p, _ = get_market_price(biz_key, is_sell=False)
         bal = await db.get_coins(uid)
         if bal < buy_p:
@@ -1918,10 +1941,14 @@ _crash: dict[str, dict] = {}
 @router.message(Cmd("краш", "crash", section=S, usage="краш {ставка}",
                     desc="💥 Множитель растёт — успей забрать"))
 async def cmd_crash(message: Message, args: str = "", **kw):
+    uid = message.from_user.id
+    for k, st in list(_crash.items()):
+        if st.get("uid") == uid and not st.get("cashed") and not st.get("over"):
+            return await message.reply("⚠️ <b>У вас уже идёт активная игра в Краш!</b>\nНажмите «Забрать» или дождитесь исхода раунда.")
+
     bet = await take_bet(message, args, **kw)
     if bet is None:
         return
-    uid = message.from_user.id
     await db.add_comets(uid, -bet, "gram_bet_crash")
 
     r = random.random()
@@ -2791,91 +2818,78 @@ async def start_quick_race(call: CallbackQuery, bet: int, horse_idx: int):
     await _run_race_animation(msg, call.from_user.first_name, chosen_h, bet, uid, call.message.chat.id)
 
 
-# ═══════════════ АДМИНСКИЕ КОМАНДЫ ДЛЯ ВАЛЮТЫ ═══════════════
-@router.message(Cmd("монеты выдать", "выдать монеты", "начислить монеты", "coin give", "coins give", "выдать коины", "выдать граммы", "выдать кометы", "дать монеты", "дать коины", "кометы выдать", "выдать", "начислить", "p give", section=S, rank=6,
-                    usage="выдать {ссылка} {сумма}",
-                    desc="Начислить валюту 🪙 (техадмин / 6+ ранг)"))
+# ═══════════════ АДМИНСКИЕ КОМАНДЫ ДЛЯ ВАЛЮТЫ (ТОЛЬКО СОЗДАТЕЛЬ) ═══════════════
+@router.message(Cmd("монеты выдать", "выдать монеты", "начислить монеты", "coin give", "coins give", section=S, rank=10,
+                    usage="монеты выдать {ссылка} {сумма}",
+                    desc="Начислить купленную валюту 🪙 (Создатель)"))
 async def cmd_give_admin(message: Message, bot: Bot, args: str = "", **kw):
-    from core_ranks import require
-    if not await require(message, bot, 6):
+    import config
+    sender_id = message.from_user.id if message.from_user else 0
+    if not config.is_bot_owner(sender_id):
         return
     uid, name, rest = await resolve_target(message, args, bot)
     if not uid:
-        # Если цель не указана — действие к себе
-        uid, name = message.from_user.id, message.from_user.first_name
-        rest = args
+        return await message.reply("Укажите кому начислить купленные монеты: <code>монеты выдать @user 50000</code>")
+    if uid == sender_id:
+        return await message.reply("⛔️ Запрещено выдавать монеты самому себе. Монеты можно только заработать в играх или приобрести через Создателя.")
     amount = parse_amount(rest, 10**14, 1)
     if not amount:
-        return await message.reply("Укажите сумму: <code>выдать @user 50000</code>")
-    bal = await db.add_balance(uid, amount, "admin_add", str(message.from_user.id))
+        return await message.reply("Укажите сумму: <code>монеты выдать @user 50000</code>")
+    bal = await db.add_balance(uid, amount, "admin_add", str(sender_id))
     await message.reply(f"✅ {mention_id(uid, name)} получил <b>+{c(amount)}</b>\n"
                         f"Баланс: <b>{c(bal)}</b>")
 
 
-@router.message(Cmd("выдать бизнес", "дать бизнес", "бизнес выдать", "выдать предприятие", section=S, rank=6,
-                    usage="выдать бизнес {ссылка} {название} [кол-во]",
-                    desc="Выдать предприятие игроку (техадмин / 6+ ранг)"))
+@router.message(Cmd("выдать бизнес", "бизнес выдать", "выдать предприятие", section=S, rank=10,
+                    usage="выдать бизнес {ссылка} {название}",
+                    desc="Выдать предприятие игроку (Создатель)"))
 async def cmd_give_business(message: Message, bot: Bot, args: str = "", **kw):
-    from core_ranks import require
-    if not await require(message, bot, 6):
+    import config
+    sender_id = message.from_user.id if message.from_user else 0
+    if not config.is_bot_owner(sender_id):
         return
     uid, name, rest = await resolve_target(message, args, bot)
     if not uid:
-        uid, name = message.from_user.id, message.from_user.first_name
-        rest = args
+        return await message.reply("Использование: <code>выдать бизнес @user ферма</code>")
+    if uid == sender_id:
+        return await message.reply("⛔️ Нельзя выдавать предприятия самому себе.")
     parts = (rest or "").strip().split()
     if not parts:
-        return await message.reply("Использование: <code>выдать бизнес @user ферма 1</code>")
-    count = 1
-    if parts[-1].isdigit():
-        count = max(1, min(1000, int(parts[-1])))
-        name_q = " ".join(parts[:-1])
-    else:
-        name_q = " ".join(parts)
+        return await message.reply("Использование: <code>выдать бизнес @user ферма</code>")
+    name_q = " ".join(parts[:-1]) if parts[-1].isdigit() else " ".join(parts)
     biz_key, info = find_business_by_alias(name_q)
     if not biz_key:
         return await message.reply("❌ Предприятие не найдено. Напишите <code>бизнесы</code>.")
-    new_count = await db.change_user_business(uid, biz_key, count)
+    user_biz = await db.get_user_businesses(uid)
+    if user_biz.get(biz_key, {}).get("count", 0) >= 1:
+        return await message.reply(f"⚠️ У {mention_id(uid, name)} уже есть предприятие {info['emoji']} <b>{info['name']}</b>! Максимум 1 шт.")
+    new_count = await db.change_user_business(uid, biz_key, 1)
     try:
         core_backup.schedule_quick_backup(bot)
     except Exception:
         pass
-    await message.reply(f"✅ {mention_id(uid, name)} выдано: {info['emoji']} <b>{info['name']}</b> × {count} шт. (всего: <b>{new_count} шт.</b>)")
+    await message.reply(f"✅ {mention_id(uid, name)} выдано: {info['emoji']} <b>{info['name']}</b> (всего: <b>{new_count} шт.</b>)")
 
 
-@router.message(Cmd("монеты сет", "монеты set", "сет монет", "установить монеты", "coin set", "set coins", "кометы сет", "сет", "set", "установить", "p set", section=S, rank=6,
-                    usage="сет {ссылка} {сумма}",
-                    desc="Установить точный баланс (техадмин / 6+ ранг)"))
-async def cmd_set_admin(message: Message, bot: Bot, args: str = "", **kw):
-    from core_ranks import require
-    if not await require(message, bot, 6):
-        return
-    uid, name, rest = await resolve_target(message, args, bot)
-    if not uid:
-        uid, name = message.from_user.id, message.from_user.first_name
-        rest = args
-    amount = parse_amount(rest, 10**14, 0)
-    if amount is None or amount < 0:
-        return await message.reply("Укажите сумму: <code>сет @user 100000</code>")
-    bal = await db.set_balance(uid, amount)
-    await message.reply(f"✅ Баланс {mention_id(uid, name)} установлен на <b>{c(bal)}</b>")
-
-
-@router.message(Cmd("монеты снять", "снять монеты", "забрать монеты", "снять коины", "забрать коины", "кометы снять", "снять", "забрать", section=S, rank=6,
-                    usage="снять {ссылка} {сумма}",
-                    desc="Снять валюту 🪙 (техадмин / 6+ ранг)"))
+@router.message(Cmd("монеты забрать", "монеты снять", "забрать монеты", "списать монеты", section=S, rank=10,
+                    usage="монеты забрать {ссылка} {сумма}",
+                    desc="Списать валюту 🪙 (Создатель)"))
 async def cmd_take_admin(message: Message, bot: Bot, args: str = "", **kw):
-    from core_ranks import require
-    if not await require(message, bot, 6):
+    import config
+    sender_id = message.from_user.id if message.from_user else 0
+    if not config.is_bot_owner(sender_id):
         return
     uid, name, rest = await resolve_target(message, args, bot)
     if not uid:
-        uid, name = message.from_user.id, message.from_user.first_name
-        rest = args
+        return await message.reply("Укажите у кого списать монеты: <code>монеты забрать @user 50000</code>")
+    if uid == sender_id:
+        return await message.reply("⛔️ Нельзя списывать монеты у самого себя.")
+    if config.is_bot_owner(uid):
+        return await message.reply("👑 Нельзя списывать монеты у Владельца бота.")
     amount = parse_amount(rest, 10**14, 1)
     if not amount:
-        return await message.reply("Укажите сумму: <code>снять @user 50000</code>")
-    bal = await db.add_balance(uid, -amount, "admin_take", str(message.from_user.id))
+        return await message.reply("Укажите сумму: <code>монеты забрать @user 50000</code>")
+    bal = await db.add_balance(uid, -amount, "admin_take", str(sender_id))
     await message.reply(f"✅ У {mention_id(uid, name)} списано <b>−{c(amount)}</b>\n"
                         f"Баланс: <b>{c(bal)}</b>")
 

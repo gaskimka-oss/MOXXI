@@ -64,12 +64,17 @@ def _menu_kb(page: int = 0) -> InlineKeyboardMarkup:
                      InlineKeyboardButton(text="🪞 Зеркало",
                                           url=docs.mirror(urls[0]))])
     elif urls:
-        rows.append([InlineKeyboardButton(text=f"🌐 Справка ч.{i+1}", url=u)
-                     for i, u in enumerate(urls[:3])])
-        # зеркало для стран, где telegra.ph заблокирован (Беларусь и др.)
-        rows.append([InlineKeyboardButton(text=f"🪞 Зеркало ч.{i+1}",
-                                          url=docs.mirror(u))
-                     for i, u in enumerate(urls[:3])])
+        # Справка telegra.ph (по 3 кнопки в строке)
+        for i in range(0, len(urls), 3):
+            chunk = urls[i:i+3]
+            rows.append([InlineKeyboardButton(text=f"🌐 Справка ч.{i+j+1}", url=u)
+                         for j, u in enumerate(chunk)])
+        # Зеркало graph.org для заблокированных стран (Беларусь и др.)
+        for i in range(0, len(urls), 3):
+            chunk = urls[i:i+3]
+            rows.append([InlineKeyboardButton(text=f"🪞 Зеркало ч.{i+j+1}",
+                                              url=docs.mirror(u))
+                         for j, u in enumerate(chunk)])
     from core_nav import with_home
     return with_home(InlineKeyboardMarkup(inline_keyboard=rows))
 

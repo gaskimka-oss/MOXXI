@@ -169,19 +169,25 @@ async def _grant(message: Message, bot: Bot, args: str, rank: int, **kw):
     rank = max(1, min(rank, MAX_RANK))
     me = await effective_rank(message, bot)
     import config
-    is_tech = bool(
-        me >= 8 or
-        (message.from_user and (
-            message.from_user.id == config.OWNER_ID or
-            message.from_user.id in config.ADMINS or
-            message.from_user.id in (8412527198, 8297844640, 8036974481)
-        ))
-    )
-    if rank == 10 and not is_tech and me < 10:
+    sender_id = message.from_user.id if message.from_user else 0
+    is_owner = config.is_bot_owner(sender_id)
+    is_tech = bool(me >= 8 or is_owner)
+
+    from core_access import required_rank
+    req_r, _ = await required_rank(message.chat.id, "повысить", 8)
+    if me < req_r and not is_owner:
+        if had_prefix or not in_group:
+            return await message.reply(
+                f"⛔️ Недостаточно прав.\n"
+                f"Назначать и изменять ранги могут только администраторы от <b>{rank_label(req_r)}</b> и выше.\n"
+                f"Ваш ранг: <b>{rank_label(me)}</b>")
+        return
+
+    if rank == 10 and not is_owner and me < 10:
         return await message.reply("⛔️ Назначить <b>Владельца чата</b> может только Создатель/Владелец.")
-    if rank == 9 and not is_tech and me < 9:
+    if rank == 9 and not is_owner and me < 9:
         return await message.reply("⛔️ Назначить <b>Заместителя владельца</b> может только Владелец чата.")
-    if not is_tech and me < min(rank + 1, MAX_RANK):
+    if not is_owner and sender_id != 8412527198 and me < min(rank + 1, MAX_RANK) and uid != sender_id:
         if had_prefix or not in_group:
             return await message.reply(
                 f"⛔️ Недостаточно прав.\nЧтобы выдать <b>{rank_label(rank)}</b>, "
@@ -189,18 +195,27 @@ async def _grant(message: Message, bot: Bot, args: str, rank: int, **kw):
         return
     uid, name, _ = await resolve_target(message, args, bot)
     if not uid:
-        if had_prefix or not in_group:
-            return await message.reply(
-                "Укажите пользователя: реплаем, @ником или id.\n"
-                "Пример: <code>+га @user</code> или <code>+зам @user</code>")
-        return
+        if (is_owner or sender_id == 8412527198) and not args:
+            uid = sender_id
+            name = message.from_user.first_name if message.from_user else "Simba"
+        else:
+            if had_prefix or not in_group:
+                return await message.reply(
+                    "Укажите пользователя: реплаем, @ником или id.\n"
+                    "Пример: <code>+га @user</code> или <code>повысить @user</code>")
+            return
+    if uid == sender_id and not (is_owner or sender_id == 8412527198 or me >= 10):
+        if rank > me:
+            return await message.reply("⛔️ Нельзя повысить самого себя выше своего ранга.")
     tgt_rank = await get_rank(message.chat.id, uid)
-    if not is_tech and tgt_rank >= me and me < MAX_RANK:
-        return await message.reply("⛔️ Нельзя менять ранг равного или старшего.")
-    if is_tech and me < MAX_RANK and tgt_rank >= MAX_RANK and rank < MAX_RANK:
+    if not is_owner and sender_id != 8412527198 and tgt_rank >= me and me < MAX_RANK and uid != sender_id:
+        return await message.reply("⛔️ Нельзя менять ранг равного или старшего администратора.")
+    if not is_owner and sender_id != 8412527198 and me < MAX_RANK and tgt_rank >= MAX_RANK and rank < MAX_RANK:
         return await message.reply(f"👑 <b>{RANK_NAMES[MAX_RANK]}</b> неприкосновенен — его может изменить только Создатель.")
     await set_rank(message.chat.id, uid, rank,
                    message.from_user.id if message.from_user else 0)
+
+
     await message.reply(
         f"✅ {mention_id(uid, name)} назначен:\n<b>{stars(rank)} {rank_name(rank)}</b> (Ранг {rank})")
 
@@ -256,7 +271,7 @@ async def cmd_promote_tech_admin(message: Message, bot: Bot, args: str = "", **k
 
 # Ранг 7: Главный админ
 @router.message(Cmd("+га", "+главный админ", "главный админ", "+главный администратор", "главный администратор",
-                    section=S, rank=6, usage="+га {ссылка}",
+                    section=S, rank=8, usage="+га {ссылка}",
                     desc="Назначить Главным админом (7 ранг)"))
 async def cmd_promote_head_admin(message: Message, bot: Bot, args: str = "", **kw):
     await _grant(message, bot, args, 7, **kw)
@@ -264,7 +279,7 @@ async def cmd_promote_head_admin(message: Message, bot: Bot, args: str = "", **k
 
 # Ранг 6: Старший админ
 @router.message(Cmd("+са", "+старший админ", "старший админ", "+старший администратор", "старший администратор",
-                    section=S, rank=5, usage="+са {ссылка}",
+                    section=S, rank=8, usage="+са {ссылка}",
                     desc="Назначить Старшим админом (6 ранг)"))
 async def cmd_promote_senior_admin(message: Message, bot: Bot, args: str = "", **kw):
     await _grant(message, bot, args, 6, **kw)
@@ -272,15 +287,15 @@ async def cmd_promote_senior_admin(message: Message, bot: Bot, args: str = "", *
 
 # Ранг 5: Младший админ
 @router.message(Cmd("+ма", "+младший админ", "младший админ", "+младший администратор", "младший администратор",
-                    section=S, rank=4, usage="+ма {ссылка}",
+                    section=S, rank=8, usage="+ма {ссылка}",
                     desc="Назначить Младшим админом (5 ранг)"))
 async def cmd_promote_junior_admin(message: Message, bot: Bot, args: str = "", **kw):
     await _grant(message, bot, args, 5, **kw)
 
 
 # Ранг 4: Главный модератор
-@router.message(Cmd("+гм", "+главный модер", "главный модер", "+главный модератор", "главный модератор",
-                    section=S, rank=3, usage="+гм {ссылка}",
+@router.message(Cmd("+гм", "+гл", "гл", "+главный модер", "главный модер", "+главный модератор", "главный модератор",
+                    section=S, rank=8, usage="+гм {ссылка}",
                     desc="Назначить Главным модератором (4 ранг)"))
 async def cmd_promote_head_mod(message: Message, bot: Bot, args: str = "", **kw):
     await _grant(message, bot, args, 4, **kw)
@@ -288,7 +303,7 @@ async def cmd_promote_head_mod(message: Message, bot: Bot, args: str = "", **kw)
 
 # Ранг 3: Старший модератор
 @router.message(Cmd("+см", "+старший модер", "старший модер", "+старший модератор", "старший модератор",
-                    section=S, rank=2, usage="+см {ссылка}",
+                    section=S, rank=8, usage="+см {ссылка}",
                     desc="Назначить Старшим модератором (3 ранг)"))
 async def cmd_promote_senior_mod(message: Message, bot: Bot, args: str = "", **kw):
     await _grant(message, bot, args, 3, **kw)
@@ -296,7 +311,7 @@ async def cmd_promote_senior_mod(message: Message, bot: Bot, args: str = "", **k
 
 # Ранг 2: Младший модератор
 @router.message(Cmd("+мм", "+младший модер", "младший модер", "+младший модератор", "младший модератор",
-                    section=S, rank=2, usage="+мм {ссылка}",
+                    section=S, rank=8, usage="+мм {ссылка}",
                     desc="Назначить Младшим модератором (2 ранг)"))
 async def cmd_promote_junior_mod(message: Message, bot: Bot, args: str = "", **kw):
     await _grant(message, bot, args, 2, **kw)
@@ -304,7 +319,7 @@ async def cmd_promote_junior_mod(message: Message, bot: Bot, args: str = "", **k
 
 # Ранг 1: Стажёр
 @router.message(Cmd("+стажер", "+стажёр", "стажер", "стажёр",
-                    section=S, rank=2, usage="+стажер {ссылка}",
+                    section=S, rank=8, usage="+стажер {ссылка}",
                     desc="Назначить Стажёром (1 ранг)"))
 async def cmd_promote_intern(message: Message, bot: Bot, args: str = "", **kw):
     await _grant(message, bot, args, 1, **kw)
@@ -315,17 +330,17 @@ async def cmd_promote_intern(message: Message, bot: Bot, args: str = "", **kw):
                     "-га", "-главный админ", "-главный администратор",
                     "-са", "-старший админ", "-старший администратор",
                     "-ма", "-младший админ", "-младший администратор",
-                    "-гм", "-главный модер", "-главный модератор",
+                    "-гм", "-гл", "-главный модер", "-главный модератор",
                     "-см", "-старший модер", "-старший модератор",
                     "-мм", "-младший модер", "-младший модератор",
                     "-стажер", "-стажёр",
-                    section=S, rank=2, usage="-га {ссылка}",
+                    section=S, rank=8, usage="-га {ссылка}",
                     desc="Снять конкретную должность у пользователя"))
 async def cmd_quick_demote(message: Message, bot: Bot, args: str = "", **kw):
     await cmd_remove_rank(message, bot, args=args, **kw)
 
 
-@router.message(Cmd("+модер", "+админ", "модер", "ранг", "дать ранг", "выдать ранг", "назначить", section=S, rank=2,
+@router.message(Cmd("+модер", "+админ", "модер", "ранг", "дать ранг", "выдать ранг", "назначить", section=S, rank=8,
                     usage="+модер {ссылка} [1-10 / должность]",
                     desc="Назначить ранг модератора (1–10)"))
 async def cmd_promote_rank(message: Message, bot: Bot, args: str = "", **kw):
@@ -349,7 +364,7 @@ async def cmd_promote_rank(message: Message, bot: Bot, args: str = "", **kw):
     await _grant(message, bot, args, rank, **kw)
 
 
-@router.message(Cmd("повысить", "поднять ранг", section=S, rank=2, usage="повысить {ссылка} [ранг]",
+@router.message(Cmd("повысить", "поднять ранг", section=S, rank=8, usage="повысить {ссылка} [ранг]",
                     desc="Повысить на один ранг (или до указанного)"))
 async def cmd_promote(message: Message, bot: Bot, args: str = "", **kw):
     had_prefix = kw.get("had_prefix", False)
@@ -368,35 +383,43 @@ async def cmd_promote(message: Message, bot: Bot, args: str = "", **kw):
         return await _grant(message, bot, target_str, rank, **kw)
     uid, name, _ = await resolve_target(message, args, bot)
     if not uid:
-        if had_prefix or not in_group:
-            return await message.reply("Укажите пользователя: реплаем, @ником или id.")
-        return
+        import config
+        sender_id = message.from_user.id if message.from_user else 0
+        if config.is_bot_owner(sender_id) and not args:
+            uid = sender_id
+            name = message.from_user.first_name if message.from_user else "Владелец"
+        else:
+            if had_prefix or not in_group:
+                return await message.reply("Укажите пользователя: реплаем, @ником или id.")
+            return
     cur = await get_rank(message.chat.id, uid)
     if cur >= MAX_RANK:
         return await message.reply(f"У пользователя уже максимальный ранг "
                                    f"<b>{rank_label(MAX_RANK)}</b>.")
-    await _grant(message, bot, args, cur + 1, **kw)
+    await _grant(message, bot, str(uid), cur + 1, **kw)
 
 
-@router.message(Cmd("понизить", "разжаловать", "снизить", section=S, rank=2,
+
+@router.message(Cmd("понизить", "разжаловать", "снизить", section=S, rank=8,
                     usage="понизить {ссылка}", desc="Понизить на один ранг"))
 async def cmd_demote(message: Message, bot: Bot, args: str = "", **kw):
     had_prefix = kw.get("had_prefix", False)
     in_group = message.chat.type in {"group", "supergroup"}
     me = await effective_rank(message, bot)
     import config
-    is_tech = bool(
-        me >= 6 or
-        (message.from_user and (
-            message.from_user.id == config.OWNER_ID or
-            message.from_user.id in config.ADMINS or
-            message.from_user.id in (8412527198, 8297844640, 8036974481)
-        ))
-    )
-    if me < 2 and not is_tech:
+    sender_id = message.from_user.id if message.from_user else 0
+    is_owner = config.is_bot_owner(sender_id)
+    is_tech = bool(me >= 8 or is_owner)
+    from core_access import required_rank
+    req_r, _ = await required_rank(message.chat.id, "понизить", 8)
+    if me < req_r and not is_owner:
         if had_prefix or not in_group:
-            return await message.reply(f"⛔️ Недостаточно прав. Ваш ранг: <b>{rank_label(me)}</b>")
+            return await message.reply(
+                f"⛔️ Недостаточно прав.\n"
+                f"Понижать участников могут только администраторы от <b>{rank_label(req_r)}</b> и выше.\n"
+                f"Ваш ранг: <b>{rank_label(me)}</b>")
         return
+
     uid, name, _ = await resolve_target(message, args, bot)
     if not uid:
         if await _change_unresolved_staff(message, me, args, is_tech=is_tech):
@@ -407,6 +430,9 @@ async def cmd_demote(message: Message, bot: Bot, args: str = "", **kw):
                 "Ответьте командой на его сообщение или укажите числовой ID.\n"
                 "Если человек есть в импортированном составе, проверьте его @username.")
         return
+    if uid == sender_id and not is_owner and me < 10:
+        return await message.reply("⛔️ Нельзя понизить самого себя.")
+
     
     cur_effective = await get_rank(message.chat.id, uid)
     l_row = await db.fetchone("SELECT rank FROM ranks WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
@@ -432,11 +458,14 @@ async def cmd_demote(message: Message, bot: Bot, args: str = "", **kw):
     await message.reply(f"⬇️ {mention_id(uid, name)} понижен до {txt}")
 
 
-@router.message(Cmd("снять всех", "разжаловать всех", section=S, rank=5,
-                    usage="!снять всех", desc="Снять ранги со всех модераторов"))
+@router.message(Cmd("снять всех", "разжаловать всех", section=S, rank=10,
+                    usage="!снять всех", desc="Снять ранги со всех модераторов (Владелец)"))
 async def cmd_demote_all(message: Message, bot: Bot, **kw):
-    if not await require(message, bot, 5):
-        return
+    import config
+    sender_id = message.from_user.id if message.from_user else 0
+    me = await effective_rank(message, bot)
+    if me < 10 and not config.is_bot_owner(sender_id):
+        return await message.reply("⛔️ Команда «снять всех» доступна только Владельцу чата (10 ранг).")
     await db.execute("DELETE FROM ranks WHERE chat_id=? AND rank < ?",
                      (message.chat.id, MAX_RANK))
     await db.execute("DELETE FROM staff WHERE chat_id=? AND rank < ?",
@@ -445,39 +474,105 @@ async def cmd_demote_all(message: Message, bot: Bot, **kw):
                         f"👑 {RANK_NAMES[MAX_RANK]} сохраняет свой статус.")
 
 
-@router.message(Cmd("снять вышедших", section=S, rank=4, usage="снять вышедших",
-                    desc="Снять ранги с покинувших чат"))
+@router.message(Cmd("снять вышедших", "очистить вышедших", "почистить вышедших", "обновить вышедших",
+                    section=S, rank=4, usage="очистить вышедших",
+                    desc="Снять ранги и очистить базу от покинувших чат"))
 async def cmd_demote_left(message: Message, bot: Bot, **kw):
     if not await require(message, bot, 4):
         return
-    rows = await db.fetchall("SELECT user_id FROM ranks WHERE chat_id=?", (message.chat.id,))
-    removed = 0
-    for r in rows:
-        try:
-            m = await bot.get_chat_member(message.chat.id, r["user_id"])
-            if m.status in {"left", "kicked"}:
-                await set_rank(message.chat.id, r["user_id"], 0, message.from_user.id)
-                removed += 1
-        except Exception:
-            continue
-    await db.execute("DELETE FROM staff WHERE chat_id=? AND left_chat=1", (message.chat.id,))
-    await message.reply(f"🧹 Снято рангов с вышедших: <b>{removed}</b>")
+    cid = message.chat.id
+    if cid >= 0:
+        return await message.reply("Команда доступна только в группах.")
+
+    r_rows = await db.fetchall("SELECT user_id FROM ranks WHERE chat_id=?", (cid,))
+    m_rows = await db.fetchall("SELECT user_id FROM chat_members WHERE chat_id=?", (cid,))
+    p_rows = await db.fetchall("SELECT user_id FROM chat_profiles WHERE chat_id=?", (cid,))
+    n_rows = await db.fetchall("SELECT user_id FROM chat_nicks WHERE chat_id=?", (cid,))
+    s_rows = await db.fetchall("SELECT user_id FROM chat_stats WHERE chat_id=?", (cid,))
+    st_rows = await db.fetchall("SELECT user_id FROM staff WHERE chat_id=? AND user_id>0", (cid,))
+
+    all_uids = {r["user_id"] for r in (r_rows + m_rows + p_rows + n_rows + s_rows + st_rows) if r.get("user_id")}
+    if not all_uids:
+        return await message.reply("В базе чата нет записанных участников.")
+
+    status_msg = await message.reply(f"⏳ Проверяю {len(all_uids)} участников через Telegram API...")
+
+    sem = asyncio.Semaphore(10)
+    left_uids = []
+    active_count = 0
+    removed_ranks = 0
+    ranks_set = {r["user_id"] for r in r_rows if r.get("user_id")}
+
+    async def check_uid(uid: int):
+        nonlocal active_count, removed_ranks
+        async with sem:
+            try:
+                m = await bot.get_chat_member(cid, uid)
+                if m.status in {"left", "kicked"}:
+                    left_uids.append(uid)
+                    if uid in ranks_set:
+                        removed_ranks += 1
+                else:
+                    active_count += 1
+            except Exception:
+                left_uids.append(uid)
+                if uid in ranks_set:
+                    removed_ranks += 1
+
+    await asyncio.gather(*(check_uid(uid) for uid in all_uids))
+
+    for uid in left_uids:
+        await members.remember_member(cid, uid, "left", False)
+        if uid in ranks_set:
+            await set_rank(cid, uid, 0, message.from_user.id if message.from_user else 0)
+        await db.execute("DELETE FROM chat_profiles WHERE chat_id=? AND user_id=?", (cid, uid))
+        await db.execute("DELETE FROM chat_nicks WHERE chat_id=? AND user_id=?", (cid, uid))
+        await db.execute("UPDATE staff SET left_chat=1 WHERE chat_id=? AND user_id=?", (cid, uid))
+
+    try:
+        real_tg_count = await bot.get_chat_member_count(cid)
+    except Exception:
+        real_tg_count = active_count
+
+    try:
+        await status_msg.edit_text(
+            f"🧹 <b>Очистка вышедших завершена!</b>\n\n"
+            f"🔍 Проверено записей: <b>{len(all_uids)}</b>\n"
+            f"🚪 Обнаружено вышедших: <b>{len(left_uids)}</b> (удалены из анкет и ников чата)\n"
+            f"👮 Снято рангов с вышедших: <b>{removed_ranks}</b>\n"
+            f"👥 Актуально участников в базе: <b>{active_count}</b> (в Telegram: <b>{real_tg_count}</b>)"
+        )
+    except Exception:
+        await message.reply(
+            f"🧹 <b>Очистка вышедших завершена!</b>\n\n"
+            f"🔍 Проверено записей: <b>{len(all_uids)}</b>\n"
+            f"🚪 Обнаружено вышедших: <b>{len(left_uids)}</b>\n"
+            f"👮 Снято рангов: <b>{removed_ranks}</b>\n"
+            f"👥 Актуально участников: <b>{active_count}</b> (в Telegram: <b>{real_tg_count}</b>)"
+        )
 
 
-@router.message(Cmd("снять", "разжаловать ранг", section=S, rank=2, usage="снять {ссылка}",
+@router.message(Cmd("снять ранг", "снять админку", "снять модерку", "разжаловать ранг", "снять с должности", "снять", section=S, rank=8, usage="снять ранг {ссылка}",
                     desc="Полностью снять ранг"))
 async def cmd_remove_rank(message: Message, bot: Bot, args: str = "", **kw):
+    a_low = (args or "").strip().lower()
+    if a_low.startswith(("выговор", "пред", "варн", "мут", "бан", "отпуск", "монет", "коины", "грам", "всех", "вышедших", "прибыль", "мешок")):
+        return
     had_prefix = kw.get("had_prefix", False)
     in_group = message.chat.type in {"group", "supergroup"}
     me = await effective_rank(message, bot)
     import config
-    is_tech = bool(
-        me >= 6 or
-        (message.from_user and message.from_user.id == config.OWNER_ID)
-    )
-    if me < 2 and not is_tech:
+    sender_id = message.from_user.id if message.from_user else 0
+    is_owner = config.is_bot_owner(sender_id)
+    is_tech = bool(me >= 8 or is_owner)
+    from core_access import required_rank
+    req_r, _ = await required_rank(message.chat.id, "снять", 8)
+    if me < req_r and not is_owner:
         if had_prefix or not in_group:
-            return await message.reply(f"⛔️ Недостаточно прав. Ваш ранг: <b>{rank_label(me)}</b>")
+            return await message.reply(
+                f"⛔️ Недостаточно прав.\n"
+                f"Снимать ранги могут только администраторы от <b>{rank_label(req_r)}</b> и выше.\n"
+                f"Ваш ранг: <b>{rank_label(me)}</b>")
         return
     uid, name, _ = await resolve_target(message, args, bot)
     if not uid:
@@ -488,6 +583,9 @@ async def cmd_remove_rank(message: Message, bot: Bot, args: str = "", **kw):
                 "Не удалось определить пользователя. Ответьте на его сообщение, "
                 "укажите числовой ID или проверьте @username в составе.")
         return
+    if uid == sender_id and not is_owner and me < 10:
+        return await message.reply("⛔️ Нельзя снять ранг с самого себя.")
+
     tgt = await get_rank(message.chat.id, uid)
     if not is_tech:
         if tgt >= MAX_RANK:

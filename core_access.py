@@ -55,11 +55,15 @@ async def check(message, bot, key: str, base_rank: int,
     if chat.type == "private":
         return None
 
+    import config
+    uid = message.from_user.id if message.from_user else 0
+    if uid and config.is_bot_owner(uid):
+        return None
+
     need, enabled = await required_rank(chat.id, key, base_rank)
     if not enabled:
         return ""  # команда выключена в этом чате — тихо игнорируем
 
-    uid = message.from_user.id if message.from_user else 0
     pers = await _load_personal(chat.id)
     mode = pers.get((key, uid)) if uid else None
 
@@ -129,13 +133,9 @@ async def access_middleware(handler, event, data: dict):
     """Применяет ДК и антифлуд до вызова хэндлера."""
     key = data.get("cmd_key")
     if key:
-        # Автоудаление команды пользователя через 5 минут в группах
-        bot = data.get("bot")
-        if bot and getattr(event, "chat", None) and event.chat.id < 0 and getattr(event, "message_id", None):
-            import asyncio
-            import utils
-            asyncio.create_task(utils.delayed_delete_message(bot, event.chat.id, event.message_id, 300))
-
+        import logging
+        logging.getLogger("moxxibot").info("🎯 [КОМАНДА РАСПОЗНАНА] key=%r rank=%r had_prefix=%s text=%r",
+                                           key, data.get("cmd_rank"), data.get("had_prefix"), getattr(event, "text", None))
         # антифлуд: защита от перегрузки в больших чатах
         import core_throttle as throttle
         uid = event.from_user.id if event.from_user else 0

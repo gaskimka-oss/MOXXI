@@ -316,13 +316,16 @@ async def cmd_list_birthdays(message: Message, bot: Bot, **kw):
     await message.reply("\n".join(lines))
 
 
-# ---------------- 50. СЕКРЕТНЫЕ ПРОМОКОДЫ ----------------
-@router.message(Cmd("+промо", "создать промо", rank=6, usage="+промо [код] [кол-во] [награда]",
-                    desc="🎁 Создать промокод на монеты"))
+# ---------------- 50. СЕКРЕТНЫЕ ПРОМОКОДЫ (ТОЛЬКО ВЛАДЕЛЬЦЫ БОТА) ----------------
+@router.message(Cmd("+промо", "создать промо", rank=0, group_only=False, usage="+промо [код] [кол-во] [награда]",
+                    desc="🎁 Создать промокод на монеты (ТОЛЬКО Создатели бота)"))
 async def cmd_create_promocode(message: Message, bot: Bot, args: str = "", **kw):
-    if not await require(message, bot, 6):
-        return
+    import config
+    sender_id = message.from_user.id if message.from_user else 0
+    if sender_id != config.OWNER_ID:
+        return await message.reply("⛔️ Создавать промокоды может <b>ТОЛЬКО главный Владелец бота</b>!\n\nОстальным пользователям и администраторам групп создание промокодов строго запрещено.")
     parts = (args or "").strip().split()
+
     if len(parts) < 3 or not parts[1].isdigit() or not parts[2].isdigit():
         return await message.reply("Формат: <code>+промо ВЕСНА 10 5000</code>\n(Код, число активаций, награда монет)")
 

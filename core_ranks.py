@@ -103,6 +103,10 @@ async def require(message: Message, bot: Bot, need: int, key: str = "") -> bool:
     # ДК уже пропустил команду в middleware — не перепроверяем строже
     if getattr(message, "_dk_ok", False):
         return True
+    import config
+    sender_id = message.from_user.id if message.from_user else 0
+    if sender_id and config.is_bot_owner(sender_id):
+        return True
     r = await effective_rank(message, bot)
     if r >= need:
         return True

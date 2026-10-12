@@ -208,17 +208,14 @@ async def guard_target(message: Message, bot: Bot, uid: int,
     actor_rank = await effective_rank(message, bot)
 
     import config
-    is_tech = bool(
-        actor_rank >= 6 or
-        actor == config.OWNER_ID or
-        actor in config.ADMINS
-    )
+    # 1. Защита Владельцев бота и Создателя чата (ранг 10)
+    if config.is_bot_owner(uid) or target_rank >= 10:
+        return (f"👑 <b>Создатель / Владелец бота</b> неприкосновенен.\n"
+                f"Его нельзя {action}.")
 
-    if not is_tech:
-        if target_rank >= MAX_RANK:
-            return (f"👑 <b>{RANK_NAMES[MAX_RANK]}</b> неприкосновенен.\n"
-                    f"Его нельзя {action}, понизить или снять.")
+    actor_is_owner = config.is_bot_owner(actor)
 
+    if not actor_is_owner:
         if target_rank >= actor_rank:
             return (f"⛔️ Нельзя {action} равного или старшего по рангу.\n"
                     f"Цель: <b>{rank_label(target_rank) if target_rank else 'Участник'}</b>\n"
@@ -231,7 +228,7 @@ async def log_punish(chat_id: int, uid: int, kind: str, reason: str,
     await db.execute(
         "INSERT INTO punishments (chat_id,user_id,kind,reason,seconds,by_id,ts,active) "
         "VALUES (?,?,?,?,?,?,?,1)",
-        (chat_id, uid, reason or "", seconds, by_id, int(time.time())))
+        (chat_id, uid, kind, reason or "", seconds, by_id, int(time.time())))
     row = await db.fetchone("SELECT last_insert_rowid() id")
     return row["id"] if row else 0
 

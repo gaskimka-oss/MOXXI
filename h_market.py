@@ -246,10 +246,15 @@ async def cb_market_handler(call: CallbackQuery, bot: Bot):
         if buyer["balance"] < price:
             return await call.answer(f"❌ Недостаточно монет! Требуется {money(price)}.", show_alert=True)
 
+        # Атомарно удаляем лот, чтобы исключить двойную покупку
+        cur = await db.conn().execute("DELETE FROM market_lots WHERE id=?", (lot_id,))
+        await db.conn().commit()
+        if cur.rowcount == 0:
+            return await call.answer("❌ Этот лот уже продан или снят с продажи!", show_alert=True)
+
         # Выполняем безопасную сделку
         await db.add_balance(uid, -price)
         await db.add_balance(lot["seller_id"], price)
-        await db.delete_market_lot(lot_id)
 
         # Начисляем предмет покупателю
         now = int(time.time())

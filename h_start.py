@@ -590,8 +590,7 @@ async def msg_receive_support_ticket(message: Message, bot: Bot):
         ]])
     )
 
-    # Уведомляем Владельца и персонал бота
-    owner_id = getattr(config, "OWNER_ID", 8412527198)
+    # Уведомляем Владельцев и персонал бота
     admin_notify = (
         f"🆘 🔔 <b>НОВЫЙ ТИКЕТ В ТЕХПОДДЕРЖКУ #{ticket_id}</b>\n"
         f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
@@ -600,15 +599,16 @@ async def msg_receive_support_ticket(message: Message, bot: Bot):
         f"💡 <b>Чтобы ответить пользователю:</b>\n"
         f"<code>+ответ {ticket_id} [текст вашего ответа]</code>"
     )
-    try:
-        await bot.send_message(owner_id, admin_notify)
-    except Exception:
-        pass
+    for oid in config.BOT_OWNERS:
+        try:
+            await bot.send_message(oid, admin_notify)
+        except Exception:
+            pass
 
     try:
         staff_list = await db.get_all_bot_staff()
         for s in staff_list:
-            if s["user_id"] != owner_id and s["rank"] >= 1:
+            if not config.is_bot_owner(s["user_id"]) and s["rank"] >= 1:
                 try:
                     await bot.send_message(s["user_id"], admin_notify)
                 except Exception:

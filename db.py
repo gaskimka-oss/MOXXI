@@ -96,6 +96,12 @@ CREATE TABLE IF NOT EXISTS ranks (
     rank INTEGER NOT NULL DEFAULT 0, granted_by INTEGER, ts INTEGER,
     PRIMARY KEY (chat_id, user_id));
 
+CREATE TABLE IF NOT EXISTS chat_nicks (
+    chat_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    nick    TEXT NOT NULL,
+    PRIMARY KEY (chat_id, user_id));
+
 CREATE TABLE IF NOT EXISTS staff (
     chat_id  INTEGER NOT NULL,
     username TEXT    NOT NULL,
@@ -241,6 +247,30 @@ CREATE TABLE IF NOT EXISTS profiles (
     custom TEXT,               -- описание, вписанное админом вручную
     custom_by INTEGER, custom_ts INTEGER,
     filled INTEGER NOT NULL DEFAULT 0, filled_ts INTEGER);
+
+CREATE TABLE IF NOT EXISTS chat_profiles (
+    chat_id     INTEGER NOT NULL,
+    user_id     INTEGER NOT NULL,
+    about       TEXT,
+    city        TEXT,
+    age         TEXT,
+    birthday    TEXT,
+    hobby       TEXT,
+    contact     TEXT,
+    real_name   TEXT,
+    country     TEXT,
+    tz          TEXT,
+    family      TEXT,
+    nick2       TEXT,
+    gender      TEXT,
+    custom      TEXT,
+    custom_by   INTEGER,
+    custom_ts   INTEGER,
+    filled      INTEGER NOT NULL DEFAULT 0,
+    filled_ts   INTEGER,
+    PRIMARY KEY (chat_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_chat_profiles ON chat_profiles(chat_id, user_id);
 
 CREATE TABLE IF NOT EXISTS first_seen (
     chat_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
@@ -926,6 +956,18 @@ async def init() -> None:
         await _conn.execute("UPDATE users SET coins = 0 WHERE coins > 0")
     except Exception:
         pass
+    try:
+        from config import MAIN_CHAT
+        await _conn.execute(
+            "INSERT OR IGNORE INTO chat_profiles "
+            "(chat_id, user_id, about, city, age, birthday, hobby, contact, real_name, "
+            " country, tz, family, nick2, gender, custom, custom_by, custom_ts, filled, filled_ts) "
+            f"SELECT {MAIN_CHAT}, user_id, about, city, age, birthday, hobby, contact, real_name, "
+            "       country, tz, family, nick2, gender, custom, custom_by, custom_ts, filled, filled_ts "
+            "FROM profiles"
+        )
+    except Exception:
+        pass
     await _conn.commit()
 
 
@@ -974,9 +1016,10 @@ def conn() -> aiosqlite.Connection:
     return _conn
 
 
-async def execute(sql: str, params: Iterable[Any] = ()) -> None:
-    await conn().execute(sql, tuple(params))
+async def execute(sql: str, params: Iterable[Any] = ()) -> aiosqlite.Cursor:
+    cur = await conn().execute(sql, tuple(params))
     await conn().commit()
+    return cur
 
 
 async def fetchone(sql: str, params: Iterable[Any] = ()) -> Optional[aiosqlite.Row]:
@@ -1614,7 +1657,7 @@ async def add_user_car(user_id: int, car_key: str) -> int:
     now = int(time.time())
     await execute("UPDATE user_cars SET is_active=0 WHERE user_id=?", (user_id,))
     cur = await execute("INSERT INTO user_cars (user_id, car_key, bought_at, is_active) VALUES (?, ?, ?, 1)", (user_id, car_key, now))
-    return cur.lastrowid
+    return int(cur.lastrowid or 0)
 
 
 async def set_active_car(user_id: int, car_id: int) -> bool:
@@ -2031,14 +2074,11 @@ BOT_STAFF_TITLES = {
 async def get_bot_staff_rank(user_id: int) -> int:
     """Возвращает ранг стаффа бота: 4 = Владелец, 3 = Админ, 2 = Модер, 1 = Хелпер, 0 = Обычный игрок."""
     import config
-    owner_id = getattr(config, "OWNER_ID", 8412527198)
-    if user_id == owner_id or user_id in (8412527198,):
+    if config.is_bot_owner(user_id):
         return 4
     row = await fetchone("SELECT rank FROM bot_staff WHERE user_id=?", (user_id,))
     if row:
         return int(row["rank"])
-    if user_id in getattr(config, "ADMINS", []):
-        return 3
     return 0
 
 async def set_bot_staff_rank(user_id: int, rank: int, title: str = "", granted_by: int = 0) -> None:
@@ -2138,7 +2178,7 @@ async def create_announcement(chat_id: int, creator_id: int, title: str, text: s
         "VALUES (?, ?, ?, ?, ?, ?)",
         (chat_id, creator_id, title, text, event_type, now)
     )
-    return cur.lastrowid
+    return int(cur.lastrowid or 0)
 
 
 async def set_announcement_msg_id(ann_id: int, msg_id: int) -> None:
@@ -2187,7 +2227,7 @@ async def add_chat_quote(chat_id: int, user_id: int, quote_text: str, author_nam
         "VALUES (?, ?, ?, ?, ?, ?)",
         (chat_id, user_id, quote_text, author_name, adder_name, now)
     )
-    return cur.lastrowid
+    return int(cur.lastrowid or 0)
 
 
 async def get_random_chat_quote(chat_id: int) -> dict | None:

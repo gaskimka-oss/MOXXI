@@ -134,9 +134,13 @@ async def cmd_give_reprimand(message: Message, bot: Bot, args: str = "", **kw):
     uid, name, reason = await resolve_target(message, args, bot)
     if not uid:
         return await message.reply("Укажите модератора: реплаем или @ником.")
+    if uid == message.from_user.id:
+        return await message.reply("⛔️ Нельзя выдать выговор самому себе.")
     tgt_rank = await get_rank(message.chat.id, uid)
     if tgt_rank == 0:
         return await message.reply("Этот пользователь не состоит в составе администрации чата.")
+    if tgt_rank >= 10:
+        return await message.reply("👑 Владельцу чата нельзя выдать выговор.")
     me = await effective_rank(message, bot)
     if tgt_rank >= me and me < 10:
         return await message.reply("⛔️ Нельзя выдавать выговор равному или старшему по рангу.")
@@ -148,7 +152,10 @@ async def cmd_give_reprimand(message: Message, bot: Bot, args: str = "", **kw):
         (message.chat.id, uid, message.from_user.id, f"[ВЫГОВОР] {reason}", now)
     )
 
-    row = await db.fetchone("SELECT COUNT(*) c FROM warns WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
+    row = await db.fetchone(
+        "SELECT COUNT(*) c FROM warns WHERE chat_id=? AND user_id=? AND reason LIKE '[ВЫГОВОР]%'",
+        (message.chat.id, uid)
+    )
     c_warns = row["c"] if row else 1
 
     await message.reply(
@@ -157,6 +164,42 @@ async def cmd_give_reprimand(message: Message, bot: Bot, args: str = "", **kw):
         f"📝 Причина: <i>{html.escape(reason)}</i>\n"
         f"📊 Всего выговоров: <b>{c_warns}/3</b>\n"
         f"👤 Выдал: {mention_id(message.from_user.id, message.from_user.first_name)}"
+    )
+
+
+@router.message(Cmd("снять выговор", "-выговор", "выговор снять", "удалить выговор", rank=6,
+                    usage="снять выговор {ссылка}", desc="Снять дисциплинарный выговор модератору"))
+async def cmd_remove_reprimand(message: Message, bot: Bot, args: str = "", **kw):
+    if not await require(message, bot, 6):
+        return
+    uid, name, _ = await resolve_target(message, args, bot)
+    if not uid:
+        return await message.reply("Укажите модератора: <code>снять выговор @user</code> или реплаем.")
+    tgt_rank = await get_rank(message.chat.id, uid)
+    me = await effective_rank(message, bot)
+    if tgt_rank >= me and me < 10:
+        return await message.reply("⛔️ Нельзя снимать выговор равному или старшему по рангу.")
+
+    row = await db.fetchone(
+        "SELECT id FROM warns WHERE chat_id=? AND user_id=? AND reason LIKE '[ВЫГОВОР]%' ORDER BY id DESC LIMIT 1",
+        (message.chat.id, uid)
+    )
+    if not row:
+        return await message.reply(f"ℹ️ У {mention_id(uid, name)} нет активных выговоров.")
+
+    await db.execute("DELETE FROM warns WHERE id=?", (row["id"],))
+
+    c_row = await db.fetchone(
+        "SELECT COUNT(*) c FROM warns WHERE chat_id=? AND user_id=? AND reason LIKE '[ВЫГОВОР]%'",
+        (message.chat.id, uid)
+    )
+    left_c = c_row["c"] if c_row else 0
+
+    await message.reply(
+        f"✅ <b>ВЫГОВОР СНЯТ!</b>\n\n"
+        f"👮 Модератор: {mention_id(uid, name)} (Ранг {tgt_rank})\n"
+        f"📊 Оставшиеся выговоры: <b>{left_c}/3</b>\n"
+        f"👤 Снял: {mention_id(message.from_user.id, message.from_user.first_name)}"
     )
 
 
@@ -296,17 +339,40 @@ async def cmd_check_norms(message: Message, bot: Bot, **kw):
     await message.reply("\n".join(lines), disable_web_page_preview=True)
 
 
+async def _autodel(msg, delay: int = 4):
+    try:
+        import asyncio
+        await asyncio.sleep(delay)
+        await msg.delete()
+    except Exception:
+        pass
+
+
 # ---------------- 15. АДМИН-РАЦИЯ ----------------
-@router.message(Cmd("!а", "!a", "рация", rank=1,
-                    usage="!а [сообщение]", desc="📻 Быстрое сообщение составу модерации"))
+@router.message(Cmd("рация", "а", "a", "!а", "!a", rank=1,
+                    usage="!а [сообщение]", desc="📻 Быстрое секретное сообщение составу модерации"))
 async def cmd_admin_radio(message: Message, bot: Bot, args: str = "", **kw):
+    cmd_name = kw.get("cmd_name", "")
+    had_prefix = kw.get("had_prefix", False)
+    if cmd_name in ("а", "a") and not had_prefix:
+        return
     if not await require(message, bot, 1):
         return
     txt = (args or "").strip()
     if not txt:
         return await message.reply("Введите сообщение для рации: <code>!а Требуется помощь в чате!</code>")
 
-    staff = await db.fetchall("SELECT user_id FROM staff WHERE chat_id=? AND rank > 0", (message.chat.id,))
+    # Сразу удаляем сообщение модератора из общего чата, чтобы обычные игроки его не видели
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    staff = await db.fetchall(
+        "SELECT DISTINCT user_id FROM ranks WHERE chat_id=? AND rank > 0 "
+        "UNION SELECT DISTINCT user_id FROM staff WHERE chat_id=? AND rank > 0",
+        (message.chat.id, message.chat.id)
+    )
     sender_name = message.from_user.first_name if message.from_user else "Модератор"
     me_rank = await effective_rank(message, bot)
 
@@ -318,6 +384,20 @@ async def cmd_admin_radio(message: Message, bot: Bot, args: str = "", **kw):
     )
 
     delivered = 0
+
+    # 1. Отправляем в привязанный админ-чат клана (если есть)
+    admin_group = await db.fetchone("SELECT chat_id FROM clan_groups WHERE role='admin'")
+    if admin_group and admin_group["chat_id"] != message.chat.id:
+        try:
+            await bot.send_message(admin_group["chat_id"], msg_text)
+            delivered += 1
+        except Exception:
+            pass
+
+    # 2. Отправляем в лог-канал (если настроен)
+    await send_to_mod_log(bot, message.chat.id, msg_text)
+
+    # 3. Отправляем модераторам в ЛС
     for s in staff:
         if s["user_id"] == message.from_user.id:
             continue
@@ -327,7 +407,12 @@ async def cmd_admin_radio(message: Message, bot: Bot, args: str = "", **kw):
         except Exception:
             pass
 
-    await message.reply(f"📻 Сообщение отправлено в рацию (доставлено <b>{delivered}</b> модераторам в ЛС).")
+    try:
+        conf = await message.answer(f"📻 Сообщение передано в админ-рацию (доставлено: <b>{delivered}</b>).")
+        import asyncio
+        asyncio.create_task(_autodel(conf, 4))
+    except Exception:
+        pass
 
 
 # ---------------- 16. ЛИЧНОЕ ДОСЬЕ МОДЕРАТОРА ----------------
@@ -344,7 +429,7 @@ async def cmd_mod_dossier(message: Message, bot: Bot, args: str = "", **kw):
     if tgt_rank == 0:
         return await message.reply(f"{mention_id(uid, name)} не является модератором чата.")
 
-    st_row = await db.fetchone("SELECT ts, granted_by FROM staff WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
+    st_row = await db.fetchone("SELECT ts FROM staff WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
     appointed_ts = st_row["ts"] if st_row else 0
     appointed_date = time.strftime("%d.%m.%Y", time.localtime(appointed_ts)) if appointed_ts else "Неизвестно"
 
