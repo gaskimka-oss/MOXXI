@@ -5,7 +5,7 @@ import html
 import re
 from typing import Optional
 
-from aiogram.types import Message, User
+from aiogram.types import InlineKeyboardMarkup, Message, User
 
 from config import ADMINS, CURRENCY, LEVELS, OWNER_ID
 
