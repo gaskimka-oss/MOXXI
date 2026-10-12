@@ -108,6 +108,12 @@ async def keyboard_middleware(handler, event, data: dict):
 
 async def user_middleware(handler, event, data: dict):
     """Регистрация пользователя/чата, глобальный бан, «тихий режим» чата, ЧС нарушающих групп."""
+    if hasattr(event, "text") and event.text:
+        log.info("📩 [ВХОДЯЩЕЕ] chat=%s (%s) user=%s (%s): %r (reply=%s)",
+                 getattr(event.chat, 'id', None), getattr(event.chat, 'title', 'личка'),
+                 getattr(event.from_user, 'id', None), getattr(event.from_user, 'first_name', None),
+                 getattr(event, 'text', None),
+                 bool(getattr(event, 'reply_to_message', None)))
     user = getattr(event, "from_user", None)
     if user and not user.is_bot and user.id != 777000:
         row = await db.get_user(user.id)
@@ -156,6 +162,13 @@ async def user_middleware(handler, event, data: dict):
             except Exception:
                 pass
         await db.register_chat(chat.id, chat.title)
+        if isinstance(event, Message):
+            try:
+                from h_security_plus import check_security_violations
+                if await check_security_violations(event, data.get("bot")):
+                    return
+            except Exception as _e:
+                log.warning("security check: %s", _e)
         if user and not user.is_bot and getattr(event, "text", None):
             try:
                 from h_ai_features import record_chat_message
@@ -304,13 +317,20 @@ async def main() -> None:
 
     # порядок важен: passive — последним, он ловит любой текст
     # ДК применяется ко всем командным роутерам
-    for r in (helpmenu.router, mod_ranks.router, mod_bans.router, chatset.router,
-              dk.router, chatlock.router, fun.router, modules.router, rp.router,
-              userinfo.router, tournament.router, relations.router, vip.router,
-              pets.router, market.router, dungeon.router, jackpot.router, titles.router,
-              party_games.router, webapp.router, community_support.router,
-              security_plus.router, staff_plus.router, economy_plus.router, social_plus.router,
-              veteran.router):
+    command_routers = (
+        helpmenu.router, mod_ranks.router, mod_bans.router, chatset.router,
+        dk.router, chatlock.router, fun.router, modules.router, rp.router,
+        userinfo.router, tournament.router, relations.router, vip.router,
+        pets.router, market.router, dungeon.router, jackpot.router, titles.router,
+        party_games.router, webapp.router, community_support.router,
+        security_plus.router, staff_plus.router, economy_plus.router, social_plus.router,
+        veteran.router, botinfo.router, ai_features.router, callall.router,
+        automod.router, nightmode.router, boss.router, items.router,
+        duels.router, clan_wars.router, fishing_craft.router, achievements.router,
+        quests.router, social_fun.router, grams.router, nav.router,
+        adminpanel.router, owner_panel.router, start.router,
+    )
+    for r in command_routers:
         r.message.middleware(access_middleware)
 
     dp.include_router(nav.router)
