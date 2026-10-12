@@ -1,0 +1,41 @@
+{
+  "profile": {
+    "user_id": 8412527198,
+    "about": null,
+    "city": null,
+    "age": null,
+    "birthday": null,
+    "hobby": "Simba",
+    "contact": null,
+    "real_name": "Simba",
+    "country": null,
+    "tz": null,
+    "family": "⭐⭐ Заместитель клана",
+    "nick2": null,
+    "gender": null,
+    "custom": null,
+    "custom_by": null,
+    "custom_ts": 1786210598,
+    "filled": 1,
+    "filled_ts": 1786027197
+  },
+  "user": {
+    "user_id": 8412527198,
+    "username": null,
+    "first_name": "Simba",
+    "nick": "Simba",
+    "balance": 1018,
+    "bank": 0,
+    "bank_ts": 0,
+    "xp": 45,
+    "rep": 0,
+    "messages": 15,
+    "married_to": null,
+    "married_at": null,
+    "banned": 0,
+    "verified": 1,
+    "grams": 0,
+    "created_at": 1785124425,
+    "coins": 0
+  }
+}
