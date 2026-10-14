@@ -43,18 +43,33 @@ def level_of(xp: int) -> tuple[int, str, int, int]:
 
 
 def parse_amount(text: str, balance: int, minimum: int = 1) -> Optional[int]:
-    """Понимает: 100, 1k, 2.5кк, 10%, все/всё/all, половина/half."""
+    """Понимает: 100, 1k, 2.5кк, 10%, все/всё/all, половина/half, 35 663 🪙, 35,663."""
     if not text:
         return None
-    t = text.strip().lower().replace(" ", "")
-    if t in {"все", "всё", "all", "va", "макс", "max"}:
+    t = str(text).strip().lower()
+
+    # Очищаем от значков валют и пробелов для ключевых слов
+    clean_kw = re.sub(r"[🪙💰\$\s]|монет[а-я]*|коин[а-я]*|грамм[а-я]*", "", t)
+    if clean_kw in {"все", "всё", "all", "va", "макс", "max"}:
         return balance if balance >= minimum else None
-    if t in {"половина", "half", "пол"}:
+    if clean_kw in {"половина", "half", "пол"}:
         return balance // 2
+
+    # Убираем пробелы (обычные и неразрывные), разделители и знаки валют
+    t = t.replace("\u00a0", "").replace(" ", "").replace("_", "")
+    t = re.sub(r"[🪙💰\$]|монет[а-я]*|коин[а-я]*|грамм[а-я]*", "", t)
+
     m = re.fullmatch(r"(\d+(?:[.,]\d+)?)%", t)
     if m:
         pct = float(m.group(1).replace(",", "."))
         return int(balance * min(pct, 100) / 100)
+
+    # Проверка на разделители тысяч запятыми или точками (например 35,663 или 1,000,000) без суффиксов
+    if re.fullmatch(r"\d{1,3}(?:,\d{3})+", t):
+        t = t.replace(",", "")
+    elif re.fullmatch(r"\d{1,3}(?:\.\d{3})+", t):
+        t = t.replace(".", "")
+
     m = re.fullmatch(r"(\d+(?:[.,]\d+)?)(k|к|kk|кк|m|м|kkk|ккк|b|б)?", t)
     if not m:
         return None
@@ -62,7 +77,8 @@ def parse_amount(text: str, balance: int, minimum: int = 1) -> Optional[int]:
     suf = m.group(2) or ""
     mult = {"": 1, "k": 1e3, "к": 1e3, "kk": 1e6, "кк": 1e6, "m": 1e6, "м": 1e6,
             "kkk": 1e9, "ккк": 1e9, "b": 1e9, "б": 1e9}[suf]
-    return int(val * mult)
+    res = int(val * mult)
+    return res if res >= minimum else None
 
 
 def hms(seconds: int) -> str:
