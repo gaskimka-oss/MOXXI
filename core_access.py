@@ -87,6 +87,11 @@ async def check(message, bot, key: str, base_rank: int,
     if have >= need:
         return None
 
+    # В группах любые сообщения без командного префикса (!, /, .) от участников с недостаточным рангом
+    # считаются обычным разговором и НИКОГДА не должны спамить ошибкой прав
+    if not had_prefix and chat.type in ("group", "supergroup"):
+        return ""
+
     quiet = await db.get_setting(chat.id, "dk_silent", "0") == "1"
     if quiet:
         return ""

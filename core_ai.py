@@ -55,7 +55,8 @@ PROVIDER_TYPE = os.getenv("AI_PROVIDER_TYPE") or _PROV_TYPE
 URL = (os.getenv("AI_API_URL") or _URL_GUESS).strip()
 MODEL = (os.getenv("AI_MODEL") or _MODEL_GUESS).strip()
 TIMEOUT = int(os.getenv("AI_TIMEOUT", "15") or 15)
-_g_models = [MODEL, "gemini-flash-latest", "gemini-flash-lite-latest", "gemini-3-flash-preview", "gemini-3.1-flash-lite-preview"]
+_bad_models = {"gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.5-flash"}
+_g_models = ["gemini-flash-lite-latest", "gemini-3-flash-preview", "gemini-flash-latest", MODEL if MODEL and MODEL not in _bad_models else ""]
 GEMINI_MODELS = list(dict.fromkeys(m for m in _g_models if m))
 
 
@@ -205,11 +206,12 @@ def _call_openai_sync(key: str, system: str, user: str, max_tokens: int, tempera
 
 
 def _ask_raw(system: str, user: str, max_tokens: int = 250, temperature: float = 0.0, json_mode: bool = False) -> str | None:
-    """Выполняет запрос с перебором ключей при ошибках."""
+    """Выполняет запрос с быстрой ротацией ключей при ошибках (до 3 попыток)."""
     if not KEYS:
         return None
 
-    for _ in range(len(KEYS)):
+    max_tries = min(len(KEYS), 6)
+    for _ in range(max_tries):
         current_key = get_next_key()
         try:
             if _is_gemini_key(current_key) or "googleapis.com" in URL:
@@ -255,30 +257,20 @@ def _ask_json(system: str, user: str, max_tokens: int = 250) -> dict | None:
 
 async def ask(system: str, user: str, max_tokens: int = 250) -> dict | None:
     """Асинхронный JSON-запрос к ИИ."""
-    for attempt in (1, 2):
-        try:
-            res = await asyncio.to_thread(_ask_json, system, user, max_tokens)
-            if res is not None:
-                return res
-        except Exception:
-            pass
-        if attempt == 1:
-            await asyncio.sleep(1.0)
-    return None
+    try:
+        return await asyncio.to_thread(_ask_json, system, user, max_tokens)
+    except Exception as e:
+        log.warning("ask json error: %s", e)
+        return None
 
 
 async def ask_text(prompt: str, system: str = "", max_tokens: int = 800) -> str | None:
     """Асинхронный текстовый ответ на произвольный вопрос."""
-    for attempt in (1, 2):
-        try:
-            res = await asyncio.to_thread(_ask_raw, system, prompt, max_tokens, 0.3)
-            if res:
-                return res
-        except Exception:
-            pass
-        if attempt == 1:
-            await asyncio.sleep(1.0)
-    return None
+    try:
+        return await asyncio.to_thread(_ask_raw, system, prompt, max_tokens, 0.3)
+    except Exception as e:
+        log.warning("ask_text error: %s", e)
+        return None
 
 
 # ══════════════════ ПРАВИЛА СООБЩЕСТВА ══════════════════

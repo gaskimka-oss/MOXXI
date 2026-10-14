@@ -20,7 +20,7 @@ import time
 from datetime import datetime, timezone
 
 from aiogram import Bot, F, Router
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 import db
 from core_ranks import effective_rank, require
@@ -322,8 +322,8 @@ async def cmd_list_birthdays(message: Message, bot: Bot, **kw):
 async def cmd_create_promocode(message: Message, bot: Bot, args: str = "", **kw):
     import config
     sender_id = message.from_user.id if message.from_user else 0
-    if sender_id != config.OWNER_ID:
-        return await message.reply("⛔️ Создавать промокоды может <b>ТОЛЬКО главный Владелец бота</b>!\n\nОстальным пользователям и администраторам групп создание промокодов строго запрещено.")
+    if not config.is_bot_owner(sender_id):
+        return await message.reply("⛔️ Создавать промокоды могут <b>ТОЛЬКО Создатели бота</b>!\n\nОстальным пользователям и администраторам групп создание промокодов строго запрещено.")
     parts = (args or "").strip().split()
 
     if len(parts) < 3 or not parts[1].isdigit() or not parts[2].isdigit():
@@ -339,12 +339,103 @@ async def cmd_create_promocode(message: Message, bot: Bot, args: str = "", **kw)
         "ON CONFLICT(code) DO UPDATE SET uses_left=excluded.uses_left, reward=excluded.reward",
         (code, message.chat.id, reward, uses, message.from_user.id, now)
     )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📢 Разослать промокод во все группы", callback_data=f"promo_bc:{code}")]
+    ])
+
     await message.reply(
         f"🎁 <b>ПРОМОКОД СОЗДАН!</b>\n\n"
         f"🔑 Код: <code>{code}</code>\n"
         f"👥 Активаций: <b>{uses} шт.</b>\n"
         f"💰 Награда: <b>+{reward:,} монет</b> каждому!\n\n"
-        f"Активация: <code>промо {code}</code>"
+        f"Активация: <code>промо {code}</code>\n\n"
+        f"💡 <i>Нажмите кнопку ниже или введите <code>разослать промо {code}</code>, чтобы отправить промокод во все чаты!</i>",
+        reply_markup=kb
+    )
+
+
+@router.callback_query(F.data.startswith("promo_bc:"))
+async def cb_broadcast_promocode(cq: CallbackQuery, bot: Bot):
+    import config
+    sender_id = cq.from_user.id if cq.from_user else 0
+    if not config.is_bot_owner(sender_id):
+        return await cq.answer("⛔️ Рассылать промокод могут только Создатели бота!", show_alert=True)
+
+    code = cq.data.split(":", 1)[1].strip().upper()
+    row = await db.fetchone("SELECT * FROM promocodes WHERE code=?", (code,))
+    if not row or row["uses_left"] <= 0:
+        return await cq.answer("⚠️ Промокод не существует или закончился!", show_alert=True)
+
+    await cq.answer("📢 Начинаю рассылку промокода во все группы...")
+
+    from h_botinfo import broadcast_notice
+    text = (
+        "🎁 ✨ <b>ОФИЦИАЛЬНЫЙ ПРОМОКОД ОТ СОЗДАТЕЛЕЙ!</b> ✨ 🎁\n"
+        "✦ ══ • ⊰ 💎 🪙 💰 ⚡ ⊱ • ══ ✦\n\n"
+        "Внимание всем участникам! Создатели выпустили специальный промокод на халявные монеты:\n\n"
+        f"🔑 Код: <code>{code}</code>\n"
+        f"💰 Награда: <b>+{row['reward']:,} монет</b> каждому!\n"
+        f"👥 Всего активаций: <b>{row['uses_left']} шт.</b> (успей забрать!)\n\n"
+        "👉 <b>Как получить монеты:</b>\n"
+        f"Напишите в чат: <code>промо {code}</code>\n\n"
+        "✦ ══ • ⊰ 🍸 MOXXI 2.0 ⊱ • ══ ✦"
+    )
+
+    sent = await broadcast_notice(bot, text)
+    try:
+        await cq.message.reply(
+            f"✅ <b>РАССЫЛКА ПРОМОКОДА ЗАВЕРШЕНА!</b>\n\n"
+            f"🔑 Промокод: <code>{code}</code>\n"
+            f"💰 Награда: <b>+{row['reward']:,} монет</b>\n"
+            f"📢 Успешно отправлено в <b>{sent} групп(ы)</b> в темы СМС/общения!"
+        )
+    except Exception:
+        pass
+
+
+@router.message(Cmd("разослать промо", "рассылка промо", "промо рассылка", "разослать промокод", rank=0, group_only=False,
+                    usage="разослать промо [код]", desc="📢 Разослать промокод во все группы бота (ТОЛЬКО Создатели)"))
+async def cmd_broadcast_promocode(message: Message, bot: Bot, args: str = "", **kw):
+    import config
+    sender_id = message.from_user.id if message.from_user else 0
+    if not config.is_bot_owner(sender_id):
+        return await message.reply("⛔️ Рассылать промокоды могут <b>ТОЛЬКО Создатели бота</b>!")
+
+    code = (args or "").strip().upper()
+    if not code:
+        row = await db.fetchone("SELECT * FROM promocodes WHERE uses_left > 0 ORDER BY ts DESC LIMIT 1")
+        if not row:
+            return await message.reply("⚠️ Укажите промокод: <code>разослать промо ОБНОВА</code>")
+        code = row["code"]
+    else:
+        row = await db.fetchone("SELECT * FROM promocodes WHERE code=?", (code,))
+
+    if not row or row["uses_left"] <= 0:
+        return await message.reply("⚠️ Промокод не найден или у него закончились активации!")
+
+    m = await message.reply(f"📢 Начинаю рассылку промокода <code>{code}</code> во все группы бота…")
+
+    from h_botinfo import broadcast_notice
+    text = (
+        "🎁 ✨ <b>ОФИЦИАЛЬНЫЙ ПРОМОКОД ОТ СОЗДАТЕЛЕЙ!</b> ✨ 🎁\n"
+        "✦ ══ • ⊰ 💎 🪙 💰 ⚡ ⊱ • ══ ✦\n\n"
+        "Внимание всем участникам! Создатели выпустили специальный промокод на халявные монеты:\n\n"
+        f"🔑 Код: <code>{code}</code>\n"
+        f"💰 Награда: <b>+{row['reward']:,} монет</b> каждому!\n"
+        f"👥 Всего активаций: <b>{row['uses_left']} шт.</b> (успей забрать!)\n\n"
+        "👉 <b>Как получить монеты:</b>\n"
+        f"Напишите в чат: <code>промо {code}</code>\n\n"
+        "✦ ══ • ⊰ 🍸 MOXXI 2.0 ⊱ • ══ ✦"
+    )
+
+    sent = await broadcast_notice(bot, text)
+    await m.edit_text(
+        f"✅ <b>РАССЫЛКА ПРОМОКОДА ЗАВЕРШЕНА!</b>\n\n"
+        f"🔑 Промокод: <code>{code}</code>\n"
+        f"💰 Награда: <b>+{row['reward']:,} монет</b>\n"
+        f"👥 Доступно активаций: <b>{row['uses_left']} шт.</b>\n"
+        f"📢 Успешно отправлено в <b>{sent} групп(ы)</b>!"
     )
 
 

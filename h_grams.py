@@ -21,6 +21,7 @@ import core_backup
 from core_registry import Cmd
 from core_resolve import human_period, parse_period, resolve_target
 from utils import hms, mention, mention_id, parse_amount, money, make_game_replay_kb
+from core_game_lock import is_in_game, lock_game, unlock_game
 
 router = Router(name="grams")
 S = 33  # раздел «Монеты, бизнесы и игры»
@@ -507,6 +508,14 @@ async def take_bet(message: Message, raw: str, **kw) -> int | None:
     if not await topic_ok(message):
         return None
     uid = message.from_user.id
+    active_game = is_in_game(uid)
+    if active_game:
+        await message.reply(
+            f"⏳ <b>Вы уже находитесь в игре: {active_game}!</b>\n\n"
+            f"⚠️ Дождитесь завершения текущей игры перед тем, как делать новую ставку или запускать другую игру."
+        )
+        return None
+
     await _ensure_start(uid)
     bal = await db.get_coins(uid)
     bet = parse_amount(raw, bal, MIN_BET)
@@ -1340,34 +1349,81 @@ async def _auction_timer_task(bot: Bot, chat_id: int):
             break
 
 
+async def _select_auction_business(chat_id: int) -> tuple[str, str]:
+    """Анализирует экономическое состояние игроков беседы и выбирает подходящее предприятие."""
+    max_bal = 0
+    max_lvl = 1
+    try:
+        rows = await db.fetchall(
+            """
+            SELECT u.balance, u.grams, COALESCE(gp.level, 1) as lvl
+            FROM chat_stats cs
+            JOIN users u ON cs.user_id = u.user_id
+            LEFT JOIN game_profiles gp ON cs.user_id = gp.user_id
+            WHERE cs.chat_id = ?
+            ORDER BY cs.messages DESC
+            LIMIT 25
+            """,
+            (chat_id,)
+        )
+        if rows:
+            bals = [max(r["balance"] or 0, r["grams"] or 0) for r in rows]
+            lvls = [r["lvl"] or 1 for r in rows]
+            max_bal = max(bals) if bals else 0
+            max_lvl = max(lvls) if lvls else 1
+    except Exception:
+        pass
+
+    # Голосование беседы (если участники голосовали через «аукцион голос»)
+    votes = _auction_votes.get(chat_id, {})
+    user_voted_tier = None
+    if votes:
+        c_cnt = sum(1 for t in votes.values() if t == "cheap")
+        m_cnt = sum(1 for t in votes.values() if t == "mythic")
+        l_cnt = sum(1 for t in votes.values() if t == "legendary")
+        best = max(c_cnt, m_cnt, l_cnt)
+        candidates = []
+        if c_cnt == best: candidates.append("cheap")
+        if m_cnt == best: candidates.append("mythic")
+        if l_cnt == best: candidates.append("legendary")
+        if candidates:
+            user_voted_tier = random.choice(candidates)
+
+    if user_voted_tier:
+        allowed = [k for k in BUSINESS_TYPES.keys() if get_business_tier(k) == user_voted_tier]
+    else:
+        # Экономический анализ капитала беседы:
+        # 1. Если у игроков мало денег (до 350к монет и начальный уровень) —
+        #    падают доступные бизнесы 1-6 уровня (ферма, дом, завод, тц, шахта, электростанция)
+        if max_bal < 350_000 and max_lvl <= 6:
+            allowed = [k for k, v in BUSINESS_TYPES.items() if 1 <= v.get("id", 1) <= 6]
+        elif max_bal < 3_000_000 and max_lvl <= 10:
+            # 2. Средний капитал — бизнесы 3-10 уровня
+            allowed = [k for k, v in BUSINESS_TYPES.items() if 3 <= v.get("id", 1) <= 10]
+        elif max_bal < 25_000_000:
+            # 3. Высокий капитал — бизнесы 6-18 уровня
+            allowed = [k for k, v in BUSINESS_TYPES.items() if 6 <= v.get("id", 1) <= 18]
+        else:
+            # 4. Олигархи беседы — предприятия от 7 уровня и выше (вплоть до 30)
+            allowed = [k for k, v in BUSINESS_TYPES.items() if v.get("id", 1) >= 7]
+
+    if not allowed:
+        allowed = list(BUSINESS_TYPES.keys())
+
+    chosen_key = random.choice(allowed)
+    chosen_tier = get_business_tier(chosen_key)
+    return chosen_key, chosen_tier
+
+
 async def start_chat_auction(bot: Bot, chat_id: int, biz_key: str | None = None, thread_id: int | None = None) -> bool:
     if not await casino_enabled(chat_id):
         return False
     if chat_id in _active_auctions:
         return False
 
-    votes = _auction_votes.get(chat_id, {})
     chosen_tier = None
     if not biz_key or biz_key not in BUSINESS_TYPES:
-        if votes:
-            c_cnt = sum(1 for t in votes.values() if t == "cheap")
-            m_cnt = sum(1 for t in votes.values() if t == "mythic")
-            l_cnt = sum(1 for t in votes.values() if t == "legendary")
-            best_cnt = max(c_cnt, m_cnt, l_cnt)
-            candidates = []
-            if c_cnt == best_cnt:
-                candidates.append("cheap")
-            if m_cnt == best_cnt:
-                candidates.append("mythic")
-            if l_cnt == best_cnt:
-                candidates.append("legendary")
-            chosen_tier = random.choice(candidates)
-        else:
-            # Сбалансированный шанс: дешёвые и доступные бизнесы падают регулярно!
-            chosen_tier = random.choices(["cheap", "mythic", "legendary"], weights=[40, 35, 25])[0]
-
-        tier_biz_keys = [k for k in BUSINESS_TYPES.keys() if get_business_tier(k) == chosen_tier]
-        biz_key = random.choice(tier_biz_keys)
+        biz_key, chosen_tier = await _select_auction_business(chat_id)
     else:
         chosen_tier = get_business_tier(biz_key)
 
@@ -1713,42 +1769,68 @@ async def cmd_auction_vote_message(message: Message, bot: Bot, args: str = "", *
 
 
 # ═══════════════ СПИСОК ИГР ═══════════════
-GAMES_TEXT = f"""🎮 <b>ДОСТУПНЫЕ ИГРЫ НА МОНЕТЫ 🪙</b>
+GAMES_TEXT = f"""🎮 <b>ВСЕ ДОСТУПНЫЕ ИГРЫ НА МОНЕТЫ 🪙</b>
+✦ ══ • ⊰ 🎰 🎲 🎯 💣 💥 🎡 🃏 🏇 ⚽ 🏀 🎳 ⚔️ 🎣 🧠 ⊱ • ══ ✦
 
 🎰 <b>СЛОТЫ / КАЗИНО</b> — <code>казик 1000</code> / <code>слоты 1к</code>
-   Крути барабан · до x10
+   Крути барабан · до x10 · Куш джекпота при 7️⃣7️⃣7️⃣!
 
-🪙 <b>ОРЁЛ / РЕШКА</b> — <code>орёл 1000</code> / <code>решка 1к</code>
-   Угадай сторону монеты · x2
+🪙 <b>ОРЁЛ И РЕШКА</b> — <code>орёл 1000</code> / <code>решка 1к</code>
+   Угадай сторону подброшенной монеты · x2
 
 💣 <b>МИНЫ</b> — <code>мины 1000</code>
-   Открывай клетки, не наткнись на мину · до x24
+   Открывай ячейки 4x4, обходи мины, забирай банк вовремя · до x24
 
 🎯 <b>ДАРТС</b> — <code>дартс 1000</code>
-   Бросок в мишень · до x3
+   Бросок дротика в центр мишени · x1 / x1.5 / x2 / x3 / x5
 
 💥 <b>КРАШ</b> — <code>краш 1000</code>
-   Множитель растёт — успей забрать · до x50
+   Множитель растёт в реальном времени — успей забрать до взрыва · до x50
 
-🎡 <b>КОЛЕСО</b> — <code>колесо 1000</code>
-   Барабан удачи · до x10
+🎡 <b>КОЛЕСО ФОРТУНЫ</b> — <code>колесо 1000</code>
+   Барабан удачи с щедрыми секторами · до x10
 
-🎲 <b>КУБИК / КОСТИ</b> — <code>куб 1000</code>
-   Бросок костей с ботом · x2
+🎲 <b>КУБИК / КОСТИ</b> — <code>куб 1000</code> / <code>кости 1к</code>
+   Бросок двух кубиков против бота · x2
 
 💣 <b>САПЁР</b> — <code>сапёр 1000</code>
-   Дуэль на двоих (ответом на сообщение друга)
+   Дуэль 1 на 1 (ответом на сообщение оппонента) · 9 клеток, 1 мина
 
-🎡 <b>РУЛЕТКА</b> — <code>рулетка красное 1000</code>
-   Цвет x2 · число x14
+🎡 <b>РУЛЕТКА 2.0</b> — <code>рулетка красное 1000</code>
+   • Цвета & чёт/нечет: <code>рулетка 1000 красное</code> (x2)
+   • Диапазоны чисел: <code>рулетка 1000 на 7-8</code> (x18), <code>1-8</code> (x4.5), <code>1-12</code> (x3)
+   • Числа: <code>рулетка 1000 36</code> (x36) или экспресс <code>23000000 11 12 14 13...</code>
 
 🃏 <b>БЛЭКДЖЕК / 21 ОЧКО</b> — <code>бд 1000</code> / <code>блэкджек 1к</code> / <code>21 1000</code>
-   Интерактивная игра с Мокси · Натуральный блэкджек x2.5
+   Интерактивная карточная дуэль против дилера Мокси · Натуральный x2.5
 
-🏇 <b>СКАЧКИ / ИППОДРОМ</b> — <code>скачки 1 1000</code> / <code>ипподром</code>
-   5 скакунов · коэффициенты до x15 · ставки для всех игроков
+🏇 <b>СКАЧКИ НА ИППОДРОМЕ</b> — <code>скачки 1 1000</code> / <code>ипподром</code>
+   5 уникальных скакунов · коэффициенты до x15 · ставки всей беседы
 
-🚀 <i>За каждую игру вы получаете опыт XP и повышаете уровень для покупки заводов и ферм!</i>"""
+🎳 <b>БОУЛИНГ</b> — <code>боулинг 1000</code>
+   Сбей все кегли броском шара · Страйк x5
+
+⚽ <b>ФУТБОЛ</b> — <code>футбол 1000</code>
+   Пенальти по воротам · Гол x2.5
+
+🏀 <b>БАСКЕТБОЛ</b> — <code>баскетбол 1000</code>
+   Бросок мяча в корзину · Чистое попадание x2.5
+
+⚔️ <b>ДУЭЛЬ</b> — <code>дуэль @юзер 1000</code>
+   PvP-поединок один на один за монеты и снаряжение
+
+👹 <b>РЕЙД-БОСС</b> — <code>босс</code> / <code>босс атака</code>
+   Командная битва чата против мирового босса за легендарный лут
+
+🎣 <b>РЫБАЛКА</b> — <code>рыбалка</code> / <code>забросить</code>
+   Лови редкую рыбу и сундуки, продавай улов на рынке за монеты
+
+🧠 <b>ВИКТОРИНА</b> — <code>викторина</code>
+   Интеллектуальная битва на скорость правильных ответов за монеты
+
+━━━━━━━━━━━━━━━━━━━━
+🛡 <i>Система Anti-Spam Game Lock защищает баланс: новая игра доступна сразу после получения исхода текущего раунда!</i>
+🚀 <i>За каждую игру вы получаете игровой XP и повышаете уровень для покупки предприятий!</i>"""
 
 
 @router.message(Cmd("игры", "список игр", "games", "казик инфо", section=S, usage="игры",
@@ -1830,6 +1912,7 @@ async def cmd_mines(message: Message, args: str = "", **kw):
     if bet is None:
         return
     uid = message.from_user.id
+    lock_game(uid, "mines", message.chat.id)
     await db.add_comets(uid, -bet, "gram_bet_mines")
     bombs = set(random.sample(range(16), 3))
     key = f"{message.chat.id}:{uid}:{int(time.time()*1000)}"
@@ -1855,6 +1938,7 @@ async def cb_mine(call: CallbackQuery):
     action = parts[4]
     if action == "cash":
         _mines.pop(key, None)
+        unlock_game(st["uid"])
         mult = MINE_MULT[min(len(st["opened"]) - 1, len(MINE_MULT) - 1)]
         win = int(st["bet"] * mult)
         bal = await db.add_comets(st["uid"], win, "gram_win_mines")
@@ -1873,6 +1957,7 @@ async def cb_mine(call: CallbackQuery):
 
     if idx in st["bombs"]:
         _mines.pop(key, None)
+        unlock_game(st["uid"])
         bal = await db.get_comets(st["uid"])
         await db.add_game_xp(st["uid"], 1, is_win=False)
         await call.message.edit_text(
@@ -1885,6 +1970,7 @@ async def cb_mine(call: CallbackQuery):
     st["opened"].add(idx)
     if len(st["opened"]) >= 13:
         _mines.pop(key, None)
+        unlock_game(st["uid"])
         mult = MINE_MULT[-1]
         win = int(st["bet"] * mult)
         bal = await db.add_comets(st["uid"], win, "gram_win_mines")
@@ -1912,26 +1998,30 @@ async def cmd_darts(message: Message, args: str = "", **kw):
     if bet is None:
         return
     uid = message.from_user.id
-    await db.add_comets(uid, -bet, "gram_bet_darts")
-    m = await message.answer_dice(emoji="🎯")
-    await asyncio.sleep(3.5)
-    v = m.dice.value
-    mult = {6: 3.0, 5: 2.0, 4: 1.5, 3: 1.0}.get(v, 0)
-    names = {6: "🎯 В яблочко!", 5: "Почти центр", 4: "Хорошо",
-             3: "Задел мишень", 2: "Край", 1: "Мимо"}
-    is_win = mult > 1.0
-    lvl, lvl_up = await db.add_game_xp(uid, 1, is_win=is_win)
-    lvl_note = f"\n🚀 <i>Игровой уровень: <b>{lvl} LVL</b>!</i>" if lvl_up else ""
-    if mult:
-        win = int(bet * mult)
-        bal = await db.add_comets(uid, win, "gram_win_darts")
-        diff = win - bet
-        res = (f"🎉 <b>+{c(diff)}</b>" if diff > 0 else "🔸 Ставка возвращена")
-        await message.reply(f"🎯 {names[v]} (x{mult})\n\n{res}\nБаланс: <b>{c(bal)}</b>{lvl_note}")
-    else:
-        bal = await db.get_comets(uid)
-        await message.reply(f"🎯 {names.get(v, 'Мимо')}\n\n"
-                            f"💔 Проигрыш −{c(bet)}\nБаланс: <b>{c(bal)}</b>{lvl_note}")
+    lock_game(uid, "darts", message.chat.id)
+    try:
+        await db.add_comets(uid, -bet, "gram_bet_darts")
+        m = await message.answer_dice(emoji="🎯")
+        await asyncio.sleep(3.5)
+        v = m.dice.value
+        mult = {6: 3.0, 5: 2.0, 4: 1.5, 3: 1.0}.get(v, 0)
+        names = {6: "🎯 В яблочко!", 5: "Почти центр", 4: "Хорошо",
+                 3: "Задел мишень", 2: "Край", 1: "Мимо"}
+        is_win = mult > 1.0
+        lvl, lvl_up = await db.add_game_xp(uid, 1, is_win=is_win)
+        lvl_note = f"\n🚀 <i>Игровой уровень: <b>{lvl} LVL</b>!</i>" if lvl_up else ""
+        if mult:
+            win = int(bet * mult)
+            bal = await db.add_comets(uid, win, "gram_win_darts")
+            diff = win - bet
+            res = (f"🎉 <b>+{c(diff)}</b>" if diff > 0 else "🔸 Ставка возвращена")
+            await message.reply(f"🎯 {names[v]} (x{mult})\n\n{res}\nБаланс: <b>{c(bal)}</b>{lvl_note}")
+        else:
+            bal = await db.get_comets(uid)
+            await message.reply(f"🎯 {names.get(v, 'Мимо')}\n\n"
+                                f"💔 Проигрыш −{c(bet)}\nБаланс: <b>{c(bal)}</b>{lvl_note}")
+    finally:
+        unlock_game(uid)
 
 
 # 4. Краш
@@ -1949,6 +2039,7 @@ async def cmd_crash(message: Message, args: str = "", **kw):
     bet = await take_bet(message, args, **kw)
     if bet is None:
         return
+    lock_game(uid, "crash", message.chat.id)
     await db.add_comets(uid, -bet, "gram_bet_crash")
 
     r = random.random()
@@ -1973,36 +2064,42 @@ async def cmd_crash(message: Message, args: str = "", **kw):
 
     mults = [1.1, 1.25, 1.5, 1.8, 2.2, 2.7, 3.5, 4.5, 6.0, 8.0, 12.0, 20.0, 35.0, 50.0]
     cur = 1.0
-    for target in mults:
-        await asyncio.sleep(1.2)
-        st = _crash.get(key)
-        if not st or st["cashed"]:
-            return
-        if target > crash_at:
-            st["over"] = True
-            _crash.pop(key, None)
-            bal = await db.get_comets(uid)
-            await db.add_game_xp(uid, 1, is_win=False)
+    try:
+        for target in mults:
+            await asyncio.sleep(1.2)
+            st = _crash.get(key)
+            if not st or st["cashed"]:
+                return
+            if target > crash_at:
+                st["over"] = True
+                _crash.pop(key, None)
+                unlock_game(uid)
+                bal = await db.get_comets(uid)
+                await db.add_game_xp(uid, 1, is_win=False)
+                try:
+                    await msg.edit_text(
+                        f"💥 <b>КРАШ НА x{crash_at:.2f}!</b>\n\n"
+                        f"Вы не успели забрать.\n"
+                        f"Проигрыш: <b>−{c(bet)}</b>\nБаланс: <b>{c(bal)}</b>")
+                except Exception:
+                    pass
+                return
+            cur = target
+            st["cur"] = cur
             try:
                 await msg.edit_text(
-                    f"💥 <b>КРАШ НА x{crash_at:.2f}!</b>\n\n"
-                    f"Вы не успели забрать.\n"
-                    f"Проигрыш: <b>−{c(bet)}</b>\nБаланс: <b>{c(bal)}</b>")
+                    f"🚀 <b>КРАШ</b> · Ставка: <b>{c(bet)}</b>\n\n"
+                    f"Множитель: <b>x{cur:.2f}</b>",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                        InlineKeyboardButton(
+                            text=f"💰 ЗАБРАТЬ x{cur:.2f} (+{c(int(bet*cur)-bet)})",
+                            callback_data=f"cr:{key}:cash")]]))
             except Exception:
                 pass
-            return
-        cur = target
-        st["cur"] = cur
-        try:
-            await msg.edit_text(
-                f"🚀 <b>КРАШ</b> · Ставка: <b>{c(bet)}</b>\n\n"
-                f"Множитель: <b>x{cur:.2f}</b>",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                    InlineKeyboardButton(
-                        text=f"💰 ЗАБРАТЬ x{cur:.2f} (+{c(int(bet*cur)-bet)})",
-                        callback_data=f"cr:{key}:cash")]]))
-        except Exception:
-            pass
+    finally:
+        st = _crash.get(key)
+        if not st or st.get("over") or st.get("cashed"):
+            unlock_game(uid)
 
 
 @router.callback_query(F.data.startswith("cr:"))
@@ -2016,6 +2113,7 @@ async def cb_crash(call: CallbackQuery):
         return await call.answer("Это не ваша игра!", show_alert=True)
     st["cashed"] = True
     _crash.pop(key, None)
+    unlock_game(st["uid"])
     cur = st.get("cur", 1.1)
     win = int(st["bet"] * cur)
     bal = await db.add_comets(st["uid"], win, "gram_win_crash")
@@ -2049,29 +2147,33 @@ async def cmd_wheel(message: Message, args: str = "", **kw):
     if bet is None:
         return
     uid = message.from_user.id
-    await db.add_comets(uid, -bet, "gram_bet_wheel")
-    msg = await message.reply("🎡 <i>Крутим барабан…</i>")
-    await asyncio.sleep(2.5)
+    lock_game(uid, "wheel", message.chat.id)
+    try:
+        await db.add_comets(uid, -bet, "gram_bet_wheel")
+        msg = await message.reply("🎡 <i>Крутим барабан…</i>")
+        await asyncio.sleep(2.5)
 
-    weights = [30, 25, 20, 12, 7, 4, 1.5, 0.5]
-    mult, label = random.choices(WHEEL_SECTORS, weights=weights, k=1)[0]
-    is_win = mult > 1.0
-    lvl, lvl_up = await db.add_game_xp(uid, 1, is_win=is_win)
-    lvl_note = f"\n🚀 <i>Игровой уровень: <b>{lvl} LVL</b>!</i>" if lvl_up else ""
-    kb = make_game_replay_kb("wheel", bet, uid)
-    if mult > 0:
-        win = int(bet * mult)
-        bal = await db.add_comets(uid, win, "gram_win_wheel")
-        diff = win - bet
-        res = (f"🎉 <b>+{c(diff)}</b>" if diff > 0 else (f"🔸 Возврат" if diff == 0 else f"💔 −{c(-diff)}"))
-        await msg.edit_text(
-            f"🎡 Сектор: <b>{label}</b>\n\n"
-            f"{res}\nБаланс: <b>{c(bal)}</b>{lvl_note}", reply_markup=kb)
-    else:
-        bal = await db.get_comets(uid)
-        await msg.edit_text(
-            f"🎡 Сектор: <b>{label}</b>\n\n"
-            f"💔 Проигрыш −{c(bet)}\nБаланс: <b>{c(bal)}</b>{lvl_note}", reply_markup=kb)
+        weights = [30, 25, 20, 12, 7, 4, 1.5, 0.5]
+        mult, label = random.choices(WHEEL_SECTORS, weights=weights, k=1)[0]
+        is_win = mult > 1.0
+        lvl, lvl_up = await db.add_game_xp(uid, 1, is_win=is_win)
+        lvl_note = f"\n🚀 <i>Игровой уровень: <b>{lvl} LVL</b>!</i>" if lvl_up else ""
+        kb = make_game_replay_kb("wheel", bet, uid)
+        if mult > 0:
+            win = int(bet * mult)
+            bal = await db.add_comets(uid, win, "gram_win_wheel")
+            diff = win - bet
+            res = (f"🎉 <b>+{c(diff)}</b>" if diff > 0 else (f"🔸 Возврат" if diff == 0 else f"💔 −{c(-diff)}"))
+            await msg.edit_text(
+                f"🎡 Сектор: <b>{label}</b>\n\n"
+                f"{res}\nБаланс: <b>{c(bal)}</b>{lvl_note}", reply_markup=kb)
+        else:
+            bal = await db.get_comets(uid)
+            await msg.edit_text(
+                f"🎡 Сектор: <b>{label}</b>\n\n"
+                f"💔 Проигрыш −{c(bet)}\nБаланс: <b>{c(bal)}</b>{lvl_note}", reply_markup=kb)
+    finally:
+        unlock_game(uid)
 
 
 # 6. Сапёр (Дуэль на двоих)
@@ -2307,6 +2409,7 @@ def _bj_kb(key: str, can_double: bool = False) -> InlineKeyboardMarkup:
 async def _finish_bj_game(call: CallbackQuery, key: str, st: dict, outcome: str):
     _bj_games.pop(key, None)
     uid = st["uid"]
+    unlock_game(uid)
     bet = st["bet"]
     chat_id = st["chat_id"]
 
@@ -2376,10 +2479,14 @@ async def start_quick_blackjack(call: CallbackQuery, bet: int):
     """Быстрый старт блэкджека по нажатию инлайн-кнопки реплея."""
     uid = call.from_user.id
     chat_id = call.message.chat.id
+    active = is_in_game(uid)
+    if active:
+        return await call.answer(f"⏳ Вы уже играете в {active}! Дождитесь завершения раунда.", show_alert=True)
     bal = await db.get_comets(uid)
     if bal < bet:
         return await call.answer(f"Недостаточно монет! Баланс: {c(bal)}", show_alert=True)
 
+    lock_game(uid, "bj", chat_id)
     await db.add_comets(uid, -bet, "bj_bet")
     if call.message.chat.type in {"group", "supergroup"}:
         try:
@@ -2409,6 +2516,7 @@ async def start_quick_blackjack(call: CallbackQuery, bet: int):
     if p_pts == 21:
         if d_pts == 21:
             _bj_games.pop(key, None)
+            unlock_game(uid)
             new_bal = await db.add_comets(uid, bet, "bj_refund")
             p_hand_str = _fmt_hand(player_hand, hide_second=False)
             d_hand_str = _fmt_hand(dealer_hand, hide_second=False)
@@ -2422,6 +2530,7 @@ async def start_quick_blackjack(call: CallbackQuery, bet: int):
             return await call.message.reply(text, reply_markup=make_game_replay_kb("bj", bet, uid))
         else:
             _bj_games.pop(key, None)
+            unlock_game(uid)
             payout = int(bet * 2.5)
             new_bal = await db.add_comets(uid, payout, "bj_natural_win")
             try:
@@ -2461,6 +2570,7 @@ async def cmd_blackjack(message: Message, args: str = "", **kw):
         return
     uid = message.from_user.id
     chat_id = message.chat.id
+    lock_game(uid, "bj", chat_id)
 
     # Списываем ставку
     await db.add_comets(uid, -bet, "bj_bet")
@@ -2494,6 +2604,7 @@ async def cmd_blackjack(message: Message, args: str = "", **kw):
     if p_pts == 21:
         if d_pts == 21:
             _bj_games.pop(key, None)
+            unlock_game(uid)
             new_bal = await db.add_comets(uid, bet, "bj_refund")
             p_hand_str = _fmt_hand(player_hand, hide_second=False)
             d_hand_str = _fmt_hand(dealer_hand, hide_second=False)
@@ -2507,6 +2618,7 @@ async def cmd_blackjack(message: Message, args: str = "", **kw):
             return await message.reply(text, reply_markup=make_game_replay_kb("bj", bet, uid))
         else:
             _bj_games.pop(key, None)
+            unlock_game(uid)
             payout = int(bet * 2.5)
             new_bal = await db.add_comets(uid, payout, "bj_natural_win")
             try:
@@ -2656,84 +2768,87 @@ def _horse_menu_kb(bet: int = 1000) -> InlineKeyboardMarkup:
 
 
 async def _run_race_animation(msg: Message, user_name: str, chosen_h: dict, bet: int, uid: int, chat_id: int):
-    # Кадр 1: Старт
-    f1 = (
-        f"🏇 <b>БОЛЬШИЕ СКАЧКИ НА ИППОДРОМЕ МОКСИ!</b> 🏇\n"
-        f"✦ ══ • ⊰ ⚡ 🛡 🪽 🌪 💨 ⊱ • ══ ✦\n"
-        f"👤 Жокей: <b>{html.escape(user_name)}</b>\n"
-        f"🎯 Ставка: <b>{c(bet)}</b> на <b>{chosen_h['name']} (x{chosen_h['odds']})</b>\n\n"
-        f"🚦 <i>Ворота распахнуты! Скакуны рванули вперед!</i>\n\n"
-        f"1. ⚡ Молния:    🟩🟩🟩🏇─────────────\n"
-        f"2. 🛡 Буцефал:   🟩🟩🏇───────────────\n"
-        f"3. 🪽 Пегас:     🟩🟩🟩🟩🏇───────────\n"
-        f"4. 🌪 Торнадо:   🟩🟩🏇───────────────\n"
-        f"5. 💨 Ветерок:   🟩🏇─────────────────\n"
-    )
     try:
-        await msg.edit_text(f1)
-    except Exception:
-        pass
-
-    await asyncio.sleep(1.2)
-
-    # Кадр 2: Борьба на вираже
-    f2 = (
-        f"🏇 <b>ФИНИШНАЯ ПРЯМАЯ!</b> 🔥\n"
-        f"✦ ══ • ⊰ ⚡ 🛡 🪽 🌪 💨 ⊱ • ══ ✦\n"
-        f"👤 Жокей: <b>{html.escape(user_name)}</b>\n"
-        f"🎯 Ставка: <b>{c(bet)}</b> на <b>{chosen_h['name']} (x{chosen_h['odds']})</b>\n\n"
-        f"🔥 <i>Трибуны ревут! Кони идут ноздря в ноздрю!</i>\n\n"
-        f"1. ⚡ Молния:    🟩🟩🟩🟩🟩🟩🟩🏇─────\n"
-        f"2. 🛡 Буцефал:   🟩🟩🟩🟩🟩🟩🏇───────\n"
-        f"3. 🪽 Пегас:     🟩🟩🟩🟩🟩🟩🟩🟩🏇───\n"
-        f"4. 🌪 Торнадо:   🟩🟩🟩🟩🟩🏇─────────\n"
-        f"5. 💨 Ветерок:   🟩🟩🟩🟩🟩🟩🟩🟩🟩🏇─\n"
-    )
-    try:
-        await msg.edit_text(f2)
-    except Exception:
-        pass
-
-    await asyncio.sleep(1.2)
-
-    # Определение победителя по весам
-    weights = [h["weight"] for h in HORSES]
-    winner = random.choices(HORSES, weights=weights, k=1)[0]
-    is_win = (winner["id"] == chosen_h["id"])
-
-    lvl, lvl_up = await db.add_game_xp(uid, 1, is_win=is_win)
-    lvl_tag = f"\n🚀 <i>Игровой уровень повышен до <b>{lvl} LVL</b>!</i>" if lvl_up else ""
-
-    kb = make_game_replay_kb("race", bet, uid, str(chosen_h["id"]))
-
-    if is_win:
-        win_amt = int(bet * winner["odds"])
-        profit = win_amt - bet
-        new_bal = await db.add_comets(uid, win_amt, "horse_win")
-        if profit >= 5000:
-            await record_big_win(chat_id, uid, user_name, f"🏇 Скачки ({winner['name']})", profit)
-
-        f3 = (
-            f"🏆 <b>ФИНИШ! ПОБЕДИТЕЛЬ: {winner['name']} (x{winner['odds']})!</b> 🏆\n"
-            f"✦ ══ • ⊰ 🥇 🏇 ✨ ⊱ • ══ ✦\n\n"
-            f"🎉 <b>ПОБЕДА! Ваш скакун пересёк черту первым!</b>\n"
-            f"💰 Выигрыш: <b>+{c(win_amt)}</b> <i>(чистая прибыль: +{c(profit)})</i>\n"
-            f"🪙 Ваш баланс: <b>{c(new_bal)}</b>{lvl_tag}"
+        # Кадр 1: Старт
+        f1 = (
+            f"🏇 <b>БОЛЬШИЕ СКАЧКИ НА ИППОДРОМЕ МОКСИ!</b> 🏇\n"
+            f"✦ ══ • ⊰ ⚡ 🛡 🪽 🌪 💨 ⊱ • ══ ✦\n\n"
+            f"👤 Жокей: <b>{html.escape(user_name)}</b>\n"
+            f"🎯 Ставка: <b>{c(bet)}</b> на <b>{chosen_h['name']} (x{chosen_h['odds']})</b>\n\n"
+            f"🚦 <i>Ворота распахнуты! Скакуны рванули вперед!</i>\n\n"
+            f"1. ⚡ Молния:    🟩🟩🟩🏇─────────────\n"
+            f"2. 🛡 Буцефал:   🟩🟩🏇───────────────\n"
+            f"3. 🪽 Пегас:     🟩🟩🟩🟩🏇───────────\n"
+            f"4. 🌪 Торнадо:   🟩🟩🏇───────────────\n"
+            f"5. 💨 Ветерок:   🟩🏇─────────────────\n"
         )
-    else:
-        bal = await db.get_comets(uid)
-        f3 = (
-            f"🏆 <b>ФИНИШ! ПОБЕДИТЕЛЬ: {winner['name']} (x{winner['odds']})!</b> 🏆\n"
-            f"✦ ══ • ⊰ 🏁 🏇 🥀 ⊱ • ══ ✦\n\n"
-            f"💔 <b>Увы, {chosen_h['name']} не пришёл первым...</b>\n"
-            f"Потери: <b>−{c(bet)}</b>\n"
-            f"🪙 Ваш баланс: <b>{c(bal)}</b>{lvl_tag}"
-        )
+        try:
+            await msg.edit_text(f1)
+        except Exception:
+            pass
 
-    try:
-        await msg.edit_text(f3, reply_markup=kb)
-    except Exception:
-        await msg.reply(f3, reply_markup=kb)
+        await asyncio.sleep(1.2)
+
+        # Кадр 2: Борьба на вираже
+        f2 = (
+            f"🏇 <b>ФИНИШНАЯ ПРЯМАЯ!</b> 🔥\n"
+            f"✦ ══ • ⊰ ⚡ 🛡 🪽 🌪 💨 ⊱ • ══ ✦\n\n"
+            f"👤 Жокей: <b>{html.escape(user_name)}</b>\n"
+            f"🎯 Ставка: <b>{c(bet)}</b> на <b>{chosen_h['name']} (x{chosen_h['odds']})</b>\n\n"
+            f"🔥 <i>Трибуны ревут! Кони идут ноздря в ноздрю!</i>\n\n"
+            f"1. ⚡ Молния:    🟩🟩🟩🟩🟩🟩🟩🏇─────\n"
+            f"2. 🛡 Буцефал:   🟩🟩🟩🟩🟩🟩🏇───────\n"
+            f"3. 🪽 Пегас:     🟩🟩🟩🟩🟩🟩🟩🟩🏇───\n"
+            f"4. 🌪 Торнадо:   🟩🟩🟩🟩🟩🏇─────────\n"
+            f"5. 💨 Ветерок:   🟩🟩🟩🟩🟩🟩🟩🟩🟩🏇─\n"
+        )
+        try:
+            await msg.edit_text(f2)
+        except Exception:
+            pass
+
+        await asyncio.sleep(1.2)
+
+        # Определение победителя по весам
+        weights = [h["weight"] for h in HORSES]
+        winner = random.choices(HORSES, weights=weights, k=1)[0]
+        is_win = (winner["id"] == chosen_h["id"])
+
+        lvl, lvl_up = await db.add_game_xp(uid, 1, is_win=is_win)
+        lvl_tag = f"\n🚀 <i>Игровой уровень повышен до <b>{lvl} LVL</b>!</i>" if lvl_up else ""
+
+        kb = make_game_replay_kb("race", bet, uid, str(chosen_h["id"]))
+
+        if is_win:
+            win_amt = int(bet * winner["odds"])
+            profit = win_amt - bet
+            new_bal = await db.add_comets(uid, win_amt, "horse_win")
+            if profit >= 5000:
+                await record_big_win(chat_id, uid, user_name, f"🏇 Скачки ({winner['name']})", profit)
+
+            f3 = (
+                f"🏆 <b>ФИНИШ! ПОБЕДИТЕЛЬ: {winner['name']} (x{winner['odds']})!</b> 🏆\n"
+                f"✦ ══ • ⊰ 🥇 🏇 ✨ ⊱ • ══ ✦\n\n"
+                f"🎉 <b>ПОБЕДА! Ваш скакун пересёк черту первым!</b>\n"
+                f"💰 Выигрыш: <b>+{c(win_amt)}</b> <i>(чистая прибыль: +{c(profit)})</i>\n"
+                f"🪙 Ваш баланс: <b>{c(new_bal)}</b>{lvl_tag}"
+            )
+        else:
+            bal = await db.get_comets(uid)
+            f3 = (
+                f"🏆 <b>ФИНИШ! ПОБЕДИТЕЛЬ: {winner['name']} (x{winner['odds']})!</b> 🏆\n"
+                f"✦ ══ • ⊰ 🏁 🏇 🥀 ⊱ • ══ ✦\n\n"
+                f"💔 <b>Увы, {chosen_h['name']} не пришёл первым...</b>\n"
+                f"Потери: <b>−{c(bet)}</b>\n"
+                f"🪙 Ваш баланс: <b>{c(bal)}</b>{lvl_tag}"
+            )
+
+        try:
+            await msg.edit_text(f3, reply_markup=kb)
+        except Exception:
+            await msg.reply(f3, reply_markup=kb)
+    finally:
+        unlock_game(uid)
 
 
 @router.message(Cmd("скачки", "ипподром", "лошади", "заезд", "кони", section=S,
@@ -2769,6 +2884,7 @@ async def cmd_horse_race(message: Message, args: str = "", **kw):
     if bet is None:
         return
 
+    lock_game(uid, "race", message.chat.id)
     await db.add_comets(uid, -bet, "horse_bet")
     init_msg = await message.reply(
         f"🏇 <b>Ставка принята!</b>\n"
@@ -2788,10 +2904,15 @@ async def cb_horse_pick(call: CallbackQuery):
     if not await topic_ok(call.message):
         return await call.answer("Казино отключено в этом чате или теме.", show_alert=True)
 
+    active = is_in_game(uid)
+    if active:
+        return await call.answer(f"⏳ Вы уже играете в {active}! Дождитесь завершения раунда.", show_alert=True)
+
     bal = await db.get_comets(uid)
     if bal < bet:
         return await call.answer(f"Недостаточно монет! Нужно {c(bet)}, у вас: {c(bal)}", show_alert=True)
 
+    lock_game(uid, "race", call.message.chat.id)
     chosen_h = next((h for h in HORSES if h["id"] == horse_id), HORSES[0])
     await db.add_comets(uid, -bet, "horse_bet")
     await call.answer(f"Ставка {c(bet)} на {chosen_h['name']}!")
@@ -2806,10 +2927,15 @@ async def cb_horse_pick(call: CallbackQuery):
 
 async def start_quick_race(call: CallbackQuery, bet: int, horse_idx: int):
     uid = call.from_user.id
+    active = is_in_game(uid)
+    if active:
+        return await call.answer(f"⏳ Вы уже играете в {active}! Дождитесь завершения раунда.", show_alert=True)
+
     bal = await db.get_comets(uid)
     if bal < bet:
         return await call.answer(f"Недостаточно монет! Нужно {c(bet)}, у вас: {c(bal)}", show_alert=True)
 
+    lock_game(uid, "race", call.message.chat.id)
     chosen_h = next((h for h in HORSES if h["id"] == horse_idx), HORSES[0])
     await db.add_comets(uid, -bet, "horse_bet")
     await call.answer(f"🏇 Скачки на {chosen_h['name']}!")

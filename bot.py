@@ -175,6 +175,12 @@ async def user_middleware(handler, event, data: dict):
                 record_chat_message(chat.id, user.first_name, event.text)
             except Exception:
                 pass
+            if isinstance(event, Message):
+                try:
+                    import core_modlog as modlog
+                    await modlog.remember(event)
+                except Exception:
+                    pass
         if await db.get_setting(chat.id, "silent") == "1":
             txt = (getattr(event, "text", "") or "").lower().lstrip("!./ ")
             if not txt.startswith(("включить чат", "проверка", "команды")):
@@ -273,6 +279,29 @@ from aiogram.client.session.middlewares.base import BaseRequestMiddleware
 from aiogram.methods import (TelegramMethod, SendMessage, SendPhoto,
                              SendAnimation, SendDocument, SendVideo, EditMessageText)
 
+
+class TopicClosedRetryMiddleware(BaseRequestMiddleware):
+    """Перехватывает ошибки закрытых/удалённых тем в форумах (TOPIC_CLOSED)."""
+    async def __call__(self, make_request, bot: Bot, method: TelegramMethod):
+        try:
+            return await make_request(bot, method)
+        except TelegramBadRequest as e:
+            err = str(e).lower()
+            if "topic_closed" in err or "topic_deleted" in err or "message thread not found" in err:
+                tid = getattr(method, "message_thread_id", None)
+                cid = getattr(method, "chat_id", None)
+                if tid is not None:
+                    log.warning("Тема #%s в чате %s закрыта/удалена — отправляю в основной чат", tid, cid)
+                    setattr(method, "message_thread_id", None)
+                    try:
+                        return await make_request(bot, method)
+                    except Exception as e2:
+                        log.debug("Повторная отправка в основной чат не удалась: %s", e2)
+                        return None
+                return None
+            raise
+
+
 AUTO_DELETE_FOOTER = "\n\n⏱ <i>Это сообщение автоматически удалится через 5 минут</i>"
 
 
@@ -296,6 +325,7 @@ async def main() -> None:
 
     bot = Bot(token=config.BOT_TOKEN,
               default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    bot.session.middleware(TopicClosedRetryMiddleware())
 
     # если база пустая (хостинг стёр диск) — тянем последнюю копию из Telegram
     try:

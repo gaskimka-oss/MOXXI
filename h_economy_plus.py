@@ -23,7 +23,7 @@ import db
 from core_ranks import effective_rank, require
 from core_registry import Cmd
 from core_resolve import human_period, resolve_target
-from utils import mention_id
+from utils import mention_id, parse_amount
 
 router = Router(name="economy_plus")
 
@@ -72,7 +72,7 @@ JOBS = {
     "инвестор": {
         "title": "🚀 Венчурный инвестор",
         "req_lvl": 35,
-        "min_pay": 15000,
+        "min_pay": 1500,
         "max_pay": 30000,
         "cooldown": 3600,  # 60 минут
         "desc": "Инвестиции в крупные стартапы и ценные бумаги.",
@@ -81,11 +81,15 @@ JOBS = {
 
 
 async def _get_user_lvl(uid: int) -> int:
-    row = await db.fetchone("SELECT xp FROM game_stats WHERE user_id=?", (uid,))
-    if not row:
-        return 1
-    xp = row["xp"]
-    return max(1, int(1 + (xp ** 0.5) / 10))
+    prof = await db.get_game_profile(uid)
+    game_lvl = int(prof.get("level", 1))
+
+    # Также учитываем глобальный опыт за активность/сообщения в чате (users.xp)
+    u = await db.get_user(uid)
+    chat_xp = int(u["xp"] or 0) if u else 0
+    chat_lvl, _, _ = db._calc_game_lvl(chat_xp)
+
+    return max(1, game_lvl, chat_lvl)
 
 
 @router.message(Cmd("работы", "список работ", "профессии", usage="работы",
@@ -134,6 +138,11 @@ async def cmd_apply_job(message: Message, bot: Bot, args: str = "", **kw):
         "ON CONFLICT(user_id) DO UPDATE SET job_key=excluded.job_key",
         (message.from_user.id, key)
     )
+    try:
+        import core_backup
+        core_backup.schedule_quick_backup(bot)
+    except Exception:
+        pass
     await message.reply(
         f"🎉 <b>ПОЗДРАВЛЯЕМ С ТРУДОУСТРОЙСТВОМ!</b>\n\n"
         f"Вы успешно устроились на должность: <b>{job['title']}</b>!\n"
@@ -147,12 +156,17 @@ async def cmd_apply_job(message: Message, bot: Bot, args: str = "", **kw):
                     desc="Отработать смену и получить зарплату"))
 async def cmd_work(message: Message, bot: Bot, **kw):
     my_job_row = await db.fetchone("SELECT * FROM user_jobs WHERE user_id=?", (message.from_user.id,))
+    first_time_employed = False
     if not my_job_row or not my_job_row["job_key"] or my_job_row["job_key"] not in JOBS:
-        return await message.reply(
-            "🚶 Вы сейчас нигде не работаете!\n"
-            "Посмотрите список вакансий: <code>работы</code>\n"
-            "И устройтесь командой: <code>устроиться уборщик</code>"
+        # Автоматически трудоустраиваем новичка на стартовую должность 'уборщик'
+        default_job = "уборщик"
+        await db.execute(
+            "INSERT INTO user_jobs (user_id, job_key, last_worked, total_earned) VALUES (?, ?, 0, 0) "
+            "ON CONFLICT(user_id) DO UPDATE SET job_key=excluded.job_key",
+            (message.from_user.id, default_job)
         )
+        my_job_row = {"job_key": default_job, "last_worked": 0, "total_earned": 0}
+        first_time_employed = True
 
     job_key = my_job_row["job_key"]
     job = JOBS[job_key]
@@ -172,6 +186,11 @@ async def cmd_work(message: Message, bot: Bot, **kw):
         "UPDATE user_jobs SET last_worked=?, total_earned=total_earned+? WHERE user_id=?",
         (now, salary, message.from_user.id)
     )
+    try:
+        import core_backup
+        core_backup.schedule_quick_backup(bot)
+    except Exception:
+        pass
 
     flavors = [
         "Смена прошла продуктивно!",
@@ -181,8 +200,9 @@ async def cmd_work(message: Message, bot: Bot, **kw):
     ]
     flavor = random.choice(flavors)
 
+    welcome_note = "💼 <i>Вы автоматически приняты на должность «Уборщик»! Для смены профессии напишите: <code>работы</code></i>\n\n" if first_time_employed else ""
     await message.reply(
-        f"💼 <b>СМЕНА ЗАВЕРШЕНА!</b>\n\n"
+        f"{welcome_note}💼 <b>СМЕНА ЗАВЕРШЕНА!</b>\n\n"
         f"🏢 Должность: <b>{job['title']}</b>\n"
         f"✨ <i>{flavor}</i>\n"
         f"💵 Получена зарплата: <b>+{salary:,} монет</b>!\n"
@@ -200,6 +220,11 @@ async def cmd_quit_job(message: Message, bot: Bot, **kw):
     old_key = my_job_row["job_key"]
     old_title = JOBS.get(old_key, {}).get("title", old_key)
     await db.execute("DELETE FROM user_jobs WHERE user_id=?", (message.from_user.id,))
+    try:
+        import core_backup
+        core_backup.schedule_quick_backup(bot)
+    except Exception:
+        pass
     await message.reply(
         f"📋 Вы успешно уволились с должности <b>{old_title}</b>!\n"
         f"Теперь вы можете выбрать новую работу: <code>работы</code>"

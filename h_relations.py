@@ -1616,7 +1616,7 @@ async def cmd_family_bank(message: Message, bot: Bot, args: str = "", **kw):
         )
 
     act = p[0].lower()
-    raw_amt = p[1] if len(p) > 1 else ""
+    raw_amt = " ".join(p[1:]) if len(p) > 1 else ""
 
     if act in ("положить", "внести", "депозит", "+"):
         u = await db.get_user(me_id)

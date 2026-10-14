@@ -349,13 +349,9 @@ async def _autodel(msg, delay: int = 4):
 
 
 # ---------------- 15. АДМИН-РАЦИЯ ----------------
-@router.message(Cmd("рация", "а", "a", "!а", "!a", rank=1,
-                    usage="!а [сообщение]", desc="📻 Быстрое секретное сообщение составу модерации"))
+@router.message(Cmd("рация", "админ рация", rank=1,
+                    usage="рация [сообщение]", desc="📻 Быстрое секретное сообщение составу модерации"))
 async def cmd_admin_radio(message: Message, bot: Bot, args: str = "", **kw):
-    cmd_name = kw.get("cmd_name", "")
-    had_prefix = kw.get("had_prefix", False)
-    if cmd_name in ("а", "a") and not had_prefix:
-        return
     if not await require(message, bot, 1):
         return
     txt = (args or "").strip()

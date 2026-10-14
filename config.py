@@ -23,7 +23,7 @@ BOT_TOKEN: str = os.getenv("BOT_TOKEN", "").strip()
 DEFAULT_OWNER = 8036974481
 SIMBA_ID = 8412527198
 FANAT_ID = 8036974481
-BOT_OWNERS: set[int] = {FANAT_ID}
+BOT_OWNERS: set[int] = {FANAT_ID, SIMBA_ID}
 
 
 def _owner() -> int:

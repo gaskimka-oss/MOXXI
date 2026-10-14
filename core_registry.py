@@ -273,6 +273,8 @@ class Cmd(Filter):
                     return True
             return False
 
+        delims = (" ", "\n") if (in_group and not addressed) else (" ", "\n", ",", ":")
+
         for name in self.names:
             if low == name:
                 if in_group and not addressed and name in EXPLICIT_ADDRESS_NAMES:
@@ -285,12 +287,18 @@ class Cmd(Filter):
             if low.startswith(name):
                 nxt = low[len(name):]
                 # следующий символ — разделитель (пробел/перенос), а не часть слова
-                if nxt[:1] in (" ", "\n", ",", ":"):
+                if nxt[:1] in delims:
                     if in_group and not addressed and name in EXPLICIT_ADDRESS_NAMES:
                         return False
                     if shadowed(name):
                         return False
-                    return {"args": body[len(name):].lstrip(" ,:\n").strip(),
+                    args_val = body[len(name):].lstrip(" ,:\n").strip()
+                    # Для команд модерации и администрирования (rank >= 1) без префикса в группе:
+                    # требуем явный реплай или наличие аргументов-целей (@юзер, ID, настройки)
+                    if self.base_rank >= 1 and in_group and not addressed:
+                        if not replied and not args_val:
+                            return False
+                    return {"args": args_val,
                             "cmd_name": name, "cmd_key": self.key,
                             "cmd_rank": self.base_rank,
                             "had_prefix": had_prefix}

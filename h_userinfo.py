@@ -1137,7 +1137,21 @@ async def cmd_nick_off(message: Message, bot: Bot, args: str = "", **kw):
 @router.message(Cmd("ник", "мой ник", "ники", section=S, usage="ник [@кого]",
                     desc="Посмотреть свой или чужой ник"))
 async def cmd_nick_show(message: Message, bot: Bot, args: str = "", **kw):
+    had_prefix = kw.get("had_prefix", False)
+    in_group = message.chat.type in {"group", "supergroup"}
     a = (args or "").strip()
+
+    if not had_prefix and in_group:
+        # Без префикса («!» или «/») отсекаем обычные разговорные фразы (например: «ник клана...»)
+        if a:
+            parts = a.split()
+            if len(parts) > 1 or (not parts[0].startswith("@") and not parts[0].isdigit() and parts[0].lower() not in {"инфо", "мой", "свой"}):
+                return
+        elif real_reply(message) is not None:
+            raw_text = (message.text or message.caption or "").strip()
+            if raw_text.lower() not in {"ник", "мой ник", "ники"}:
+                return
+
     me = message.from_user.id
     cid = message.chat.id
 
