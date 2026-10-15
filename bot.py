@@ -82,16 +82,32 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("moxxibot")
 
 
-async def keyboard_middleware(handler, event, data: dict):
-    """Нажатие кнопки нижнего меню = обычная команда.
+async def _delayed_delete_msg(msg: Message, delay: float = 2.0) -> None:
+    try:
+        await asyncio.sleep(delay)
+        await msg.delete()
+    except Exception:
+        pass
 
-    Кнопка присылает текст вида «🍬 Баланс» — подменяем его на «баланс»,
-    дальше сообщение идёт по обычному пути и его ловит нужный хэндлер.
+
+async def keyboard_middleware(handler, event, data: dict):
+    """Нажатие кнопки старого нижнего меню = скрытие клавиатуры + вызов команды.
+
+    Если у пользователя на клиенте (ПК/телефон) осталась старая reply-клавиатура:
+    1) Отправляем удаление клавиатуры ReplyKeyboardRemove.
+    2) Подменяем текст на команду, чтобы сработал нужный хэндлер.
     """
     text = getattr(event, "text", None)
     if text:
         cmd = kbd.resolve(text)
         if cmd:
+            chat = getattr(event, "chat", None)
+            if isinstance(event, Message) and chat and getattr(chat, "type", "") == "private":
+                try:
+                    rm = await event.answer("🧹 <i>Обновление интерфейса...</i>", reply_markup=kbd.hide())
+                    asyncio.create_task(_delayed_delete_msg(rm, 2.0))
+                except Exception:
+                    pass
             try:
                 copy = event.model_copy(update={"text": cmd})
                 bot = data.get("bot") or getattr(event, "bot", None)
@@ -346,7 +362,7 @@ async def main() -> None:
         log.warning("seed: %s", e)
 
     dp = Dispatcher()
-    dp.message.middleware(keyboard_middleware)
+    dp.message.outer_middleware(keyboard_middleware)
     dp.message.middleware(user_middleware)
     dp.callback_query.middleware(user_middleware)
 

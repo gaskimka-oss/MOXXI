@@ -115,36 +115,68 @@ ALIASES: dict[str, str] = {
     "описание": "описание",
 }
 
+LEGACY_BUTTONS: set[str] = {
+    BTN_ADMIN,
+    BTN_APP,
+    BTN_ADD,
+    BTN_HELP,
+    BTN_BALANCE,
+    BTN_BONUS,
+    BTN_VIP,
+    BTN_COINS,
+    BTN_MENU,
+    BTN_CHAT,
+    BTN_REVIEWS,
+    BTN_SUPPORT,
+    "📱 Mini App",
+    "mini app",
+    "➕ Добавить в группу",
+    "добавить в группу",
+    "💰 Мой баланс",
+    "🪙 Баланс",
+    "💰 Баланс",
+    "🎁 Бонус",
+    "💬 Чат сообщества",
+    "💬 Чат бота",
+    "📋 Меню бота",
+    "📋 Меню",
+    "⭐ Оставить отзыв",
+    "⭐ Отзывы",
+    "🆘 Написать в поддержку",
+    "🆘 Поддержка",
+    "🌟 Купить VIP",
+    "🌟 VIP",
+    "🪙 Купить монеты",
+}
+
+
+def is_legacy_button(text: str) -> bool:
+    """Проверяет, пришло ли сообщение от нажатия старой reply-кнопки."""
+    if not text:
+        return False
+    raw = text.strip()
+    return raw in LEGACY_BUTTONS or raw in ALIASES
+
 
 def resolve(text: str) -> str | None:
     """Текст нажатой кнопки -> команда. None, если это не кнопка."""
-    return ALIASES.get((text or "").strip())
+    if not text:
+        return None
+    raw = text.strip()
+    if raw in ALIASES:
+        return ALIASES[raw]
+    low = raw.lower()
+    for k, v in ALIASES.items():
+        if k.lower() == low:
+            return v
+    return None
 
 
-async def main_menu(uid: int = 0) -> ReplyKeyboardMarkup:
-    """Аккуратная постоянная клавиатура в стиле Iris."""
-    rows = [
-        [KeyboardButton(text=BTN_APP)],
-        [KeyboardButton(text=BTN_ADD), KeyboardButton(text=BTN_HELP)],
-        [KeyboardButton(text=BTN_BALANCE), KeyboardButton(text=BTN_BONUS)],
-        [KeyboardButton(text=BTN_VIP), KeyboardButton(text=BTN_COINS)],
-        [KeyboardButton(text=BTN_MENU), KeyboardButton(text=BTN_CHAT)],
-        [KeyboardButton(text=BTN_REVIEWS), KeyboardButton(text=BTN_SUPPORT)],
-    ]
-    if uid:
-        try:
-            from h_adminpanel import is_staff
-            if await is_staff(uid):
-                rows.insert(0, [KeyboardButton(text=BTN_ADMIN)])
-        except Exception:
-            pass
-    return ReplyKeyboardMarkup(
-        keyboard=rows,
-        resize_keyboard=True,
-        is_persistent=True,
-        input_field_placeholder="Выберите действие или напишите команду")
+async def main_menu(uid: int = 0) -> ReplyKeyboardRemove:
+    """Старая нижняя reply-панель полностью вырезана. Всегда возвращает скрытие."""
+    return ReplyKeyboardRemove(remove_keyboard=True)
 
 
 def hide() -> ReplyKeyboardRemove:
-    """Убрать клавиатуру — на время капчи."""
-    return ReplyKeyboardRemove()
+    """Убрать клавиатуру из интерфейса пользователя."""
+    return ReplyKeyboardRemove(remove_keyboard=True)

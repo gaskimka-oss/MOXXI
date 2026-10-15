@@ -1,6 +1,7 @@
 """Старт в личке: капча -> Роскошное Главное Меню VIP Moxxi с разделами игр, экономики и рейдов."""
 from __future__ import annotations
 
+import asyncio
 import html
 import random
 import time
@@ -68,14 +69,17 @@ async def cb_captcha(call: CallbackQuery, bot: Bot):
     await db.execute("UPDATE users SET verified=1 WHERE user_id=?", (call.from_user.id,))
     u = await db.get_user(call.from_user.id)
     me = await bot.me()
-    try:
-        await bot.send_message(call.from_user.id, "✨ <i>Панель управления активирована внизу:</i>",
-                               reply_markup=await kb.main_menu(call.from_user.id))
-    except Exception:
-        pass
     await call.message.edit_text(await main_text(call.from_user.first_name, u),
                                  reply_markup=await main_kb(call.from_user.id, me.username))
     await call.answer("✅ Проверка пройдена!")
+
+
+async def _delayed_delete(msg: Message, delay: float = 1.5) -> None:
+    try:
+        await asyncio.sleep(delay)
+        await msg.delete()
+    except Exception:
+        pass
 
 
 # --- Главное меню ---------------------------------------------------------
@@ -160,8 +164,8 @@ async def cmd_start(message: Message, bot: Bot):
         return await send_captcha(message)
     me = await bot.me()
     try:
-        await message.answer("✨ <i>Панель управления активирована внизу:</i>",
-                             reply_markup=await kb.main_menu(message.from_user.id))
+        rm = await message.answer("🧹 <i>Обновление интерфейса...</i>", reply_markup=kb.hide())
+        asyncio.create_task(_delayed_delete(rm, 1.5))
     except Exception:
         pass
     await message.answer(await main_text(message.from_user.first_name, u),
@@ -175,8 +179,8 @@ async def cmd_menu(message: Message, bot: Bot, **kw):
         return await send_captcha(message)
     me = await bot.me()
     try:
-        await message.answer("✨ <i>Панель управления:</i>",
-                             reply_markup=await kb.main_menu(message.from_user.id))
+        rm = await message.answer("🧹 <i>Обновление интерфейса...</i>", reply_markup=kb.hide())
+        asyncio.create_task(_delayed_delete(rm, 1.5))
     except Exception:
         pass
     await message.answer(await main_text(message.from_user.first_name, u),
