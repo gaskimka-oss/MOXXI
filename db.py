@@ -2053,8 +2053,17 @@ async def answer_support_ticket(ticket_id: int, answer_text: str, answered_by: i
     now = int(time.time())
     ai_flag = 1 if is_ai else 0
     await execute(
-        "UPDATE support_tickets SET status='answered', answer_text=?, answered_by=?, answered_name=?, answered_at=?, ai_answered=? WHERE id=?",
+        "UPDATE support_tickets SET status='closed', answer_text=?, answered_by=?, answered_name=?, answered_at=?, ai_answered=? WHERE id=?",
         (answer_text, answered_by, answered_name, now, ai_flag, ticket_id)
+    )
+    return True
+
+
+async def close_support_ticket(ticket_id: int, closed_by: int = 0, closed_name: str = "Администрация") -> bool:
+    now = int(time.time())
+    await execute(
+        "UPDATE support_tickets SET status='closed', answered_by=?, answered_name=?, answered_at=? WHERE id=?",
+        (closed_by, closed_name, now, ticket_id)
     )
     return True
 

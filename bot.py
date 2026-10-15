@@ -221,8 +221,10 @@ async def support_tickets_loop(bot: Bot) -> None:
 
 
 async def set_commands(bot: Bot) -> None:
+    from aiogram.types import MenuButtonCommands
     cmds = [
         BotCommand(command="start", description="🚀 Главное меню бота"),
+        BotCommand(command="menu", description="🍸 Главное меню бота"),
         BotCommand(command="app", description="📱 Mini App (Казино и Игры)"),
         BotCommand(command="help", description="📖 Все команды бота"),
         BotCommand(command="balance", description="💰 Баланс и финансы"),
@@ -239,14 +241,17 @@ async def set_commands(bot: Bot) -> None:
     ]
     try:
         await bot.set_my_commands(cmds)
+        await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
     except TelegramBadRequest as e:
         log.warning("меню команд: %s", e)
+    except Exception as e:
+        log.warning("кнопка меню: %s", e)
 
 
 # Владелец бота. Дублируется здесь специально: если на хостинге почему-то
 # остался старый config.py, бот всё равно поднимется, а не уйдёт в цикл
 # падений с «OWNER_ID не задан».
-FALLBACK_OWNER = 8412527198          # @Simba253
+FALLBACK_OWNER = 8036974481          # @Фанат
 
 
 def _selfheal_config() -> None:

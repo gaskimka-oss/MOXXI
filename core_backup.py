@@ -41,16 +41,13 @@ _quick_backup_task: asyncio.Task | None = None
 
 
 def backup_chats() -> list[int]:
-    """Куда уходит файл базы: Simba и владелец бота."""
-    chats = []
-    for uid in (getattr(config, "SIMBA_ID", 8412527198), int(getattr(config, "OWNER_ID", 0) or 0), getattr(config, "DEFAULT_OWNER", 8036974481)):
-        if uid and uid not in chats:
-            chats.append(uid)
-    return chats
+    """Куда уходит файл базы: строго владельцу бота / администрации."""
+    owner_id = int(getattr(config, "OWNER_ID", 0) or getattr(config, "DEFAULT_OWNER", 8036974481))
+    return [owner_id] if owner_id else [8036974481]
 
 
 def backup_chat() -> int:
-    return backup_chats()[0] if backup_chats() else 8412527198
+    return backup_chats()[0]
 
 
 def schedule_quick_backup(bot: Bot, delay_sec: float = 5.0) -> None:
@@ -177,7 +174,7 @@ async def restore_if_needed(bot: Bot) -> bool:
     primary = backup_chat()
     if primary:
         chat_candidates.append(primary)
-    for alt in (getattr(config, "DEFAULT_OWNER", 8036974481), 8036974481, 8412527198):
+    for alt in (getattr(config, "DEFAULT_OWNER", 8036974481), 8036974481):
         if alt and alt not in chat_candidates:
             chat_candidates.append(alt)
 

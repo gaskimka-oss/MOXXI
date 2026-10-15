@@ -324,10 +324,40 @@ async def cmd_community_chat(message: Message, bot: Bot, **kw):
 
 
 # ═══════════════════════════════════════════════════════════════
-# 4. 🆘 СИСТЕМА ТЕХПОДДЕРЖКИ С ИИ-АВТООТВЕТОМ ЧЕРЕЗ 6 ЧАСОВ
+# 4. 🆘 СИСТЕМА ТЕХПОДДЕРЖКИ С АНОНИМНЫМИ ОТВЕТАМИ И АВТООТВЕТАМИ
 # ═══════════════════════════════════════════════════════════════
 
-@router.message(Cmd("поддержка", "тикет", "саппорт", "техподдержка", "хелп админ", "помощь админа",
+AUTO_ANSWERS = {
+    1: ("✅ Принято в работу", "Здравствуйте! Ваше обращение принято администрацией. Проблема уже в процессе решения, скоро всё перепроверим. Спасибо за обращение!"),
+    2: ("💰 Монеты / Баланс", "Здравствуйте! Проверили транзакцию по вашему балансу. Начисление перепроверено и скорректировано. Приятной игры в Moxxi!"),
+    3: ("🛠 Ошибка / Баг", "Спасибо за информацию о баге! Данные переданы разработчикам, ошибка будет устранена в ближайшем обновлении."),
+    4: ("⛔️ Отказ по правилам", "Здравствуйте! Ваше обращение рассмотрено. В удовлетворении запроса отказано в соответствии с правилами сообщества."),
+    5: ("🔓 Снятие наказания", "Здравствуйте! Ситуация пересмотрена администрацией. Ограничения сняты. Пожалуйста, соблюдайте правила бота!"),
+}
+
+
+def ticket_admin_kb(ticket_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="⚡️ Быстрый автоответ", callback_data=f"supp_autokb:{ticket_id}"),
+            InlineKeyboardButton(text="🔒 Закрыть тикет", callback_data=f"supp_close:{ticket_id}")
+        ]
+    ])
+
+
+def _auto_answer_templates_kb(ticket_id: int) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text="1. ✅ Принято в работу", callback_data=f"supp_sendauto:{ticket_id}:1")],
+        [InlineKeyboardButton(text="2. 💰 Монеты / Баланс", callback_data=f"supp_sendauto:{ticket_id}:2")],
+        [InlineKeyboardButton(text="3. 🛠 Ошибка / Баг", callback_data=f"supp_sendauto:{ticket_id}:3")],
+        [InlineKeyboardButton(text="4. ⛔️ Отказ по правилам", callback_data=f"supp_sendauto:{ticket_id}:4")],
+        [InlineKeyboardButton(text="5. 🔓 Снятие наказания", callback_data=f"supp_sendauto:{ticket_id}:5")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"supp_back:{ticket_id}")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@router.message(Cmd("поддержка", "тикет", "саппорт", "техподдержка", "support", "ticket", "хелп админ", "помощь админа",
                     section=S_COMMUNITY, usage="поддержка [вопрос]",
                     desc="Обратиться в службу техподдержки с вопросом или проблемой"))
 async def cmd_support(message: Message, bot: Bot, args: str = "", **kw):
@@ -362,53 +392,46 @@ async def cmd_support(message: Message, bot: Bot, args: str = "", **kw):
         f"📨 <b>Ваш запрос в техподдержку принят! (Тикет #{ticket_id})</b>\n\n"
         f"📝 <b>Причина / Проблема:</b> «<i>{html.escape(txt)}</i>»\n\n"
         f"⏳ <b>Установлен кулдаун: 30 минут</b> на повторные обращения.\n"
-        f"👨‍💻 Администрация уже получила уведомление и скоро вам ответит.\n"
+        f"👨‍💻 Администрация рассмотрит ваш вопрос и пришлёт ответ прямо сюда в личные сообщения.\n"
         f"🤖 <i>Резервный ИИ-помощник подключится, если ответ задержится более чем на 6 часов.</i>"
     )
 
-    # Отправляем уведомление владельцам / персоналу / в привязанную группу поддержки
+    # Уведомляем Администрацию бота (строго владельца / админов, без посторонних)
     admin_notify = (
         f"🆘 🔔 <b>НОВЫЙ ТИКЕТ В ТЕХПОДДЕРЖКУ #{ticket_id}</b>\n"
         f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
         f"👤 <b>От:</b> {mention_id(uid, name)} (<code>{uid}</code>)\n"
         f"📝 <b>Причина / Вопрос:</b>\n«{html.escape(txt)}»\n\n"
-        f"💡 <b>Чтобы ответить пользователю:</b>\n"
-        f"<code>+ответ {ticket_id} [текст вашего ответа]</code>"
+        f"💡 <b>Команды для ответа:</b>\n"
+        f"• Свой ответ: <code>+ответ {ticket_id} [текст вашего ответа]</code>\n"
+        f"• Быстрый шаблон: <code>автоответ тикет {ticket_id} [1-5]</code>\n"
+        f"• Закрыть тикет: <code>закрыть тикет {ticket_id}</code>"
     )
-    for oid in config.BOT_OWNERS:
-        try:
-            await bot.send_message(oid, admin_notify)
-        except Exception:
-            pass
-
-    try:
-        staff_list = await db.get_all_bot_staff()
-        for s in staff_list:
-            if not config.is_bot_owner(s["user_id"]) and s["rank"] >= 1:
-                try:
-                    await bot.send_message(s["user_id"], admin_notify)
-                except Exception:
-                    pass
-    except Exception:
-        pass
-
+    recipients = {config.OWNER_ID}
     supp_chat = await db.get_global_setting("global_support_chat", "")
     if supp_chat:
         try:
             target_cid = int(supp_chat) if (supp_chat.startswith("-") or supp_chat.isdigit()) else supp_chat
-            await bot.send_message(target_cid, admin_notify)
+            recipients.add(target_cid)
+        except Exception:
+            pass
+
+    for rid in recipients:
+        try:
+            await bot.send_message(rid, admin_notify, reply_markup=ticket_admin_kb(ticket_id))
         except Exception:
             pass
 
 
-@router.message(Cmd("+ответ", "ответить тикет", "ответ на тикет",
+@router.message(Cmd("+ответ", "ответить тикет", "ответ на тикет", "ответить",
                     section=S_COMMUNITY, rank=0, group_only=False,
                     usage="+ответ [id_тикета] [текст ответа]", desc="Ответить пользователю на тикет в техподдержку"))
 async def cmd_answer_ticket(message: Message, bot: Bot, args: str = "", **kw):
-    staff_rank = await db.get_bot_staff_rank(message.from_user.id)
-    is_admin = bool(message.from_user and (message.from_user.id == config.OWNER_ID or message.from_user.id in config.ADMINS or message.from_user.id in (8412527198, 8297844640, 6592023977)))
-    if staff_rank < 1 and not is_admin:
-        return await message.reply("🔒 Доступно только персоналу техподдержки бота (Хелпер и выше).")
+    sender_id = message.from_user.id if message.from_user else 0
+    staff_rank = await db.get_bot_staff_rank(sender_id)
+    is_admin = config.is_bot_owner(sender_id) or (sender_id in config.ADMINS) or (staff_rank >= 1)
+    if not is_admin:
+        return await message.reply("⛔️ Отвечать на тикеты и закрывать их может <b>ТОЛЬКО официальная администрация бота</b>!")
 
     parts = (args or "").strip().split(maxsplit=1)
     if len(parts) < 2 or not parts[0].isdigit():
@@ -421,23 +444,226 @@ async def cmd_answer_ticket(message: Message, bot: Bot, args: str = "", **kw):
     if not ticket:
         return await message.reply("❌ Тикет не найден.")
 
-    admin_name = message.from_user.first_name or "Администратор"
-    await db.answer_support_ticket(ticket_id, answer_text, answered_by=message.from_user.id, answered_name=admin_name, is_ai=False)
+    if ticket.get("status") == "closed":
+        return await message.reply(f"⚠️ Тикет #{ticket_id} уже закрыт!")
 
-    # Отправляем ответ пользователю в личку
+    await db.answer_support_ticket(ticket_id, answer_text, answered_by=sender_id, answered_name="Администрация", is_ai=False)
+
+    # Отправляем ответ пользователю в личку: СТРОГО АНОНИМНО, БЕЗ ИМЕНИ АДМИНИСТРАТОРА!
     user_notify = (
-        f"🆘 ✨ <b>ОТВЕТ СЛУЖБЫ ТЕХПОДДЕРЖКИ (Тикет #{ticket_id})</b> ✨ 🆘\n"
+        f"📩 🔔 <b>ВЫ ПОЛУЧИЛИ ОТВЕТ ОТ ТЕХПОДДЕРЖКИ! (Тикет #{ticket_id})</b>\n"
         f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-        f"👨‍💻 <b>Администратор {html.escape(admin_name)} ответил на ваш вопрос:</b>\n\n"
-        f"«<i>{html.escape(answer_text)}</i>»\n\n"
-        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-        f"❤️ <i>Спасибо за обращение! Если у вас появятся новые вопросы, напишите <code>поддержка [вопрос]</code>.</i>"
+        f"📝 <b>Ваше обращение:</b>\n"
+        f"«<i>{html.escape(ticket['text'])}</i>»\n\n"
+        f"👨‍💻 <b>ОТВЕТ АДМИНИСТРАЦИИ:</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"{html.escape(answer_text)}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🔒 <i>Тикет закрыт администрацией. Если потребуется дополнительная помощь, вы можете подать новое обращение: <code>поддержка [вопрос]</code>.</i>"
     )
     try:
         await bot.send_message(ticket["user_id"], user_notify)
-        await message.reply(f"✅ <b>Ответ успешно доставлен пользователю в тикет #{ticket_id}!</b>")
+        await message.reply(f"✅ <b>Ответ успешно доставлен пользователю в тикет #{ticket_id}, тикет закрыт!</b>")
     except Exception as e:
         await message.reply(f"⚠️ Тикет закрыт в базе, но не удалось отправить ЛС пользователю (возможно, бот заблокирован): {e}")
+
+
+@router.message(Cmd("закрыть тикет", "закрытьтикет", "+закрыть тикет", "+закрыть", "тикет закрыть",
+                    section=S_COMMUNITY, rank=0, group_only=False,
+                    usage="закрыть тикет [id] [причина]", desc="Закрыть тикет в техподдержке"))
+async def cmd_close_ticket(message: Message, bot: Bot, args: str = "", **kw):
+    sender_id = message.from_user.id if message.from_user else 0
+    staff_rank = await db.get_bot_staff_rank(sender_id)
+    is_admin = config.is_bot_owner(sender_id) or (sender_id in config.ADMINS) or (staff_rank >= 1)
+    if not is_admin:
+        return await message.reply("⛔️ Закрывать тикеты может <b>ТОЛЬКО официальная администрация бота</b>!")
+
+    parts = (args or "").strip().split(maxsplit=1)
+    if not parts or not parts[0].isdigit():
+        return await message.reply("Формат: <code>закрыть тикет [id] [причина (опционально)]</code>")
+
+    ticket_id = int(parts[0])
+    reason = parts[1].strip() if len(parts) > 1 else ""
+
+    ticket = await db.get_support_ticket(ticket_id)
+    if not ticket:
+        return await message.reply("❌ Тикет не найден.")
+
+    if ticket.get("status") == "closed":
+        return await message.reply(f"⚠️ Тикет #{ticket_id} уже закрыт!")
+
+    await db.close_support_ticket(ticket_id, closed_by=sender_id, closed_name="Администрация")
+
+    user_notify = (
+        f"🔒 <b>Ваше обращение (Тикет #{ticket_id}) закрыто администрацией!</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"📝 <b>Тема обращения:</b> «<i>{html.escape(ticket['text'])}</i>»\n"
+        + (f"📌 <b>Причина закрытия:</b> <i>{html.escape(reason)}</i>\n\n" if reason else "\n")
+        + "<i>Если у вас возникнет новый вопрос, вы можете создать новое обращение: <code>поддержка [вопрос]</code>.</i>"
+    )
+    try:
+        await bot.send_message(ticket["user_id"], user_notify)
+    except Exception:
+        pass
+
+    await message.reply(f"✅ <b>Тикет #{ticket_id} успешно закрыт!</b>" + (f" Причина: {html.escape(reason)}" if reason else ""))
+
+
+@router.message(Cmd("автоответ тикет", "автоответтикет", "автоответ", "+автоответ",
+                    section=S_COMMUNITY, rank=0, group_only=False,
+                    usage="автоответ тикет [id] [1-5]", desc="Отправить готовый автоответ в тикет"))
+async def cmd_auto_answer_ticket(message: Message, bot: Bot, args: str = "", **kw):
+    sender_id = message.from_user.id if message.from_user else 0
+    staff_rank = await db.get_bot_staff_rank(sender_id)
+    is_admin = config.is_bot_owner(sender_id) or (sender_id in config.ADMINS) or (staff_rank >= 1)
+    if not is_admin:
+        return await message.reply("⛔️ Отправлять автоответы может <b>ТОЛЬКО официальная администрация бота</b>!")
+
+    parts = (args or "").strip().split()
+    if not parts or not parts[0].isdigit():
+        return await message.reply(
+            "Формат: <code>автоответ тикет [id] [номер 1-5]</code>\n\n"
+            "<b>Шаблоны:</b>\n"
+            "1. Принято в работу (по умолчанию)\n"
+            "2. Монеты / Баланс скорректирован\n"
+            "3. Ошибка / Баг передан разработчикам\n"
+            "4. Отказ в удовлетворении по правилам\n"
+            "5. Наказание / Ограничения сняты"
+        )
+
+    ticket_id = int(parts[0])
+    tpl_idx = int(parts[1]) if (len(parts) > 1 and parts[1].isdigit()) else 1
+    tpl_title, answer_text = AUTO_ANSWERS.get(tpl_idx, AUTO_ANSWERS[1])
+
+    ticket = await db.get_support_ticket(ticket_id)
+    if not ticket:
+        return await message.reply("❌ Тикет не найден.")
+
+    if ticket.get("status") == "closed":
+        return await message.reply(f"⚠️ Тикет #{ticket_id} уже закрыт!")
+
+    await db.answer_support_ticket(ticket_id, answer_text, answered_by=sender_id, answered_name="Администрация", is_ai=False)
+
+    user_notify = (
+        f"📩 🔔 <b>ВЫ ПОЛУЧИЛИ ОТВЕТ ОТ ТЕХПОДДЕРЖКИ! (Тикет #{ticket_id})</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"📝 <b>Ваше обращение:</b>\n"
+        f"«<i>{html.escape(ticket['text'])}</i>»\n\n"
+        f"👨‍💻 <b>ОТВЕТ АДМИНИСТРАЦИИ:</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"{html.escape(answer_text)}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🔒 <i>Тикет закрыт администрацией. Если потребуется дополнительная помощь, вы можете подать новое обращение: <code>поддержка [вопрос]</code>.</i>"
+    )
+    try:
+        await bot.send_message(ticket["user_id"], user_notify)
+        await message.reply(f"✅ <b>Тикет #{ticket_id} успешно закрыт автоответом:</b> «{tpl_title}»")
+    except Exception as e:
+        await message.reply(f"⚠️ Тикет закрыт в базе, но не удалось отправить ЛС пользователю: {e}")
+
+
+# --- Интерактивные callback-кнопки под тикетом ---
+@router.callback_query(F.data.startswith("supp_autokb:"))
+async def cb_supp_autokb(cq: CallbackQuery):
+    sender_id = cq.from_user.id if cq.from_user else 0
+    staff_rank = await db.get_bot_staff_rank(sender_id)
+    if not (config.is_bot_owner(sender_id) or sender_id in config.ADMINS or staff_rank >= 1):
+        return await cq.answer("⛔️ Доступно только администрации!", show_alert=True)
+    ticket_id = int(cq.data.split(":", 1)[1])
+    await cq.message.edit_reply_markup(reply_markup=_auto_answer_templates_kb(ticket_id))
+    await cq.answer()
+
+
+@router.callback_query(F.data.startswith("supp_back:"))
+async def cb_supp_back(cq: CallbackQuery):
+    ticket_id = int(cq.data.split(":", 1)[1])
+    await cq.message.edit_reply_markup(reply_markup=ticket_admin_kb(ticket_id))
+    await cq.answer()
+
+
+@router.callback_query(F.data.startswith("supp_sendauto:"))
+async def cb_supp_sendauto(cq: CallbackQuery, bot: Bot):
+    sender_id = cq.from_user.id if cq.from_user else 0
+    staff_rank = await db.get_bot_staff_rank(sender_id)
+    if not (config.is_bot_owner(sender_id) or sender_id in config.ADMINS or staff_rank >= 1):
+        return await cq.answer("⛔️ Доступно только администрации!", show_alert=True)
+
+    parts = cq.data.split(":")
+    ticket_id = int(parts[1])
+    tpl_idx = int(parts[2])
+    tpl_title, answer_text = AUTO_ANSWERS.get(tpl_idx, AUTO_ANSWERS[1])
+
+    ticket = await db.get_support_ticket(ticket_id)
+    if not ticket:
+        return await cq.answer("❌ Тикет не найден!", show_alert=True)
+
+    if ticket.get("status") == "closed":
+        return await cq.answer("⚠️ Тикет уже закрыт!", show_alert=True)
+
+    await db.answer_support_ticket(ticket_id, answer_text, answered_by=sender_id, answered_name="Администрация", is_ai=False)
+
+    user_notify = (
+        f"📩 🔔 <b>ВЫ ПОЛУЧИЛИ ОТВЕТ ОТ ТЕХПОДДЕРЖКИ! (Тикет #{ticket_id})</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"📝 <b>Ваше обращение:</b>\n"
+        f"«<i>{html.escape(ticket['text'])}</i>»\n\n"
+        f"👨‍💻 <b>ОТВЕТ АДМИНИСТРАЦИИ:</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"{html.escape(answer_text)}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🔒 <i>Тикет закрыт администрацией. Если потребуется дополнительная помощь, вы можете подать новое обращение: <code>поддержка [вопрос]</code>.</i>"
+    )
+    try:
+        await bot.send_message(ticket["user_id"], user_notify)
+    except Exception:
+        pass
+
+    try:
+        await cq.message.edit_text(
+            cq.message.html_text + f"\n\n✅ <b>Тикет закрыт автоответом:</b> «{tpl_title}»",
+            reply_markup=None
+        )
+    except Exception:
+        pass
+    await cq.answer("✅ Автоответ отправлен, тикет закрыт!")
+
+
+@router.callback_query(F.data.startswith("supp_close:"))
+async def cb_supp_close(cq: CallbackQuery, bot: Bot):
+    sender_id = cq.from_user.id if cq.from_user else 0
+    staff_rank = await db.get_bot_staff_rank(sender_id)
+    if not (config.is_bot_owner(sender_id) or sender_id in config.ADMINS or staff_rank >= 1):
+        return await cq.answer("⛔️ Доступно только администрации!", show_alert=True)
+
+    ticket_id = int(cq.data.split(":", 1)[1])
+    ticket = await db.get_support_ticket(ticket_id)
+    if not ticket:
+        return await cq.answer("❌ Тикет не найден!", show_alert=True)
+
+    if ticket.get("status") == "closed":
+        return await cq.answer("⚠️ Тикет уже закрыт!", show_alert=True)
+
+    await db.close_support_ticket(ticket_id, closed_by=sender_id, closed_name="Администрация")
+
+    user_notify = (
+        f"🔒 <b>Ваше обращение (Тикет #{ticket_id}) закрыто администрацией!</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"📝 <b>Тема обращения:</b> «<i>{html.escape(ticket['text'])}</i>»\n\n"
+        f"<i>Если у вас возникнет новый вопрос, вы можете создать новое обращение: <code>поддержка [вопрос]</code>.</i>"
+    )
+    try:
+        await bot.send_message(ticket["user_id"], user_notify)
+    except Exception:
+        pass
+
+    try:
+        await cq.message.edit_text(
+            cq.message.html_text + "\n\n🔒 <b>Тикет закрыт администратором.</b>",
+            reply_markup=None
+        )
+    except Exception:
+        pass
+    await cq.answer("🔒 Тикет закрыт!")
 
 
 # ═══════════════════════════════════════════════════════════════

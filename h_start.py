@@ -68,6 +68,11 @@ async def cb_captcha(call: CallbackQuery, bot: Bot):
     await db.execute("UPDATE users SET verified=1 WHERE user_id=?", (call.from_user.id,))
     u = await db.get_user(call.from_user.id)
     me = await bot.me()
+    try:
+        await bot.send_message(call.from_user.id, "✨ <i>Панель управления активирована внизу:</i>",
+                               reply_markup=await kb.main_menu(call.from_user.id))
+    except Exception:
+        pass
     await call.message.edit_text(await main_text(call.from_user.first_name, u),
                                  reply_markup=await main_kb(call.from_user.id, me.username))
     await call.answer("✅ Проверка пройдена!")
@@ -154,6 +159,11 @@ async def cmd_start(message: Message, bot: Bot):
     if not u["verified"]:
         return await send_captcha(message)
     me = await bot.me()
+    try:
+        await message.answer("✨ <i>Панель управления активирована внизу:</i>",
+                             reply_markup=await kb.main_menu(message.from_user.id))
+    except Exception:
+        pass
     await message.answer(await main_text(message.from_user.first_name, u),
                          reply_markup=await main_kb(message.from_user.id, me.username))
 
@@ -164,6 +174,11 @@ async def cmd_menu(message: Message, bot: Bot, **kw):
     if not u["verified"]:
         return await send_captcha(message)
     me = await bot.me()
+    try:
+        await message.answer("✨ <i>Панель управления:</i>",
+                             reply_markup=await kb.main_menu(message.from_user.id))
+    except Exception:
+        pass
     await message.answer(await main_text(message.from_user.first_name, u),
                          reply_markup=await main_kb(message.from_user.id, me.username))
 
@@ -553,7 +568,29 @@ async def cb_supp_cancel(call: CallbackQuery, bot: Bot):
     await call.answer("Обращение отменено")
 
 
-@router.message(F.text, lambda m: m.from_user and m.from_user.id in _pending_support_ticket)
+def _is_pending_support(m: Message) -> bool:
+    if not m.from_user or m.from_user.id not in _pending_support_ticket:
+        return False
+    # Авто-сброс ожидания через 5 минут
+    if time.time() - _pending_support_ticket.get(m.from_user.id, 0) > 300:
+        _pending_support_ticket.pop(m.from_user.id, None)
+        return False
+    txt = (m.text or "").strip()
+    if not txt:
+        return False
+    # Если сообщение начинается со знака команды (+, /, !, .) — НЕ перехватывать как тикет!
+    if txt.startswith(("+", "/", "!", ".")):
+        _pending_support_ticket.pop(m.from_user.id, None)
+        return False
+    # Игнорируем навигационные команды
+    low = txt.lower()
+    if low in ("отмена", "отменить", "меню", "menu", "старт", "start", "помощь", "команды", "баланс", "профиль"):
+        _pending_support_ticket.pop(m.from_user.id, None)
+        return False
+    return True
+
+
+@router.message(F.text, _is_pending_support)
 async def msg_receive_support_ticket(message: Message, bot: Bot):
     uid = message.from_user.id
     from utils import hms
@@ -590,31 +627,32 @@ async def msg_receive_support_ticket(message: Message, bot: Bot):
         ]])
     )
 
-    # Уведомляем Владельцев и персонал бота
+    # Уведомляем Администрацию бота (строго владельца / админов, без посторонних)
+    from h_community_support import ticket_admin_kb
     admin_notify = (
         f"🆘 🔔 <b>НОВЫЙ ТИКЕТ В ТЕХПОДДЕРЖКУ #{ticket_id}</b>\n"
         f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
         f"👤 <b>От:</b> {mention_id(uid, name)} (<code>{uid}</code>)\n"
         f"📝 <b>Причина / Проблема:</b>\n«{html.escape(txt)}»\n\n"
-        f"💡 <b>Чтобы ответить пользователю:</b>\n"
-        f"<code>+ответ {ticket_id} [текст вашего ответа]</code>"
+        f"💡 <b>Команды для ответа:</b>\n"
+        f"• Свой ответ: <code>+ответ {ticket_id} [текст вашего ответа]</code>\n"
+        f"• Быстрый шаблон: <code>автоответ тикет {ticket_id} [1-5]</code>\n"
+        f"• Закрыть тикет: <code>закрыть тикет {ticket_id}</code>"
     )
-    for oid in config.BOT_OWNERS:
+    recipients = {config.OWNER_ID}
+    supp_chat = await db.get_global_setting("global_support_chat", "")
+    if supp_chat:
         try:
-            await bot.send_message(oid, admin_notify)
+            target_cid = int(supp_chat) if (supp_chat.startswith("-") or supp_chat.isdigit()) else supp_chat
+            recipients.add(target_cid)
         except Exception:
             pass
 
-    try:
-        staff_list = await db.get_all_bot_staff()
-        for s in staff_list:
-            if not config.is_bot_owner(s["user_id"]) and s["rank"] >= 1:
-                try:
-                    await bot.send_message(s["user_id"], admin_notify)
-                except Exception:
-                    pass
-    except Exception:
-        pass
+    for rid in recipients:
+        try:
+            await bot.send_message(rid, admin_notify, reply_markup=ticket_admin_kb(ticket_id))
+        except Exception:
+            pass
 
 
 # --- Магазин за Telegram Stars -------------------------------------------
