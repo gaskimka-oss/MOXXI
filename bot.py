@@ -69,6 +69,13 @@ import h_titles as titles
 import h_party_games as party_games
 import h_webapp as webapp
 import h_community_support as community_support
+import h_security_plus as security_plus
+import h_staff_plus as staff_plus
+import h_economy_plus as economy_plus
+import h_social_plus as social_plus
+import h_veteran as veteran
+import h_social_fun as social_fun
+import h_owner_panel as owner_panel
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s")
