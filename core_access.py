@@ -57,8 +57,6 @@ async def check(message, bot, key: str, base_rank: int,
 
     import config
     uid = message.from_user.id if message.from_user else 0
-    if uid and config.is_bot_owner(uid):
-        return None
 
     need, enabled = await required_rank(chat.id, key, base_rank)
     if not enabled:

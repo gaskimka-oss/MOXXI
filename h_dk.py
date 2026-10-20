@@ -196,6 +196,7 @@ async def cmd_dk(message: Message, bot: Bot, args: str = "", **kw):
             "INSERT INTO cmd_access (chat_id,cmd,rank,enabled) VALUES (?,?,?,0) "
             "ON CONFLICT(chat_id,cmd) DO UPDATE SET enabled=0",
             (message.chat.id, cmd.key, cmd.base_rank))
+        access.invalidate(message.chat.id)
         await _log(message.chat.id, cmd.key, cmd.base_rank, 0, message.from_user.id)
         return await message.reply(f"🚫 Команда <code>{html.escape(cmd.names[0])}</code> "
                                    f"отключена в этом чате.")
@@ -208,6 +209,7 @@ async def cmd_dk(message: Message, bot: Bot, args: str = "", **kw):
             "INSERT INTO cmd_access (chat_id,cmd,rank,enabled) VALUES (?,?,?,1) "
             "ON CONFLICT(chat_id,cmd) DO UPDATE SET enabled=1",
             (message.chat.id, cmd.key, cmd.base_rank))
+        access.invalidate(message.chat.id)
         await _log(message.chat.id, cmd.key, cmd.base_rank, 1, message.from_user.id)
         return await message.reply(f"✅ Команда <code>{html.escape(cmd.names[0])}</code> включена.")
 
@@ -237,6 +239,7 @@ async def cmd_dk(message: Message, bot: Bot, args: str = "", **kw):
                 "INSERT INTO cmd_access (chat_id,cmd,rank,enabled) VALUES (?,?,?,1) "
                 "ON CONFLICT(chat_id,cmd) DO UPDATE SET rank=excluded.rank, enabled=1",
                 (message.chat.id, "повысить", rank))
+        access.invalidate(message.chat.id)
         await _log(message.chat.id, cmd.key, rank, 1, message.from_user.id)
         lbl = f"{stars(rank)} {RANK_NAMES.get(rank)}" if rank else "всем участникам"
         return await message.reply(
@@ -332,6 +335,7 @@ async def cb_dk(call: CallbackQuery, bot: Bot):
             "INSERT INTO cmd_access (chat_id,cmd,rank,enabled) VALUES (?,?,?,1) "
             "ON CONFLICT(chat_id,cmd) DO UPDATE SET rank=excluded.rank, enabled=1",
             (call.message.chat.id, cmd.key, rk))
+        access.invalidate(call.message.chat.id)
         await _log(call.message.chat.id, cmd.key, rk, 1, uid)
         text, kb = await _section_view(call.message.chat.id, num)
         await call.message.edit_text(text, reply_markup=kb)
@@ -348,6 +352,7 @@ async def cb_dk(call: CallbackQuery, bot: Bot):
             "INSERT INTO cmd_access (chat_id,cmd,rank,enabled) VALUES (?,?,?,?) "
             "ON CONFLICT(chat_id,cmd) DO UPDATE SET enabled=excluded.enabled",
             (call.message.chat.id, cmd.key, need, new))
+        access.invalidate(call.message.chat.id)
         await _log(call.message.chat.id, cmd.key, need, new, uid)
         text, kb = await _section_view(call.message.chat.id, num)
         await call.message.edit_text(text, reply_markup=kb)

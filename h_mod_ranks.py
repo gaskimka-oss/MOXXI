@@ -85,11 +85,35 @@ async def _change_unresolved_staff(message: Message, actor_rank: int, args: str,
     return True
 
 
+INVISIBLE_CHARS = {
+    '\u115f', '\u1160', '\u3164', '\uffa0',
+    '\u200b', '\u200c', '\u200d', '\ufeff',
+    '\u200e', '\u200f', '\u061c',
+    '\u202a', '\u202b', '\u202c', '\u202d', '\u202e',
+    '\u2066', '\u2067', '\u2068', '\u2069',
+    '\u2800',
+    '\u00a0', '\u202f', '\u205f', '\u3000',
+    '\u00ad',
+}
+
+def clean_visible_name(s: str | None) -> str:
+    if not s:
+        return ""
+    import unicodedata
+    cleaned = []
+    for ch in str(s):
+        cat = unicodedata.category(ch)
+        if ch in INVISIBLE_CHARS or cat in ('Cf', 'Cc', 'Zl', 'Zp'):
+            continue
+        cleaned.append(ch)
+    return "".join(cleaned).strip()
+
+
 def _link(username: str | None, name: str | None, user_id: int = 0) -> str:
     """Ссылка на профиль: по @нику или tg://user?id=. Без ника — просто имя."""
     clean_u = (username or "").lstrip("@").strip()
-    clean_n = (name or "").strip()
-    display = clean_n or (f"@{clean_u}" if clean_u else "") or (str(user_id) if user_id else "—")
+    clean_n = clean_visible_name(name)
+    display = clean_n or (f"@{clean_u}" if clean_u else "") or (f"Участник [{user_id}]" if user_id else "—")
     label = html.escape(display)
     if clean_u and USERNAME_OK.match(clean_u):
         return f'<a href="https://telegram.me/{clean_u}">{label}</a>'
@@ -98,7 +122,7 @@ def _link(username: str | None, name: str | None, user_id: int = 0) -> str:
     return label
 
 
-async def _staff_rows(chat_id: int) -> dict[int, list[tuple[str, bool]]]:
+async def _staff_rows(chat_id: int, bot: Bot | None = None) -> dict[int, list[tuple[str, bool]]]:
     """Собирает состав из таблицы ranks (живые) + staff (импортированные)."""
     out: dict[int, list[tuple[str, bool]]] = {}
 
@@ -108,18 +132,44 @@ async def _staff_rows(chat_id: int) -> dict[int, list[tuple[str, bool]]]:
         "WHERE r.chat_id=? AND r.rank>0", (chat_id,))
     seen_ids = set()
     for r in rows:
-        seen_ids.add(r["user_id"])
+        uid = r["user_id"]
+        seen_ids.add(uid)
+        fname = r["first_name"]
+        uname = r["username"]
+        if bot and uid and not clean_visible_name(fname):
+            try:
+                cm = await bot.get_chat_member(chat_id, uid)
+                if cm and cm.user:
+                    u_live = cm.user
+                    fname = u_live.first_name or fname
+                    uname = u_live.username or uname
+                    await db.touch_user(uid, uname, fname)
+            except Exception:
+                pass
         out.setdefault(r["rank"], []).append(
-            (_link(r["username"], r["first_name"], r["user_id"]), False))
+            (_link(uname, fname, uid), False))
 
     srows = await db.fetchall(
         "SELECT username, name, rank, user_id, left_chat FROM staff "
         "WHERE chat_id=? ORDER BY rank DESC, pos ASC, rowid ASC", (chat_id,))
     for r in srows:
-        if r["user_id"] and r["user_id"] in seen_ids:
+        uid = r["user_id"] or 0
+        if uid and uid in seen_ids:
             continue
+        fname = r["name"]
+        uname = r["username"]
+        if bot and uid and not clean_visible_name(fname):
+            try:
+                cm = await bot.get_chat_member(chat_id, uid)
+                if cm and cm.user:
+                    u_live = cm.user
+                    fname = u_live.first_name or fname
+                    uname = u_live.username or uname
+                    await db.touch_user(uid, uname, fname)
+            except Exception:
+                pass
         out.setdefault(r["rank"], []).append(
-            (_link(r["username"], r["name"], r["user_id"] or 0), bool(r["left_chat"])))
+            (_link(uname, fname, uid), bool(r["left_chat"])))
     return out
 
 
@@ -172,21 +222,20 @@ async def _grant(message: Message, bot: Bot, args: str, rank: int, **kw):
     me = await effective_rank(message, bot)
     import config
     sender_id = message.from_user.id if message.from_user else 0
-    is_owner = config.is_bot_owner(sender_id)
 
     from core_access import required_rank
     req_r, _ = await required_rank(message.chat.id, "повысить", 8)
-    if me < req_r and not is_owner:
+    if me < req_r:
         return await message.reply(
             f"⛔️ Недостаточно прав.\n"
             f"Назначать и изменять ранги могут только администраторы от <b>{rank_label(req_r)}</b> и выше.\n"
             f"Ваш ранг: <b>{rank_label(me)}</b>")
 
-    if rank == 10 and not is_owner and me < 10:
+    if rank == 10 and me < 10:
         return await message.reply("⛔️ Назначить <b>Владельца чата</b> может только Создатель/Владелец.")
-    if rank == 9 and not is_owner and me < 9:
+    if rank == 9 and me < 9:
         return await message.reply("⛔️ Назначить <b>Заместителя владельца</b> может только Владелец чата.")
-    if not is_owner and me < min(rank + 1, MAX_RANK):
+    if me < min(rank + 1, MAX_RANK):
         return await message.reply(
             f"⛔️ Недостаточно прав.\nЧтобы выдать <b>{rank_label(rank)}</b>, "
             f"нужен ранг выше.\nВаш ранг: <b>{rank_label(me)}</b>")
@@ -208,13 +257,19 @@ async def _grant(message: Message, bot: Bot, args: str, rank: int, **kw):
 
     if not uid and uname:
         clean_uname = uname.lstrip("@")
+        sender_uname = (message.from_user.username or "") if message.from_user else ""
+        if sender_uname and clean_uname.lower() == sender_uname.lower():
+            return await message.reply("⛔️ Нельзя повысить самого себя.")
+        u_row = await db.fetchone("SELECT user_id, first_name FROM users WHERE lower(username)=lower(?)", (clean_uname,))
+        if u_row and u_row["user_id"] == sender_id:
+            return await message.reply("⛔️ Нельзя повысить самого себя.")
         existing = await db.fetchone(
             "SELECT rowid, rank FROM staff WHERE chat_id=? AND lower(username)=lower(?)",
             (message.chat.id, clean_uname)
         )
         if existing:
             tgt_r = existing["rank"]
-            if not is_owner and tgt_r >= me and me < MAX_RANK:
+            if tgt_r >= me and me < MAX_RANK:
                 return await message.reply("⛔️ Нельзя менять ранг равного или старшего администратора.")
             await db.execute(
                 "UPDATE staff SET rank=?, name=?, ts=? WHERE chat_id=? AND lower(username)=lower(?)",
@@ -227,7 +282,6 @@ async def _grant(message: Message, bot: Bot, args: str, rank: int, **kw):
                 (message.chat.id, clean_uname, clean_uname, rank, int(time.time()), int(time.time()))
             )
 
-        u_row = await db.fetchone("SELECT user_id, first_name FROM users WHERE lower(username)=lower(?)", (clean_uname,))
         if u_row:
             await set_rank(message.chat.id, u_row["user_id"], rank, sender_id)
             await db.execute("UPDATE staff SET user_id=?, name=? WHERE chat_id=? AND lower(username)=lower(?)",
@@ -239,9 +293,9 @@ async def _grant(message: Message, bot: Bot, args: str, rank: int, **kw):
         )
 
     tgt_rank = await get_rank(message.chat.id, uid)
-    if not is_owner and tgt_rank >= me and me < MAX_RANK:
+    if tgt_rank >= me and me < MAX_RANK:
         return await message.reply("⛔️ Нельзя менять ранг равного или старшего администратора.")
-    if not is_owner and me < MAX_RANK and tgt_rank >= MAX_RANK and rank < MAX_RANK:
+    if me < MAX_RANK and tgt_rank >= MAX_RANK and rank < MAX_RANK:
         return await message.reply(f"👑 <b>{RANK_NAMES[MAX_RANK]}</b> неприкосновенен — его может изменить только Создатель.")
     await set_rank(message.chat.id, uid, rank, sender_id)
 
@@ -394,7 +448,7 @@ async def cmd_quick_demote(message: Message, bot: Bot, args: str = "", **kw):
     await cmd_remove_rank(message, bot, args=args, **kw)
 
 
-@router.message(Cmd("+модер", "+админ", "модер", "ранг", "дать ранг", "выдать ранг", "назначить", section=S, rank=2,
+@router.message(Cmd("+модер", "+админ", "модер", "ранг", "дать ранг", "выдать ранг", "назначить", section=S, rank=8,
                     usage="+модер {ссылка} [1-10 / должность]",
                     desc="Назначить ранг модератора (1–10)"))
 async def cmd_promote_rank(message: Message, bot: Bot, args: str = "", **kw):
@@ -418,7 +472,7 @@ async def cmd_promote_rank(message: Message, bot: Bot, args: str = "", **kw):
     await _grant(message, bot, args, rank, **kw)
 
 
-@router.message(Cmd("повысить", "поднять ранг", section=S, rank=2, usage="повысить {ссылка} [ранг]",
+@router.message(Cmd("повысить", "поднять ранг", section=S, rank=8, usage="повысить {ссылка} [ранг]",
                     desc="Повысить на один ранг (или до указанного)"))
 async def cmd_promote(message: Message, bot: Bot, args: str = "", **kw):
     found_r, clean_args = _parse_rank_from_text(args or "")
@@ -452,7 +506,7 @@ async def cmd_promote(message: Message, bot: Bot, args: str = "", **kw):
     await _grant(message, bot, str(uid), cur + 1, **kw)
 
 
-@router.message(Cmd("понизить", "разжаловать", "снизить", section=S, rank=2,
+@router.message(Cmd("понизить", "разжаловать", "снизить", section=S, rank=8,
                     usage="понизить {ссылка}", desc="Понизить на один ранг"))
 async def cmd_demote(message: Message, bot: Bot, args: str = "", **kw):
     me = await effective_rank(message, bot)
@@ -590,7 +644,7 @@ async def cmd_demote_left(message: Message, bot: Bot, **kw):
         )
 
 
-@router.message(Cmd("снять", "разжаловать ранг", section=S, rank=2, usage="снять {ссылка}",
+@router.message(Cmd("снять", "разжаловать ранг", section=S, rank=8, usage="снять {ссылка}",
                     desc="Полностью снять ранг"))
 async def cmd_remove_rank(message: Message, bot: Bot, args: str = "", **kw):
     me = await effective_rank(message, bot)
@@ -630,7 +684,7 @@ async def cmd_remove_rank(message: Message, bot: Bot, args: str = "", **kw):
                     section=S, usage="!админы", group_only=True,
                     desc="Показать состав модерации со звёздами"))
 async def cmd_staff(message: Message, bot: Bot, **kw):
-    groups = await _staff_rows(message.chat.id)
+    groups = await _staff_rows(message.chat.id, bot)
     if MAX_RANK not in groups:
         try:
             admins = await bot.get_chat_administrators(message.chat.id)
@@ -638,7 +692,7 @@ async def cmd_staff(message: Message, bot: Bot, **kw):
                 if adm.status == "creator" and adm.user and not adm.user.is_bot:
                     await set_rank(message.chat.id, adm.user.id, MAX_RANK, by=0)
                     await db.touch_user(adm.user.id, adm.user.username, adm.user.first_name)
-                    groups = await _staff_rows(message.chat.id)
+                    groups = await _staff_rows(message.chat.id, bot)
                     break
         except Exception:
             pass
@@ -650,7 +704,7 @@ async def cmd_staff(message: Message, bot: Bot, **kw):
 @router.message(Cmd("кто создатель", "создатели", "creator", section=S, group_only=True,
                     usage="кто создатель", desc="Показать создателей чата"))
 async def cmd_creators(message: Message, bot: Bot, **kw):
-    groups = await _staff_rows(message.chat.id)
+    groups = await _staff_rows(message.chat.id, bot)
     if MAX_RANK not in groups:
         try:
             admins = await bot.get_chat_administrators(message.chat.id)
@@ -658,7 +712,7 @@ async def cmd_creators(message: Message, bot: Bot, **kw):
                 if adm.status == "creator" and adm.user and not adm.user.is_bot:
                     await set_rank(message.chat.id, adm.user.id, MAX_RANK, by=0)
                     await db.touch_user(adm.user.id, adm.user.username, adm.user.first_name)
-                    groups = await _staff_rows(message.chat.id)
+                    groups = await _staff_rows(message.chat.id, bot)
                     break
         except Exception:
             pass
@@ -892,7 +946,7 @@ async def cmd_import_staff(message: Message, bot: Bot, args: str = "", **kw):
             "left_chat=excluded.left_chat, pos=excluded.pos",
             (message.chat.id, key, name, rank, uid, int(left), now, pos))
         added += 1
-    groups = await _staff_rows(message.chat.id)
+    groups = await _staff_rows(message.chat.id, bot)
     await message.reply(
         f"✅ Загружено записей: <b>{added}</b>\n\n" + _render_staff(groups, "Состав модерации"),
         disable_web_page_preview=True)
