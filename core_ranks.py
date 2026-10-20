@@ -60,7 +60,7 @@ async def set_rank(chat_id: int, user_id: int, rank: int, by: int = 0) -> None:
 
 
 async def effective_rank(message: Message, bot: Bot) -> int:
-    """Ранг с учётом ТГ-админки, создателя группы и владельца бота."""
+    """Ранг с учётом базы данных ranks, ТГ-админки и создателя группы."""
     if message.sender_chat and message.sender_chat.id == message.chat.id:
         return MAX_RANK  # анонимный админ группы = высший ранг
     if not message.from_user:
@@ -68,14 +68,15 @@ async def effective_rank(message: Message, bot: Bot) -> int:
     uid = message.from_user.id
 
     import config
-    # Создатели и главные владельцы бота всегда имеют наивысший ранг во всех чатах
-    if config.is_bot_owner(uid):
-        return MAX_RANK
-
     if message.chat.type == "private":
         return MAX_RANK if config.is_bot_owner(uid) else 0
 
-    # Создатель группы в Telegram всегда наивысший ранг
+    # 1. Сначала проверяем ранг, явно назначенный в чате (таблица ranks):
+    r = await get_rank(message.chat.id, uid)
+    if r is not None and r > 0:
+        return r
+
+    # 2. Создатель группы в Telegram всегда наивысший ранг (если не переопределён в ranks):
     try:
         m = await bot.get_chat_member(message.chat.id, uid)
         if m.status == "creator":
@@ -84,11 +85,7 @@ async def effective_rank(message: Message, bot: Bot) -> int:
     except Exception:
         pass
 
-    r = await get_rank(message.chat.id, uid)
-    if r:
-        return r
-
-    # ТГ-администратор по умолчанию получает ранг 5
+    # 3. ТГ-администратор по умолчанию получает ранг 5 (если в базе не задан другой):
     try:
         m = await bot.get_chat_member(message.chat.id, uid)
         if m.status == "administrator":
@@ -114,10 +111,6 @@ async def require(message: Message, bot: Bot, need: int, key: str = "") -> bool:
     """Проверка ранга с автоответом. Учитывает переопределение ранга через ДК."""
     # ДК уже пропустил команду в middleware — не перепроверяем строже
     if getattr(message, "_dk_ok", False):
-        return True
-    import config
-    sender_id = message.from_user.id if message.from_user else 0
-    if sender_id and config.is_bot_owner(sender_id):
         return True
     r = await effective_rank(message, bot)
     if r >= need:
