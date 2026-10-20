@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>MOXXI 2.1 • Видеопрезентация</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    @keyframes pulseGlow {
+      0%, 100% { box-shadow: 0 0 15px rgba(255, 0, 128, 0.4), 0 0 30px rgba(0, 240, 255, 0.2); }
+      50% { box-shadow: 0 0 25px rgba(255, 0, 128, 0.7), 0 0 45px rgba(0, 240, 255, 0.4); }
+    }
+    .neon-border {
+      border: 1px solid rgba(255, 0, 128, 0.5);
+      animation: pulseGlow 4s infinite ease-in-out;
+    }
+    .neon-text {
+      text-shadow: 0 0 10px rgba(255, 0, 128, 0.8), 0 0 20px rgba(255, 0, 128, 0.4);
+    }
+    .cyan-text {
+      text-shadow: 0 0 10px rgba(0, 240, 255, 0.8), 0 0 20px rgba(0, 240, 255, 0.4);
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-6 font-sans">
+  <div class="max-w-5xl mx-auto space-y-8">
+    
+    <!-- Top Header -->
+    <header class="flex flex-col md:flex-row items-center justify-between gap-4 p-6 bg-slate-900/80 rounded-2xl border border-pink-500/30 backdrop-blur-md shadow-2xl">
+      <div class="flex items-center gap-4">
+        <div class="w-14 h-14 rounded-2xl bg-gradient-to-tr from-pink-600 via-purple-600 to-cyan-400 flex items-center justify-center text-3xl font-black text-white shadow-lg">
+          🍸
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-2xl font-black tracking-wide text-transparent bg-clip-text bg-gradient-to-r from-pink-400 via-purple-300 to-cyan-400">
+              MOXXI 2.1 • AI PROMO VIDEO
+            </h1>
+            <span class="px-2.5 py-0.5 text-xs font-semibold bg-pink-500/20 text-pink-300 border border-pink-500/40 rounded-full">
+              4K / 720p HD
+            </span>
+          </div>
+          <p class="text-sm text-slate-400">Официальная кинематографическая презентация бота с голосом Мокси</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <a href="https://t.me/moxxichat_bot" target="_blank" class="px-5 py-2.5 bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white font-bold rounded-xl text-sm transition shadow-lg shadow-pink-500/25 flex items-center gap-2">
+          <span>✈️ Открыть бота</span>
+          <span class="text-xs bg-black/30 px-2 py-0.5 rounded-md">@moxxichat_bot</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- Main Video Section -->
+    <section class="p-6 bg-slate-900/90 rounded-2xl border border-cyan-500/30 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="inline-block w-3 h-3 rounded-full bg-emerald-400 animate-ping"></span>
+          <h2 class="text-lg font-bold text-cyan-300">Готовый промо-ролик (1 мин 14 сек)</h2>
+        </div>
+        <span class="text-xs text-slate-400">MP4 • H.264 • 30 FPS • Аудио 192 kbps AAC</span>
+      </div>
+
+      <!-- Video Player -->
+      <div class="relative rounded-xl overflow-hidden bg-black aspect-video neon-border group">
+        <video id="promoVideo" controls class="w-full h-full object-contain" poster="moxxi_scene1_intro_1791698402645.jpg">
+          <source src="moxxi_promo_video.mp4" type="video/mp4">
+          <source src="file:///c:/Users/eiema/OneDrive/Desktop/бот2.0/moxxi_promo_video.mp4" type="video/mp4">
+          Ваш браузер не поддерживает видео HTML5.
+        </video>
+      </div>
+
+      <!-- Quick Actions -->
+      <div class="flex flex-wrap items-center justify-between gap-4 pt-2 text-sm text-slate-300">
+        <div class="flex items-center gap-3">
+          <span class="px-3 py-1 bg-slate-800 rounded-lg text-xs font-mono text-cyan-400">
+            Файл: бот2.0/moxxi_promo_video.mp4
+          </span>
+        </div>
+        <p class="text-xs text-slate-400">
+          💡 Совет: видео можно напрямую отправить в Telegram-канал, чат или загрузить в Reels/Shorts!
+        </p>
+      </div>
+    </section>
+
+    <!-- Scene Breakdown Grid -->
+    <section class="space-y-4">
+      <h3 class="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-400 to-cyan-400">
+        Сюжет и сцены презентации
+      </h3>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+
+        <!-- Scene 1 -->
+        <div class="bg-slate-900/70 border border-slate-800 hover:border-pink-500/50 rounded-xl overflow-hidden transition group">
+          <div class="aspect-video relative overflow-hidden bg-slate-800">
+            <img src="moxxi_scene1_intro_1791698402645.jpg" alt="Сцена 1" class="w-full h-full object-cover group-hover:scale-105 transition duration-500">
+            <span class="absolute top-2 left-2 px-2 py-0.5 text-xs font-bold bg-pink-500/80 text-white rounded-md">
+              Сцена 1 • Вступление
+            </span>
+          </div>
+          <div class="p-4 space-y-2">
+            <h4 class="font-bold text-pink-300 text-sm">Бар Мокси & Знакомство</h4>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              «Привет, сладкий! Добро пожаловать ко мне в бар. Я — Мокси. И твой Телеграм больше никогда не будет прежним...»
+            </p>
+          </div>
+        </div>
+
+        <!-- Scene 2 -->
+        <div class="bg-slate-900/70 border border-slate-800 hover:border-cyan-500/50 rounded-xl overflow-hidden transition group">
+          <div class="aspect-video relative overflow-hidden bg-slate-800">
+            <img src="moxxi_scene2_casino_1791698428497.jpg" alt="Сцена 2" class="w-full h-full object-cover group-hover:scale-105 transition duration-500">
+            <span class="absolute top-2 left-2 px-2 py-0.5 text-xs font-bold bg-cyan-500/80 text-black rounded-md">
+              Сцена 2 • Казино
+            </span>
+          </div>
+          <div class="p-4 space-y-2">
+            <h4 class="font-bold text-cyan-300 text-sm">Неоновые Слоты 777 & Джекпот</h4>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              «Слоты, блэкджек, рулетка и сочный джекпот на весь чат. Ставь свои монеты, жми кнопки реплея и забирай банк!»
+            </p>
+          </div>
+        </div>
+
+        <!-- Scene 3 -->
+        <div class="bg-slate-900/70 border border-slate-800 hover:border-purple-500/50 rounded-xl overflow-hidden transition group">
+          <div class="aspect-video relative overflow-hidden bg-slate-800">
+            <img src="moxxi_scene3_business_1791698441757.jpg" alt="Сцена 3" class="w-full h-full object-cover group-hover:scale-105 transition duration-500">
+            <span class="absolute top-2 left-2 px-2 py-0.5 text-xs font-bold bg-purple-500/80 text-white rounded-md">
+              Сцена 3 • Империя
+            </span>
+          </div>
+          <div class="p-4 space-y-2">
+            <h4 class="font-bold text-purple-300 text-sm">30 Бизнесов до 100 уровня</h4>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              «От уличного кафе до орбитальной станции, прокачка до сотого уровня и пассивный доход каждую минуту!»
+            </p>
+          </div>
+        </div>
+
+        <!-- Scene 4 -->
+        <div class="bg-slate-900/70 border border-slate-800 hover:border-amber-500/50 rounded-xl overflow-hidden transition group">
+          <div class="aspect-video relative overflow-hidden bg-slate-800">
+            <img src="moxxi_scene4_boss_1791698456705.jpg" alt="Сцена 4" class="w-full h-full object-cover group-hover:scale-105 transition duration-500">
+            <span class="absolute top-2 left-2 px-2 py-0.5 text-xs font-bold bg-amber-500/80 text-black rounded-md">
+              Сцена 4 • Битвы
+            </span>
+          </div>
+          <div class="p-4 space-y-2">
+            <h4 class="font-bold text-amber-300 text-sm">Рейды на Боссов & PvP</h4>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              «Собирай верных друзей и выходи на рейды против титанических боссов! Дуэли на монеты, крафт и подземелья!»
+            </p>
+          </div>
+        </div>
+
+        <!-- Scene 5 -->
+        <div class="bg-slate-900/70 border border-slate-800 hover:border-pink-500/50 rounded-xl overflow-hidden transition group">
+          <div class="aspect-video relative overflow-hidden bg-slate-800">
+            <img src="moxxi_scene5_social_1791698471518.jpg" alt="Сцена 5" class="w-full h-full object-cover group-hover:scale-105 transition duration-500">
+            <span class="absolute top-2 left-2 px-2 py-0.5 text-xs font-bold bg-pink-500/80 text-white rounded-md">
+              Сцена 5 • AI & Социум
+            </span>
+          </div>
+          <div class="p-4 space-y-2">
+            <h4 class="font-bold text-pink-300 text-sm">Таро, Пара дня & Gemini AI</h4>
+            <p class="text-xs text-slate-400 leading-relaxed">
+              «Карты Таро, гороскопы, пара дня и живое общение со мной на базе мощного искусственного интеллекта. MOXXI — твоя вселенная!»
+            </p>
+          </div>
+        </div>
+
+        <!-- Bot Summary Card -->
+        <div class="bg-gradient-to-br from-pink-900/40 via-purple-900/30 to-slate-900 border border-pink-500/40 rounded-xl p-5 flex flex-col justify-between">
+          <div class="space-y-2">
+            <div class="text-xs font-bold uppercase tracking-wider text-pink-400">Характеристики бота</div>
+            <div class="text-lg font-black text-white">MOXXI Релиз 2.1</div>
+            <ul class="text-xs text-slate-300 space-y-1.5 pt-1">
+              <li>✨ <b>394 команды</b> активны</li>
+              <li>🪙 Единая сбалансированная валюта</li>
+              <li>🌐 Встроенный WebApp & Healthcheck</li>
+              <li>⚡ SQLite WAL + автобэкапы</li>
+            </ul>
+          </div>
+          <div class="pt-4">
+            <a href="https://t.me/moxxichat_bot" target="_blank" class="block w-full py-2 text-center text-xs font-bold bg-pink-500 hover:bg-pink-600 text-white rounded-lg transition">
+              Добавить в группу
+            </a>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </div>
+</body>
+</html>

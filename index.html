@@ -1,0 +1,1069 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Moxxi Casino & Hub</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0d0b18;
+      --card-bg: rgba(26, 21, 46, 0.75);
+      --card-border: rgba(192, 38, 211, 0.3);
+      --primary: #c026d3;
+      --primary-glow: rgba(192, 38, 211, 0.5);
+      --accent: #06b6d4;
+      --gold: #facc15;
+      --pink: #f43f5e;
+      --green: #10b981;
+      --text: #ffffff;
+      --text-muted: #94a3b8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      font-family: 'Montserrat', sans-serif;
+      background: radial-gradient(circle at top, #1e153a 0%, #0d0b18 70%);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+      padding-bottom: 80px;
+    }
+
+    /* Верхняя панель */
+    .header {
+      background: rgba(13, 11, 24, 0.85);
+      backdrop-filter: blur(12px);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--card-border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .avatar {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      border: 2px solid var(--primary);
+      box-shadow: 0 0 10px var(--primary-glow);
+      background: linear-gradient(135deg, #c026d3, #06b6d4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      font-weight: 900;
+    }
+
+    .user-text h3 {
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .user-badge {
+      font-size: 11px;
+      color: var(--gold);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .balance-badge {
+      background: linear-gradient(135deg, rgba(250, 204, 21, 0.15), rgba(244, 63, 94, 0.15));
+      border: 1px solid var(--gold);
+      padding: 6px 14px;
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 700;
+      color: var(--gold);
+      box-shadow: 0 0 12px rgba(250, 204, 21, 0.2);
+    }
+
+    /* Баннер Джекпота */
+    .jackpot-banner {
+      margin: 12px 16px;
+      background: linear-gradient(135deg, #4a044e, #1e1b4b);
+      border: 2px solid #ec4899;
+      box-shadow: 0 0 20px rgba(236, 72, 153, 0.4);
+      border-radius: 16px;
+      padding: 12px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      animation: pulse 2s infinite ease-in-out;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.01); }
+    }
+
+    .jackpot-title {
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 2px;
+      color: #f472b6;
+      text-transform: uppercase;
+    }
+
+    .jackpot-amount {
+      font-size: 24px;
+      font-weight: 900;
+      color: #fff;
+      text-shadow: 0 0 10px #ec4899, 0 0 20px #c026d3;
+      margin-top: 2px;
+    }
+
+    /* Навигация по табам */
+    .tab-content {
+      display: none;
+      padding: 0 16px;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Карточки */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 16px;
+      backdrop-filter: blur(10px);
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Кнопки */
+    .btn {
+      background: linear-gradient(135deg, var(--primary), #9333ea);
+      color: white;
+      border: none;
+      padding: 12px 20px;
+      border-radius: 12px;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      width: 100%;
+      box-shadow: 0 4px 15px var(--primary-glow);
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .btn:active {
+      transform: scale(0.97);
+    }
+
+    .btn-gold {
+      background: linear-gradient(135deg, #eab308, #ca8a04);
+      color: #000;
+      box-shadow: 0 4px 15px rgba(234, 179, 8, 0.4);
+    }
+
+    .btn-cyan {
+      background: linear-gradient(135deg, #06b6d4, #0891b2);
+      box-shadow: 0 4px 15px rgba(6, 182, 212, 0.4);
+    }
+
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--card-border);
+      color: #fff;
+    }
+
+    /* ИГРА 1: КОЛЕСО ФОРТУНЫ */
+    .wheel-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+      margin: 10px 0;
+    }
+
+    .wheel-pointer {
+      position: absolute;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 14px solid transparent;
+      border-right: 14px solid transparent;
+      border-top: 24px solid var(--gold);
+      filter: drop-shadow(0 0 6px rgba(250, 204, 21, 0.8));
+      z-index: 10;
+    }
+
+    #wheelCanvas {
+      width: 260px;
+      height: 260px;
+      border-radius: 50%;
+      border: 4px solid var(--primary);
+      box-shadow: 0 0 25px var(--primary-glow);
+    }
+
+    /* ИГРА 2: СЛОТЫ */
+    .slots-machine {
+      background: linear-gradient(180deg, #2a164d, #140b29);
+      border: 3px solid var(--primary);
+      border-radius: 16px;
+      padding: 16px;
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin: 12px 0;
+      box-shadow: inset 0 0 20px rgba(0,0,0,0.8), 0 0 20px var(--primary-glow);
+    }
+
+    .slot-reel {
+      background: #090614;
+      border: 2px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      width: 70px;
+      height: 85px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 38px;
+      overflow: hidden;
+      box-shadow: inset 0 0 10px rgba(0,0,0,0.9);
+    }
+
+    .bet-selector {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    .bet-btn {
+      flex: 1;
+      padding: 8px 0;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #fff;
+      font-weight: 700;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .bet-btn.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      box-shadow: 0 0 10px var(--primary-glow);
+    }
+
+    /* ИГРА 3: МИНЫ */
+    .mines-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin: 12px 0;
+    }
+
+    .mine-tile {
+      background: rgba(255,255,255,0.06);
+      border: 2px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .mine-tile:active {
+      transform: scale(0.92);
+    }
+
+    .mine-tile.gem {
+      background: rgba(6, 182, 212, 0.2);
+      border-color: var(--accent);
+      box-shadow: 0 0 12px rgba(6, 182, 212, 0.4);
+    }
+
+    .mine-tile.bomb {
+      background: rgba(244, 63, 94, 0.3);
+      border-color: var(--pink);
+      box-shadow: 0 0 15px rgba(244, 63, 94, 0.5);
+    }
+
+    /* ИГРА 4: КРАШ РАКЕТА */
+    .crash-box {
+      background: #090614;
+      border: 2px solid var(--accent);
+      border-radius: 16px;
+      height: 180px;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      margin: 12px 0;
+      overflow: hidden;
+    }
+
+    .crash-mult {
+      font-size: 42px;
+      font-weight: 900;
+      color: var(--accent);
+      text-shadow: 0 0 20px rgba(6, 182, 212, 0.8);
+      z-index: 5;
+    }
+
+    .rocket-icon {
+      font-size: 32px;
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      transition: all 0.1s linear;
+    }
+
+    /* ИНВЕНТАРЬ */
+    .inv-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .inv-item {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 12px 8px;
+      text-align: center;
+      cursor: pointer;
+    }
+
+    .inv-icon {
+      font-size: 32px;
+      margin-bottom: 4px;
+    }
+
+    .inv-name {
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .inv-count {
+      font-size: 10px;
+      color: var(--gold);
+      font-weight: 700;
+    }
+
+    /* ТЕРМИНАЛ КОМАНД */
+    .cmd-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .cmd-pill {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+
+    .cmd-pill:active {
+      background: var(--primary);
+      transform: scale(0.96);
+    }
+
+    .terminal-input-group {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .terminal-input {
+      flex: 1;
+      background: rgba(0,0,0,0.4);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 10px 14px;
+      color: #fff;
+      font-size: 14px;
+      outline: none;
+    }
+
+    .terminal-input:focus {
+      border-color: var(--accent);
+    }
+
+    /* Нижняя навигация */
+    .bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(13, 11, 24, 0.95);
+      backdrop-filter: blur(16px);
+      border-top: 1px solid var(--card-border);
+      display: flex;
+      justify-content: space-around;
+      padding: 8px 0;
+      z-index: 1000;
+    }
+
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      color: var(--text-muted);
+      font-size: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 4px 12px;
+      border-radius: 8px;
+    }
+
+    .nav-item.active {
+      color: var(--primary);
+      text-shadow: 0 0 10px var(--primary-glow);
+    }
+
+    .nav-icon {
+      font-size: 20px;
+      margin-bottom: 2px;
+    }
+
+    /* Всплывающее окно победы */
+    .modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      backdrop-filter: blur(8px);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal.active {
+      display: flex;
+    }
+
+    .modal-box {
+      background: #18112e;
+      border: 2px solid var(--gold);
+      box-shadow: 0 0 30px rgba(250, 204, 21, 0.4);
+      border-radius: 20px;
+      padding: 24px;
+      text-align: center;
+      width: 100%;
+      max-width: 320px;
+      animation: popIn 0.3s ease;
+    }
+
+    @keyframes popIn {
+      from { transform: scale(0.8); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Хедер -->
+  <div class="header">
+    <div class="user-info">
+      <div class="avatar" id="userAvatar">💋</div>
+      <div class="user-text">
+        <h3 id="userName">Гость Арены</h3>
+        <div class="user-badge">⭐ <span id="userLevel">1 LVL</span> · <span id="userVip">VIP+</span></div>
+      </div>
+    </div>
+    <div class="balance-badge">
+      <span>🍬</span>
+      <span id="userBalance">15 450</span>
+    </div>
+  </div>
+
+  <!-- Джекпот -->
+  <div class="jackpot-banner">
+    <div class="jackpot-title">🔥 НАКОПИТЕЛЬНЫЙ ДЖЕКПОТ ЧАТА 🔥</div>
+    <div class="jackpot-amount" id="jackpotVal">128 500 🪙</div>
+  </div>
+
+  <!-- ==================== ТАБ 1: КАЗИНО ==================== -->
+  <div class="tab-content active" id="tab-casino">
+    <!-- СЛОТЫ -->
+    <div class="card">
+      <div class="card-title">🎰 Неоновые Слоты 777</div>
+      <div class="slots-machine">
+        <div class="slot-reel" id="reel1">7️⃣</div>
+        <div class="slot-reel" id="reel2">7️⃣</div>
+        <div class="slot-reel" id="reel3">7️⃣</div>
+      </div>
+      <div class="bet-selector">
+        <button class="bet-btn" onclick="setSlotBet(100)">100</button>
+        <button class="bet-btn active" onclick="setSlotBet(500)">500</button>
+        <button class="bet-btn" onclick="setSlotBet(1000)">1 000</button>
+        <button class="bet-btn" onclick="setSlotBet(5000)">5 000</button>
+      </div>
+      <button class="btn" id="spinSlotsBtn" onclick="spinSlots()">🎰 КРУТИТЬ БАРАБАН</button>
+    </div>
+
+    <!-- МИНЫ -->
+    <div class="card">
+      <div class="card-title">💣 Игра «Мины» (x1.20 - x32.0)</div>
+      <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 8px;">
+        <span>Множитель: <b id="mineMult" style="color: var(--accent);">1.00x</b></span>
+        <span>Куш: <b id="mineCash" style="color: var(--gold);">0 🪙</b></span>
+      </div>
+      <div class="mines-grid" id="minesGrid"></div>
+      <div style="display: flex; gap: 8px;">
+        <button class="btn btn-cyan" id="startMinesBtn" onclick="startMines()">🎮 Новая игра (500 🪙)</button>
+        <button class="btn btn-gold" id="cashoutMinesBtn" style="display: none;" onclick="cashoutMines()">💰 Забрать</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== ТАБ 2: КОЛЕСО ==================== -->
+  <div class="tab-content" id="tab-wheel">
+    <div class="card" style="text-align: center;">
+      <div class="card-title" style="justify-content: center;">🎡 Колесо Фортуны Мокси</div>
+      <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">Испытайте удачу! 1 прокрут в день бесплатно или за 1 000 🪙</p>
+      
+      <div class="wheel-container">
+        <div class="wheel-pointer"></div>
+        <canvas id="wheelCanvas" width="520" height="520"></canvas>
+      </div>
+
+      <button class="btn btn-gold" id="spinWheelBtn" onclick="spinWheel()" style="margin-top: 14px;">
+        🎡 КРУТИТЬ КОЛЕСО (1 000 🪙)
+      </button>
+    </div>
+  </div>
+
+  <!-- ==================== ТАБ 3: КРАШ ==================== -->
+  <div class="tab-content" id="tab-crash">
+    <div class="card">
+      <div class="card-title">🚀 Краш Ракета (до x50.0)</div>
+      <div class="crash-box">
+        <div class="crash-mult" id="crashVal">1.00x</div>
+        <div class="rocket-icon" id="rocket">🚀</div>
+      </div>
+      <button class="btn btn-cyan" id="crashActionBtn" onclick="toggleCrash()">🚀 ЗАПУСТИТЬ РАКЕТУ (500 🪙)</button>
+    </div>
+  </div>
+
+  <!-- ==================== ТАБ 4: ИНВЕНТАРЬ ==================== -->
+  <div class="tab-content" id="tab-inv">
+    <div class="card">
+      <div class="card-title">🎒 Боевой Инвентарь</div>
+      <div class="inv-grid">
+        <div class="inv-item" onclick="sendToBot('инвентарь')">
+          <div class="inv-icon">🗡️</div>
+          <div class="inv-name">Меч Безумца</div>
+          <div class="inv-count">+50% урона</div>
+        </div>
+        <div class="inv-item" onclick="sendToBot('инвентарь')">
+          <div class="inv-icon">🦺</div>
+          <div class="inv-name">Бронежилет</div>
+          <div class="inv-count">-65% нокаут</div>
+        </div>
+        <div class="inv-item" onclick="sendToBot('инвентарь')">
+          <div class="inv-icon">🎣</div>
+          <div class="inv-name">Про-Спиннинг</div>
+          <div class="inv-count">2x быстрее</div>
+        </div>
+        <div class="inv-item" onclick="sendToBot('крафт')">
+          <div class="inv-icon">💎</div>
+          <div class="inv-name">Осколок</div>
+          <div class="inv-count">3 шт.</div>
+        </div>
+        <div class="inv-item" onclick="sendToBot('крафт')">
+          <div class="inv-icon">🔮</div>
+          <div class="inv-name">Эссенция</div>
+          <div class="inv-count">1 шт.</div>
+        </div>
+        <div class="inv-item" onclick="sendToBot('инвентарь')">
+          <div class="inv-icon">🛡️</div>
+          <div class="inv-name">Щит Варна</div>
+          <div class="inv-count">2 шт.</div>
+        </div>
+      </div>
+      <button class="btn btn-outline" style="margin-top: 14px;" onclick="sendToBot('крафт')">🛠 Верстак Крафта</button>
+    </div>
+  </div>
+
+  <!-- ==================== ТАБ 5: ТЕРМИНАЛ КОМАНД ==================== -->
+  <div class="tab-content" id="tab-cmds">
+    <div class="card">
+      <div class="card-title">⌨️ Быстрые Команды Бота</div>
+      <div class="cmd-grid">
+        <div class="cmd-pill" onclick="sendToBot('казик 1000')">🎰 Казик 1000</div>
+        <div class="cmd-pill" onclick="sendToBot('рыбалка')">🎣 Рыбалка</div>
+        <div class="cmd-pill" onclick="sendToBot('данж')">🏰 Вход в Данж</div>
+        <div class="cmd-pill" onclick="sendToBot('ударить')">🐉 Удар по Боссу</div>
+        <div class="cmd-pill" onclick="sendToBot('питомец')">🐾 Мой Питомец</div>
+        <div class="cmd-pill" onclick="sendToBot('рынок')">📦 Торговый Рынок</div>
+        <div class="cmd-pill" onclick="sendToBot('джекпот')">💎 Джекпот</div>
+        <div class="cmd-pill" onclick="sendToBot('крокодил')">🎲 Игра «Слово»</div>
+        <div class="cmd-pill" onclick="sendToBot('бонус')">🎁 Забрать Бонус</div>
+        <div class="cmd-pill" onclick="sendToBot('работа')">💼 На работу</div>
+      </div>
+
+      <div style="font-size: 12px; color: var(--text-muted); margin-top: 10px;">Ввести любую команду в чат:</div>
+      <div class="terminal-input-group">
+        <input type="text" class="terminal-input" id="customCmdInput" placeholder="например: дуэль 1000">
+        <button class="btn btn-cyan" style="width: auto; padding: 10px 16px;" onclick="sendCustomCmd()">⚡️</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Нижняя навигация -->
+  <div class="bottom-nav">
+    <div class="nav-item active" onclick="switchTab('tab-casino', this)">
+      <div class="nav-icon">🎰</div>
+      <div>Казино</div>
+    </div>
+    <div class="nav-item" onclick="switchTab('tab-wheel', this)">
+      <div class="nav-icon">🎡</div>
+      <div>Колесо</div>
+    </div>
+    <div class="nav-item" onclick="switchTab('tab-crash', this)">
+      <div class="nav-icon">🚀</div>
+      <div>Краш</div>
+    </div>
+    <div class="nav-item" onclick="switchTab('tab-inv', this)">
+      <div class="nav-icon">🎒</div>
+      <div>Инвентарь</div>
+    </div>
+    <div class="nav-item" onclick="switchTab('tab-cmds', this)">
+      <div class="nav-icon">⌨️</div>
+      <div>Команды</div>
+    </div>
+  </div>
+
+  <!-- Модальное окно победы -->
+  <div class="modal" id="winModal">
+    <div class="modal-box">
+      <div style="font-size: 48px; margin-bottom: 8px;">🎉</div>
+      <h3 style="font-size: 20px; color: var(--gold); margin-bottom: 6px;" id="modalTitle">ПОБЕДА!</h3>
+      <p style="font-size: 14px; margin-bottom: 16px;" id="modalDesc">+5 000 🪙 начислено!</p>
+      <button class="btn btn-gold" onclick="closeModal()">ОТЛИЧНО!</button>
+    </div>
+  </div>
+
+  <script>
+    const tg = window.Telegram ? window.Telegram.WebApp : null;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+      try {
+        if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+          const u = tg.initDataUnsafe.user;
+          document.getElementById('userName').innerText = u.first_name || 'Боец Арены';
+          if (u.first_name) {
+            document.getElementById('userAvatar').innerText = u.first_name[0].toUpperCase();
+          }
+        }
+      } catch (e) {}
+    }
+
+    let userBal = 15450;
+    let curSlotBet = 500;
+
+    function triggerHaptic(type = 'medium') {
+      if (tg && tg.HapticFeedback) {
+        tg.HapticFeedback.impactOccurred(type);
+      }
+    }
+
+    function sendToBot(cmd) {
+      triggerHaptic('heavy');
+      if (tg) {
+        tg.sendData(cmd);
+      } else {
+        alert("Команда отправлена в бота: " + cmd);
+      }
+    }
+
+    function sendCustomCmd() {
+      const input = document.getElementById('customCmdInput');
+      const val = input.value.trim();
+      if (val) {
+        sendToBot(val);
+        input.value = '';
+      }
+    }
+
+    function switchTab(tabId, el) {
+      triggerHaptic('light');
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+      document.getElementById(tabId).classList.add('active');
+      el.classList.add('active');
+    }
+
+    function showWinModal(title, desc) {
+      triggerHaptic('heavy');
+      document.getElementById('modalTitle').innerText = title;
+      document.getElementById('modalDesc').innerText = desc;
+      document.getElementById('winModal').classList.add('active');
+    }
+
+    function closeModal() {
+      document.getElementById('winModal').classList.remove('active');
+    }
+
+    /* ==================== 1. СЛОТЫ ==================== */
+    const SLOT_SYMBOLS = ['🍒', '🍋', '🍇', '💎', '⭐️', '7️⃣'];
+    function setSlotBet(amt) {
+      triggerHaptic('light');
+      curSlotBet = amt;
+      document.querySelectorAll('.bet-btn').forEach(b => b.classList.remove('active'));
+      event.target.classList.add('active');
+    }
+
+    function spinSlots() {
+      if (userBal < curSlotBet) {
+        alert("Недостаточно монет на балансе!");
+        return;
+      }
+      userBal -= curSlotBet;
+      updateBalUI();
+      triggerHaptic('medium');
+
+      const btn = document.getElementById('spinSlotsBtn');
+      btn.disabled = true;
+
+      let spins = 0;
+      const interval = setInterval(() => {
+        document.getElementById('reel1').innerText = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
+        document.getElementById('reel2').innerText = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
+        document.getElementById('reel3').innerText = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
+        spins++;
+        if (spins > 14) {
+          clearInterval(interval);
+          btn.disabled = false;
+          evalSlots();
+        }
+      }, 70);
+    }
+
+    function evalSlots() {
+      const isWin = Math.random() < 0.40;
+      let s1, s2, s3;
+      if (isWin) {
+        const pick = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
+        s1 = s2 = s3 = pick;
+      } else {
+        s1 = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
+        s2 = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
+        s3 = SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)];
+      }
+      document.getElementById('reel1').innerText = s1;
+      document.getElementById('reel2').innerText = s2;
+      document.getElementById('reel3').innerText = s3;
+
+      if (s1 === s2 && s2 === s3) {
+        let mult = 3;
+        if (s1 === '7️⃣') mult = 10;
+        else if (s1 === '💎') mult = 6;
+        else if (s1 === '⭐️') mult = 4;
+        const winCoins = curSlotBet * mult;
+        userBal += winCoins;
+        updateBalUI();
+        showWinModal("ДЖЕКПОТ СЛОТОВ!", `Выигрыш x${mult}: +${winCoins.toLocaleString()} 🪙`);
+      }
+    }
+
+    /* ==================== 2. КОЛЕСО ФОРТУНЫ ==================== */
+    const SECTORS = [
+      { label: "+5 000 🪙", color: "#c026d3", val: 5000 },
+      { label: "🎁 Кейс", color: "#3b82f6", val: 0, isItem: true },
+      { label: "+10 000 🪙", color: "#10b981", val: 10000 },
+      { label: "⭐️ +100 XP", color: "#f59e0b", val: 0, isXp: true },
+      { label: "+25 000 🪙", color: "#ec4899", val: 25000 },
+      { label: "👑 VIP 1 дн", color: "#8b5cf6", val: 0, isVip: true },
+      { label: "+2 500 🪙", color: "#06b6d4", val: 2500 },
+      { label: "🔥 ДЖЕКПОТ", color: "#eab308", val: 100000, isJp: true },
+    ];
+
+    const canvas = document.getElementById('wheelCanvas');
+    const ctx = canvas.getContext('2d');
+    let currentAngle = 0;
+    let isSpinning = false;
+
+    function drawWheel() {
+      const num = SECTORS.length;
+      const arc = 2 * Math.PI / num;
+      const radius = canvas.width / 2;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      for (let i = 0; i < num; i++) {
+        const angle = currentAngle + i * arc;
+        ctx.beginPath();
+        ctx.fillStyle = SECTORS[i].color;
+        ctx.moveTo(radius, radius);
+        ctx.arc(radius, radius, radius - 8, angle, angle + arc);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff33';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        ctx.save();
+        ctx.translate(radius, radius);
+        ctx.rotate(angle + arc / 2);
+        ctx.textAlign = "right";
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 24px Montserrat";
+        ctx.shadowColor = "#000";
+        ctx.shadowBlur = 6;
+        ctx.fillText(SECTORS[i].label, radius - 30, 8);
+        ctx.restore();
+      }
+
+      // Центр
+      ctx.beginPath();
+      ctx.arc(radius, radius, 36, 0, 2 * Math.PI);
+      ctx.fillStyle = "#0d0b18";
+      ctx.fill();
+      ctx.strokeStyle = "#eab308";
+      ctx.lineWidth = 6;
+      ctx.stroke();
+    }
+    drawWheel();
+
+    function spinWheel() {
+      if (isSpinning) return;
+      if (userBal < 1000) {
+        alert("Недостаточно монет для вращения (1 000 🪙)");
+        return;
+      }
+      userBal -= 1000;
+      updateBalUI();
+      triggerHaptic('heavy');
+
+      isSpinning = true;
+      document.getElementById('spinWheelBtn').disabled = true;
+
+      const spinRounds = 5 + Math.random() * 4;
+      const targetSector = Math.floor(Math.random() * SECTORS.length);
+      const arc = 2 * Math.PI / SECTORS.length;
+      // Стрелка сверху (3*PI/2)
+      const targetAngle = (3 * Math.PI / 2) - (targetSector * arc) - (arc / 2);
+      const totalSpin = spinRounds * 2 * Math.PI + targetAngle;
+
+      const startTime = performance.now();
+      const duration = 4000;
+      const startAngle = currentAngle;
+
+      function animate(time) {
+        const elapsed = time - startTime;
+        const progress = Math.min(1, elapsed / duration);
+        // Easing out cubic
+        const ease = 1 - Math.pow(1 - progress, 3);
+        currentAngle = startAngle + totalSpin * ease;
+        drawWheel();
+
+        if (progress < 1) {
+          requestAnimationFrame(animate);
+        } else {
+          isSpinning = false;
+          document.getElementById('spinWheelBtn').disabled = false;
+          const won = SECTORS[targetSector];
+          if (won.val > 0) userBal += won.val;
+          updateBalUI();
+          showWinModal("КОЛЕСО ФОРТУНЫ!", `Ваш приз: ${won.label}! 🎉`);
+        }
+      }
+      requestAnimationFrame(animate);
+    }
+
+    /* ==================== 3. МИНЫ ==================== */
+    let mineBombs = [];
+    let mineActive = false;
+    let mineGemsOpened = 0;
+    const MINE_MULTS = [1.15, 1.35, 1.65, 2.10, 2.80, 3.90, 5.80, 9.20, 15.0];
+
+    function initMinesGrid() {
+      const grid = document.getElementById('minesGrid');
+      grid.innerHTML = '';
+      for (let i = 0; i < 16; i++) {
+        const tile = document.createElement('div');
+        tile.className = 'mine-tile';
+        tile.innerText = '⬛';
+        tile.onclick = () => clickMineTile(i, tile);
+        grid.appendChild(tile);
+      }
+    }
+    initMinesGrid();
+
+    function startMines() {
+      if (userBal < 500) {
+        alert("Недостаточно монет (500 🪙)!");
+        return;
+      }
+      userBal -= 500;
+      updateBalUI();
+      triggerHaptic('medium');
+
+      mineActive = true;
+      mineGemsOpened = 0;
+      mineBombs = [];
+      while (mineBombs.length < 3) {
+        const r = Math.floor(Math.random() * 16);
+        if (!mineBombs.includes(r)) mineBombs.push(r);
+      }
+
+      initMinesGrid();
+      document.getElementById('mineMult').innerText = '1.00x';
+      document.getElementById('mineCash').innerText = '500 🪙';
+      document.getElementById('startMinesBtn').style.display = 'none';
+      document.getElementById('cashoutMinesBtn').style.display = 'block';
+    }
+
+    function clickMineTile(idx, el) {
+      if (!mineActive || el.classList.contains('gem') || el.classList.contains('bomb')) return;
+
+      if (mineBombs.includes(idx)) {
+        // ВЗРЫВ!
+        triggerHaptic('heavy');
+        mineActive = false;
+        el.className = 'mine-tile bomb';
+        el.innerText = '💣';
+        document.getElementById('startMinesBtn').style.display = 'block';
+        document.getElementById('cashoutMinesBtn').style.display = 'none';
+        setTimeout(() => alert("💥 БУМ! Вы наткнулись на мину и потеряли ставку!"), 100);
+      } else {
+        triggerHaptic('light');
+        el.className = 'mine-tile gem';
+        el.innerText = '💎';
+        mineGemsOpened++;
+        const mult = MINE_MULTS[Math.min(mineGemsOpened - 1, MINE_MULTS.length - 1)];
+        const cash = Math.floor(500 * mult);
+        document.getElementById('mineMult').innerText = mult.toFixed(2) + 'x';
+        document.getElementById('mineCash').innerText = cash.toLocaleString() + ' 🪙';
+      }
+    }
+
+    function cashoutMines() {
+      if (!mineActive || mineGemsOpened === 0) return;
+      const mult = MINE_MULTS[Math.min(mineGemsOpened - 1, MINE_MULTS.length - 1)];
+      const win = Math.floor(500 * mult);
+      userBal += win;
+      updateBalUI();
+      mineActive = false;
+      document.getElementById('startMinesBtn').style.display = 'block';
+      document.getElementById('cashoutMinesBtn').style.display = 'none';
+      showWinModal("ВЫИГРЫШ В МИНАХ!", `Забрано: +${win.toLocaleString()} 🪙 (${mult.toFixed(2)}x)!`);
+    }
+
+    /* ==================== 4. КРАШ ==================== */
+    let crashRunning = false;
+    let crashMult = 1.0;
+    let crashTimer = null;
+    let crashBoom = 2.0;
+
+    function toggleCrash() {
+      const btn = document.getElementById('crashActionBtn');
+      if (!crashRunning) {
+        if (userBal < 500) {
+          alert("Недостаточно монет (500 🪙)!");
+          return;
+        }
+        userBal -= 500;
+        updateBalUI();
+        triggerHaptic('medium');
+
+        crashRunning = true;
+        crashMult = 1.00;
+        crashBoom = 1.1 + Math.random() * 5.5; // случайный краш
+        btn.innerText = "💰 ЗАБРАТЬ КУШ";
+        btn.className = "btn btn-gold";
+
+        const rocket = document.getElementById('rocket');
+        rocket.style.left = "20px";
+        rocket.style.bottom = "20px";
+
+        crashTimer = setInterval(() => {
+          crashMult += 0.05;
+          document.getElementById('crashVal').innerText = crashMult.toFixed(2) + 'x';
+          rocket.style.left = Math.min(220, 20 + (crashMult * 25)) + 'px';
+          rocket.style.bottom = Math.min(130, 20 + (crashMult * 15)) + 'px';
+
+          if (crashMult >= crashBoom) {
+            clearInterval(crashTimer);
+            crashRunning = false;
+            triggerHaptic('heavy');
+            document.getElementById('crashVal').innerText = "💥 CRASHED!";
+            btn.innerText = "🚀 ЗАПУСТИТЬ РАКЕТУ (500 🪙)";
+            btn.className = "btn btn-cyan";
+          }
+        }, 100);
+      } else {
+        // Успешный забор
+        clearInterval(crashTimer);
+        crashRunning = false;
+        const win = Math.floor(500 * crashMult);
+        userBal += win;
+        updateBalUI();
+        btn.innerText = "🚀 ЗАПУСТИТЬ РАКЕТУ (500 🪙)";
+        btn.className = "btn btn-cyan";
+        showWinModal("УСПЕШНЫЙ ЗАБОР!", `Вы успели забрать: +${win.toLocaleString()} 🪙 (${crashMult.toFixed(2)}x)!`);
+      }
+    }
+
+    function updateBalUI() {
+      document.getElementById('userBalance').innerText = userBal.toLocaleString();
+    }
+  </script>
+</body>
+</html>

@@ -35,7 +35,7 @@ from core_ranks import require
 from core_registry import Cmd
 
 router = Router(name="tournament")
-log = logging.getLogger("moxxibot.tournament")
+log = logging.getLogger("irisbot.tournament")
 
 S = 34                     # номер раздела в справке
 ADMIN_RANK = 3             # минимальный ранг для управления турнирами
