@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.pyo
+data/
+*.log
+.env
+bot_iric_*.py
