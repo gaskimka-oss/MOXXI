@@ -185,7 +185,8 @@ def panel_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📝 Описания участников", callback_data="ap:desc:0")],
         [InlineKeyboardButton(text="📜 Журнал снятий",
                               callback_data="ap:lifted:0")],
-        [InlineKeyboardButton(text="📊 Статистика", callback_data="ap:stat")],
+        [InlineKeyboardButton(text="🆘 Тикеты поддержки", callback_data="ap:tickets:open:0"),
+         InlineKeyboardButton(text="📊 Статистика", callback_data="ap:stat")],
         [InlineKeyboardButton(text="🔄 Обновить", callback_data="ap:main"),
          InlineKeyboardButton(text="🏠 В меню", callback_data="nav:home")],
     ])
@@ -690,6 +691,98 @@ async def cb_panel(call: CallbackQuery, bot: Bot):
 
     if not await is_staff(uid):
         return await call.answer("Панель только для администрации", show_alert=True)
+
+
+    if act == "tickets":
+        status = parts[2] if len(parts) > 2 else "open"
+        page = int(parts[3]) if len(parts) > 3 else 0
+        PAGE_SIZE = 5
+        offset = page * PAGE_SIZE
+
+        total = await db.fetchone("SELECT COUNT(*) c FROM support_tickets WHERE status=?", (status,))
+        total_cnt = total["c"] if total else 0
+        rows = await db.fetchall(
+            "SELECT id, user_id, user_name, text, ts FROM support_tickets WHERE status=? ORDER BY id DESC LIMIT ? OFFSET ?",
+            (status, PAGE_SIZE, offset)
+        )
+
+        lines = [
+            f"🆘 <b>Тикеты техподдержки ({'Открытые' if status == 'open' else 'Закрытые'})</b>",
+            f"<i>Всего: {total_cnt} · Страница {page + 1}/{(max(1, (total_cnt + PAGE_SIZE - 1) // PAGE_SIZE))}</i>\n"
+        ]
+        if not rows:
+            lines.append("<i>Нет тикетов в этой категории.</i>")
+        else:
+            for r in rows:
+                dt_str = time.strftime("%d.%m %H:%M", time.localtime(r["ts"]))
+                u_label = html.escape(r["user_name"] or str(r["user_id"]))
+                t_snip = html.escape((r["text"] or "")[:60].replace("\n", " "))
+                lines.append(f"• <b>#{r['id']}</b> ({dt_str}) от <b>{u_label}</b>:\n  <i>«{t_snip}»</i>")
+
+        kb_rows = []
+        for r in rows:
+            kb_rows.append([
+                InlineKeyboardButton(
+                    text=f"🔍 Тикет #{r['id']} ({(r['user_name'] or str(r['user_id']))[:15]})",
+                    callback_data=f"ap:tview:{r['id']}:{page}"
+                )
+            ])
+
+        nav = []
+        if page > 0:
+            nav.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"ap:tickets:{status}:{page - 1}"))
+        if offset + PAGE_SIZE < total_cnt:
+            nav.append(InlineKeyboardButton(text="Вперёд ➡️", callback_data=f"ap:tickets:{status}:{page + 1}"))
+        if nav:
+            kb_rows.append(nav)
+
+        toggle_btn = (
+            InlineKeyboardButton(text="✅ Закрытые", callback_data="ap:tickets:closed:0")
+            if status == "open" else
+            InlineKeyboardButton(text="🆘 Открытые", callback_data="ap:tickets:open:0")
+        )
+        kb_rows.append([toggle_btn, InlineKeyboardButton(text="🔙 В панель", callback_data="ap:main")])
+
+        await call.message.edit_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows), disable_web_page_preview=True)
+        return await call.answer()
+
+    if act == "tview":
+        t_id = int(parts[2])
+        page = int(parts[3]) if len(parts) > 3 else 0
+        ticket = await db.fetchone("SELECT * FROM support_tickets WHERE id=?", (t_id,))
+        if not ticket:
+            return await call.answer("Тикет не найден", show_alert=True)
+        dt_str = time.strftime("%d.%m.%Y %H:%M", time.localtime(ticket["ts"]))
+        u_label = html.escape(ticket["user_name"] or str(ticket["user_id"]))
+        lines = [
+            f"🆘 <b>Тикет #{ticket['id']}</b>",
+            f"📅 <b>Дата:</b> {dt_str}",
+            f"👤 <b>Пользователь:</b> {u_label} (ID: <code>{ticket['user_id']}</code>)",
+            f"📌 <b>Статус:</b> {'🟡 Открыт' if ticket['status'] == 'open' else '🟢 Закрыт'}\n",
+            f"❓ <b>Вопрос:</b>\n{html.escape(ticket['text'] or '')}\n"
+        ]
+        if ticket.get("answer"):
+            lines.append(f"💬 <b>Ответ:</b>\n{html.escape(ticket['answer'])}\n")
+
+        kb_rows = []
+        if ticket["status"] == "open":
+            kb_rows.append([
+                InlineKeyboardButton(text="✅ Закрыть тикет", callback_data=f"ap:tclose:{t_id}:{page}")
+            ])
+        kb_rows.append([
+            InlineKeyboardButton(text="🔙 К списку тикетов", callback_data=f"ap:tickets:{ticket['status']}:{page}")
+        ])
+        await call.message.edit_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows), disable_web_page_preview=True)
+        return await call.answer()
+
+    if act == "tclose":
+        t_id = int(parts[2])
+        page = int(parts[3]) if len(parts) > 3 else 0
+        await db.execute("UPDATE support_tickets SET status='closed' WHERE id=?", (t_id,))
+        await call.answer("✅ Тикет закрыт!")
+        text, kb = await panel_text(uid), panel_kb()
+        await call.message.edit_text(text, reply_markup=kb)
+        return
 
     if act == "main":
         await call.message.edit_text(await panel_text(uid), reply_markup=panel_kb())

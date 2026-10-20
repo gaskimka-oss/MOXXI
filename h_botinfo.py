@@ -19,7 +19,7 @@ from aiogram.types import (
 import db
 from core_registry import REGISTRY, Cmd
 
-log = logging.getLogger("moxxibot.botinfo")
+log = logging.getLogger("irisbot.botinfo")
 router = Router(name="botinfo")
 S = 32
 

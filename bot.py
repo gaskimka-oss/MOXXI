@@ -69,17 +69,10 @@ import h_titles as titles
 import h_party_games as party_games
 import h_webapp as webapp
 import h_community_support as community_support
-import h_owner_panel as owner_panel
-import h_social_fun as social_fun
-import h_security_plus as security_plus
-import h_staff_plus as staff_plus
-import h_economy_plus as economy_plus
-import h_social_plus as social_plus
-import h_veteran as veteran
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s")
-log = logging.getLogger("moxxibot")
+log = logging.getLogger("irisbot")
 
 
 async def _delayed_delete_msg(msg: Message, delay: float = 2.0) -> None:
@@ -123,13 +116,7 @@ async def keyboard_middleware(handler, event, data: dict):
 
 
 async def user_middleware(handler, event, data: dict):
-    """Регистрация пользователя/чата, глобальный бан, «тихий режим» чата, ЧС нарушающих групп."""
-    if hasattr(event, "text") and event.text:
-        log.info("📩 [ВХОДЯЩЕЕ] chat=%s (%s) user=%s (%s): %r (reply=%s)",
-                 getattr(event.chat, 'id', None), getattr(event.chat, 'title', 'личка'),
-                 getattr(event.from_user, 'id', None), getattr(event.from_user, 'first_name', None),
-                 getattr(event, 'text', None),
-                 bool(getattr(event, 'reply_to_message', None)))
+    """Регистрация пользователя/чата, глобальный бан, «тихий режим» чата."""
     user = getattr(event, "from_user", None)
     if user and not user.is_bot and user.id != 777000:
         row = await db.get_user(user.id)
@@ -138,29 +125,6 @@ async def user_middleware(handler, event, data: dict):
         await db.touch_user(user.id, user.username, user.first_name)
     chat = getattr(event, "chat", None)
     if chat is not None and chat.type in {"group", "supergroup"}:
-        # Проверка на ЧС группы (черный список нарушающих групп: интим, спам, коммерция)
-        is_bl, bl_reason = await db.is_chat_blacklisted(chat.id)
-        if is_bl:
-            try:
-                bot_obj = data.get("bot") or getattr(event, "bot", None)
-                if bot_obj:
-                    await bot_obj.send_message(
-                        chat.id,
-                        f"⛔ ⚠️ <b>Бот Moxxi удален из этой группы администрацией!</b>\n"
-                        f"🚫 <b>Причина:</b> <i>{bl_reason}</i>\n"
-                        f"Группа внесена в глобальный чёрный список."
-                    )
-                    await bot_obj.leave_chat(chat.id)
-            except Exception:
-                pass
-            return
-
-        # Проверка временно отключенного бота в группе
-        if await db.is_chat_disabled(chat.id):
-            txt = (getattr(event, "text", "") or "").lower().lstrip("!./ ")
-            if not txt.startswith(("вкл чат", "включить чат")):
-                return
-
         # Любое сообщение/нажатие в группе подтверждает, что пользователь
         # сейчас в чате. События выхода отдельно запишет core_clan_sync.
         if user and not user.is_bot:
@@ -177,6 +141,22 @@ async def user_middleware(handler, event, data: dict):
                 await _pending.apply_for_user(data.get("bot"), chat.id, user)
             except Exception:
                 pass
+            if user.username:
+                try:
+                    s_rows = await db.fetchall(
+                        "SELECT chat_id, rank FROM staff WHERE lower(username)=lower(?) AND (user_id=0 OR user_id IS NULL)",
+                        (user.username,)
+                    )
+                    if s_rows:
+                        from core_ranks import set_rank
+                        for s in s_rows:
+                            await db.execute(
+                                "UPDATE staff SET user_id=?, name=? WHERE chat_id=? AND lower(username)=lower(?)",
+                                (user.id, user.first_name, s["chat_id"], user.username)
+                            )
+                            await set_rank(s["chat_id"], user.id, s["rank"], by=0)
+                except Exception:
+                    pass
         await db.register_chat(chat.id, chat.title)
         if isinstance(event, Message):
             try:

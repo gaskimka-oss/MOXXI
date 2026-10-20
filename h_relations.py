@@ -1,11 +1,11 @@
-"""Модуль отношений и браков (ОТН): 1 в 1 как в Боте.
+"""Модуль отношений и браков (ОТН): 1 в 1 как в Ирисе.
 
 Включает:
 - Создание отношений, брак, развод
 - Прокачка отношений по уровням (1-8) с 15 уникальными действиями и таймерами
 - VIP и VIP+ бонусы к очкам любви (+25% и +50%)
 - Механика «Обида» и «Задобрить» (1-15 баллов каждые 5 мин до 100)
-- Совместное имущество и покупка за монеты
+- Совместное имущество и покупка за ириски
 - Дети (рождение, уход)
 - Интерактивное Inline-меню («отн меню»)
 """
@@ -277,15 +277,6 @@ async def format_rel_card(rel: dict, bot: Bot, viewer_id: int | None = None) -> 
             header_title = f"💖 <b>Отношения пары [Пара #{rel_idx}{main_tag} из {len(user_rels)}]</b> 💖"
 
     bank_bal, _ = await db.get_rel_bank_with_interest(rel["id"])
-    ring_data = await db.get_rel_ring(rel["id"])
-    if ring_data and ring_data.get("ring_key") in RINGS:
-        r_info = RINGS[ring_data["ring_key"]]
-        gu = await db.get_user(ring_data["giver_id"])
-        gname = gu["first_name"] if gu else "Партнёр"
-        ring_line = f"💍 <b>Обручальное кольцо:</b> {r_info['name']} <i>(подарил {html.escape(gname)})</i>\n   └ ✨ <i>{r_info['bonus_desc']}</i>"
-    else:
-        ring_line = "💍 <b>Обручальное кольцо:</b> <i>Нет кольца (<code>ювелирка</code> / <code>подарить кольцо</code>)</i>"
-
     text = (
         f"{header_title}\n\n"
         f"👩‍❤️‍👨 <b>{mention_id(rel['user1_id'], name1)}</b>  ➕  "
@@ -293,9 +284,8 @@ async def format_rel_card(rel: dict, bot: Bot, viewer_id: int | None = None) -> 
         f"▫️ Статус: {status_line}\n"
         f"▫️ Вместе: <b>{days} дн.</b> (с {time.strftime('%d.%m.%Y', time.localtime(rel['created_at']))})\n"
         f"▫️ Уровень любви: <b>Уровень {lvl}</b> 🏆\n"
-        f"{xp_line}\n"
-        f"{ring_line}\n\n"
-        f"🏦 <b>Семейный банк:</b> <code>{bank_bal:,} 🪙</code> (+1% в день) <i>(<code>семейный банк положить/снять</code>)</i>\n"
+        f"{xp_line}\n\n"
+        f"🏦 <b>Семейный банк:</b> <code>{bank_bal:,} 🌑</code> (+1% в день) <i>(<code>семейный банк положить/снять</code>)</i>\n"
         f"🏠 <b>Совместное имущество:</b>\n{prop_str}\n\n"
         f"👶 <b>Дети пары:</b>\n{c_list}\n\n"
         f"💡 <i>Используйте <code>отн меню</code> / <code>мой отн 1</code> / <code>мой отн 2</code> для переключения между союзами!</i>"
@@ -323,7 +313,6 @@ def rel_main_keyboard(rel_id: int, viewer_id: int | None = None, total_rels: int
     ])
     rows.append([
         InlineKeyboardButton(text="🏦 Семейный банк", callback_data=f"rel_ui:bank:{rel_id}"),
-        InlineKeyboardButton(text="💍 Кольца", callback_data=f"rel_ui:rings:{rel_id}"),
         InlineKeyboardButton(text="📜 Все действия", callback_data=f"rel_ui:acts:{rel_id}"),
     ])
     rows.append([
@@ -596,7 +585,7 @@ async def cb_proposal(call: CallbackQuery, bot: Bot):
         f"Вам открыт <b>1-й уровень пары</b>! Используйте <code>отн</code>, "
         f"делайте комплименты и копите средства в <code>семейный банк</code>! ❤️\n\n"
         f"🔔 <i>Гости свадьбы могут осыпать молодых монетами кнопкой ниже!</i>\n"
-        f"🎁 <b>Подарков в семейный сейф:</b> <code>{gifts_sum:,} 🪙</code> <i>(поздравили: {gifts_cnt} гостей)</i>",
+        f"🎁 <b>Подарков в семейный сейф:</b> <code>{gifts_sum:,} 🌑</code> <i>(поздравили: {gifts_cnt} гостей)</i>",
         reply_markup=wedding_kb,
         disable_web_page_preview=True)
     await call.answer("Поздравляем со свадьбой! 💍", show_alert=True)
@@ -855,8 +844,8 @@ async def process_rel_action(message: Message, bot: Bot, action_key: str, **kw):
     user = await db.get_user(me_id)
     if user["balance"] < cost:
         return await message.reply(
-            f"🪙 Не хватает монет для действия «{name}»!\n"
-            f"Требуется: <b>{cost} 🪙</b>, у вас: <b>{user['balance']} 🪙</b>.\n"
+            f"🌑 Не хватает монет для действия «{name}»!\n"
+            f"Требуется: <b>{cost} 🌑</b>, у вас: <b>{user['balance']} 🌑</b>.\n"
             f"Заработайте монеты командой <code>работа</code>!")
 
     # Списываем баланс и ставим кулдаун
@@ -876,17 +865,6 @@ async def process_rel_action(message: Message, bot: Bot, action_key: str, **kw):
             vip_badge = " <i>(+25% VIP бонус)</i>"
 
     earned_xp = xp + bonus_xp
-
-    # Бонус от обручального кольца
-    ring_data = await db.get_rel_ring(rel["id"])
-    ring_badge = ""
-    if ring_data and ring_data.get("ring_key") in RINGS:
-        r_info = RINGS[ring_data["ring_key"]]
-        mult = r_info.get("love_mult", 1.0)
-        ring_bonus_xp = int(earned_xp * (mult - 1.0))
-        earned_xp += ring_bonus_xp
-        ring_badge = f" <i>(+{int((mult-1.0)*100)}% бонус {r_info['badge']} кольца)</i>"
-
     new_xp, new_lvl, lvl_up = await db.add_rel_xp(rel["id"], earned_xp)
 
     details = ACTION_DETAILS.get(action_key, {})
@@ -915,8 +893,8 @@ async def process_rel_action(message: Message, bot: Bot, action_key: str, **kw):
 
     reply_text = (
         f"{main_action_line}\n\n"
-        f"💖 Получено: <b>+{earned_xp} любви</b>{vip_badge}{ring_badge}\n"
-        f"🪙 Потрачено: <b>{cost} 🪙</b>\n"
+        f"💖 Получено: <b>+{earned_xp} любви</b>{vip_badge}\n"
+        f"🌑 Потрачено: <b>{cost} 🌑</b>\n"
         f"✨ Всего любви: <b>{new_xp}</b> (Уровень {new_lvl})"
     )
 
@@ -1176,7 +1154,7 @@ async def cmd_buy_property(message: Message, bot: Bot, args: str = "", **kw):
             break
 
     if not found_key:
-        lines = [f"• <code>отн купить {k}</code> — {e} {n} (<b>{p:,} 🪙</b>, Ур. {l})"
+        lines = [f"• <code>отн купить {k}</code> — {e} {n} (<b>{p:,} 🌑</b>, Ур. {l})"
                  for k, (n, e, p, l) in PROPERTY_CATALOG.items()]
         return await message.reply(
             "🛍 <b>Каталог совместного имущества:</b>\n\n" + "\n".join(lines))
@@ -1191,7 +1169,7 @@ async def cmd_buy_property(message: Message, bot: Bot, args: str = "", **kw):
 
     user = await db.get_user(me_id)
     if user["balance"] < price:
-        return await message.reply(f"🪙 Не хватает монет: нужно <b>{price:,} 🪙</b>, у вас <b>{user['balance']:,} 🪙</b>.")
+        return await message.reply(f"🌑 Не хватает монет: нужно <b>{price:,} 🌑</b>, у вас <b>{user['balance']:,} 🌑</b>.")
 
     await db.add_balance(me_id, -price, f"buy_{found_key}")
     await db.add_rel_property(rel["id"], found_key, f"{emoji} {name}", price)
@@ -1204,7 +1182,7 @@ async def cmd_buy_property(message: Message, bot: Bot, args: str = "", **kw):
     await message.reply(
         f"🎉 <b>Поздравляем с покупкой!</b> 🎉\n\n"
         f"{mention(message.from_user)} приобрёл(а) {emoji} <b>{name}</b> в совместное владение "
-        f"с {mention_id(other_id, pname)} за <b>{price:,} 🪙</b>!\n"
+        f"с {mention_id(other_id, pname)} за <b>{price:,} 🌑</b>!\n"
         f"💖 Получено <b>+{price // 20} любви</b> за крупное приобретение!")
 
 
@@ -1278,7 +1256,7 @@ async def cb_rel_ui(call: CallbackQuery, bot: Bot):
             status = "✅" if rel["level"] >= lvl else f"🔒 (с {lvl} ур.)"
             left = await db.get_rel_cooldown_left(rel_id, call.from_user.id, k, cd)
             cd_s = f"⏳ {human_period(left)}" if left > 0 else "🟢 Готово"
-            lines.append(f"{status} {emoji} <b>{name}</b> (+{xp} любви)\n   🪙 {cost} 🪙 · {human_period(cd)} · {cd_s}")
+            lines.append(f"{status} {emoji} <b>{name}</b> (+{xp} любви)\n   🌑 {cost} 🌑 · {human_period(cd)} · {cd_s}")
 
         await call.message.edit_text("\n".join(lines), reply_markup=back_kb)
         return await call.answer()
@@ -1293,7 +1271,7 @@ async def cb_rel_ui(call: CallbackQuery, bot: Bot):
             lines = ["🏠 <b>Совместное имущество пары:</b>\n"]
             for p in props:
                 d = time.strftime('%d.%m.%Y', time.localtime(p['bought_at']))
-                lines.append(f"• {p['item_name']} — куплено {d} за {p['price']:,} 🪙")
+                lines.append(f"• {p['item_name']} — куплено {d} за {p['price']:,} 🌑")
             text = "\n".join(lines)
         await call.message.edit_text(text, reply_markup=back_kb)
         return await call.answer()
@@ -1319,8 +1297,8 @@ async def cb_rel_ui(call: CallbackQuery, bot: Bot):
         gifts_sum, gifts_cnt = await db.get_wedding_gifts_stats(rel_id)
         text = (
             f"🏦 <b>СЕМЕЙНЫЙ БАНК ПАРЫ</b> 💰\n\n"
-            f"💵 Баланс совместной казны: <b>{bank_bal:,} 🪙</b>\n"
-            f"🎁 Подарков от гостей со свадьбы: <b>{gifts_sum:,} 🪙</b> (гостей: {gifts_cnt})\n\n"
+            f"💵 Баланс совместной казны: <b>{bank_bal:,} 🌑</b>\n"
+            f"🎁 Подарков от гостей со свадьбы: <b>{gifts_sum:,} 🌑</b> (гостей: {gifts_cnt})\n\n"
             f"💡 <i>Любой из супругов может вносить и снимать средства:</i>\n"
             f"• <code>семейный банк положить [сумма]</code>\n"
             f"• <code>семейный банк снять [сумма]</code>"
@@ -1332,172 +1310,9 @@ async def cb_rel_ui(call: CallbackQuery, bot: Bot):
         lines = ["🛍 <b>Магазин имущества для пар</b>\n"]
         for k, (n, e, p, l) in PROPERTY_CATALOG.items():
             avail = "✅ Доступно" if rel["level"] >= l else f"🔒 С {l} ур."
-            lines.append(f"{e} <b>{n}</b> — <b>{p:,} 🪙</b> ({avail})\n   Купить: <code>отн купить {k}</code>")
+            lines.append(f"{e} <b>{n}</b> — <b>{p:,} 🌑</b> ({avail})\n   Купить: <code>отн купить {k}</code>")
         await call.message.edit_text("\n".join(lines), reply_markup=back_kb)
         return await call.answer()
-
-    elif action == "rings":
-        ring_data = await db.get_rel_ring(rel_id)
-        active_str = "<i>У вашей пары пока нет кольца</i>"
-        if ring_data and ring_data.get("ring_key") in RINGS:
-            r = RINGS[ring_data["ring_key"]]
-            gu = await db.get_user(ring_data["giver_id"])
-            gname = gu["first_name"] if gu else "Партнёр"
-            active_str = f"<b>{r['name']}</b> <i>(подарил {html.escape(gname)})</i>\n└ ✨ <i>{r['bonus_desc']}</i>"
-
-        lines = [
-            "💍 <b>ЮВЕЛИРНЫЙ САЛОН ОБРУЧАЛЬНЫХ КОЛЕЦ</b> 💎\n",
-            f"Текущее кольцо союза:\n{active_str}\n",
-            "━━━━━━━━━━━━━━━━━━━━",
-            "🛍 <b>Каталог колец:</b>\n"
-        ]
-        ring_rows = []
-        for r_id, r in RINGS.items():
-            lines.append(f"{r['name']} — <b>{r['price']:,} 🪙</b>\n   └ {r['bonus_desc']}\n")
-            ring_rows.append([InlineKeyboardButton(text=f"🎁 Купить {r['badge']} ({r['price']:,} 🪙)", callback_data=f"rel_buy_ring:{rel_id}:{r_id}")])
-        ring_rows.append([InlineKeyboardButton(text="◀️ Назад в меню", callback_data=f"rel_ui:main:{rel_id}")])
-        r_kb = InlineKeyboardMarkup(inline_keyboard=ring_rows)
-        await call.message.edit_text("\n".join(lines), reply_markup=r_kb)
-        return await call.answer()
-
-
-@router.callback_query(F.data.startswith("rel_buy_ring:"))
-async def cb_buy_ring(call: CallbackQuery, bot: Bot):
-    parts = call.data.split(":")
-    rel_id = int(parts[1])
-    ring_id = parts[2]
-
-    rel = await db.get_rel_by_id(rel_id)
-    if not rel:
-        return await call.answer("Отношения не найдены.", show_alert=True)
-
-    if call.from_user.id not in (rel["user1_id"], rel["user2_id"]):
-        return await call.answer("Кольцо можно купить только для своей пары!", show_alert=True)
-
-    ring = RINGS.get(ring_id)
-    if not ring:
-        return await call.answer("Кольцо не найдено.", show_alert=True)
-
-    me_id = call.from_user.id
-    user = await db.get_user(me_id)
-    if user["balance"] < ring["price"]:
-        return await call.answer(f"Недостаточно монет! Нужно {ring['price']:,} 🪙, у вас {user['balance']:,} 🪙.", show_alert=True)
-
-    await db.add_balance(me_id, -ring["price"], "buy_rel_ring", str(rel_id))
-    await db.set_rel_ring(rel_id, ring["id"], me_id)
-
-    other_id = get_other_id(rel, me_id)
-    partner = await db.get_user(other_id)
-    pname = partner["first_name"] or str(other_id)
-
-    love_bonus = int(ring["price"] * 0.10)
-    await db.add_rel_xp(rel_id, love_bonus)
-
-    res = (
-        f"💍 ✨ <b>ГРАНДИОЗНЫЙ РОМАНТИЧЕСКИЙ ЖЕСТ!</b> ✨ 💍\n"
-        f"✦ ══ • ⊰ 💖 💎 👑 💎 💖 ⊱ • ══ ✦\n\n"
-        f"👩‍❤️‍👨 {mention(call.from_user)} преподнёс(ла) для {mention_id(other_id, pname)}:\n"
-        f"<b>{ring['name']}</b>!\n\n"
-        f"✨ <i>Постоянный эффект союза:</i>\n"
-        f"└ <b>{ring['bonus_desc']}</b>\n\n"
-        f"❤️ <i>Связь стала крепче: +{love_bonus:,} очков любви!</i>\n"
-        f"🥂 <i>Поздравляем пару с новым этапом в отношениях!</i>"
-    )
-    try:
-        await call.message.edit_text(res)
-    except Exception:
-        await call.message.reply(res)
-    await call.answer(f"Кольцо {ring['name']} успешно подарено!")
-
-
-@router.message(Cmd("ювелирка", "кольца", "салон колец", "украшения", section=S_REL,
-                    usage="ювелирка", desc="Ювелирный салон обручальных колец"))
-async def cmd_jewelry_shop(message: Message, bot: Bot, args: str = "", **kw):
-    me_id = message.from_user.id
-    rel = await db.get_relationship(me_id)
-    if not rel:
-        return await message.reply(
-            "💍 <b>ЮВЕЛИРНЫЙ САЛОН МОКСИ</b> 💎\n\n"
-            "Здесь продаются роскошные обручальные кольца для влюблённых пар!\n"
-            "Чтобы подарить кольцо, сначала вступите в отношения: <code>отн @ссылка</code>."
-        )
-
-    ring_data = await db.get_rel_ring(rel["id"])
-    active_str = "<i>У вашей пары пока нет кольца</i>"
-    if ring_data and ring_data.get("ring_key") in RINGS:
-        r = RINGS[ring_data["ring_key"]]
-        gu = await db.get_user(ring_data["giver_id"])
-        gname = gu["first_name"] if gu else "Партнёр"
-        active_str = f"<b>{r['name']}</b> <i>(подарил {html.escape(gname)})</i>\n└ ✨ <i>{r['bonus_desc']}</i>"
-
-    lines = [
-        "💍 ✨ <b>ЮВЕЛИРНЫЙ САЛОН МОКСИ</b> ✨ 💎\n",
-        f"Текущее кольцо союза:\n{active_str}\n",
-        "━━━━━━━━━━━━━━━━━━━━",
-        "🛍 <b>Каталог обручальных колец:</b>\n"
-    ]
-    rows = []
-    for r_id, r in RINGS.items():
-        lines.append(f"{r['name']} — <b>{r['price']:,} 🪙</b>\n   └ {r['bonus_desc']}\n")
-        rows.append([InlineKeyboardButton(text=f"🎁 Купить {r['badge']} ({r['price']:,} 🪙)", callback_data=f"rel_buy_ring:{rel['id']}:{r_id}")])
-
-    lines.append("💡 <i>Купить кольцо можно кнопкой или командой: <code>подарить кольцо 1</code> ... <code>подарить кольцо 6</code></i>")
-    kb = InlineKeyboardMarkup(inline_keyboard=rows)
-    await message.reply("\n".join(lines), reply_markup=kb)
-
-
-@router.message(Cmd("подарить кольцо", "купить кольцо", section=S_REL,
-                    usage="подарить кольцо [номер/ключ]", desc="Подарить обручальное кольцо партнёру"))
-async def cmd_gift_ring(message: Message, bot: Bot, args: str = "", **kw):
-    me_id = message.from_user.id
-    rel = await db.get_relationship(me_id)
-    if not rel:
-        return await message.reply("У вас нет отношений! Сначала вступите в союз: <code>отн @ссылка</code>")
-
-    choice = (args or "").strip().lower()
-    ring = None
-    if choice in RINGS:
-        ring = RINGS[choice]
-    else:
-        for r in RINGS.values():
-            if choice in r["name"].lower() or choice == r["id"]:
-                ring = r
-                break
-
-    if not ring:
-        return await message.reply(
-            "Укажите номер кольца из салона (от 1 до 6):\n"
-            "Пример: <code>подарить кольцо 3</code> или откройте <code>ювелирка</code>!"
-        )
-
-    user = await db.get_user(me_id)
-    if user["balance"] < ring["price"]:
-        return await message.reply(
-            f"🪙 Недостаточно монет для покупки {ring['name']}!\n"
-            f"Нужно: <b>{ring['price']:,} 🪙</b>, у вас: <b>{user['balance']:,} 🪙</b>."
-        )
-
-    await db.add_balance(me_id, -ring["price"], "buy_rel_ring", str(rel["id"]))
-    await db.set_rel_ring(rel["id"], ring["id"], me_id)
-
-    other_id = get_other_id(rel, me_id)
-    partner = await db.get_user(other_id)
-    pname = partner["first_name"] or str(other_id)
-
-    love_bonus = int(ring["price"] * 0.10)
-    await db.add_rel_xp(rel["id"], love_bonus)
-
-    res = (
-        f"💍 ✨ <b>ГРАНДИОЗНЫЙ РОМАНТИЧЕСКИЙ ЖЕСТ!</b> ✨ 💍\n"
-        f"✦ ══ • ⊰ 💖 💎 👑 💎 💖 ⊱ • ══ ✦\n\n"
-        f"👩‍❤️‍👨 {mention(message.from_user)} преподнёс(ла) для {mention_id(other_id, pname)}:\n"
-        f"<b>{ring['name']}</b>!\n\n"
-        f"✨ <i>Постоянный эффект союза:</i>\n"
-        f"└ <b>{ring['bonus_desc']}</b>\n\n"
-        f"❤️ <i>Связь стала крепче: +{love_bonus:,} очков любви!</i>\n"
-        f"🥂 <i>Поздравляем пару с новым этапом в отношениях!</i>"
-    )
-    await message.reply(res)
 
 
 # ================== СВАДЕБНЫЕ ПОДАРКИ, БЫСТРЫЕ ДЕЙСТВИЯ И СЕМЕЙНЫЙ БАНК ==================
@@ -1511,7 +1326,7 @@ async def cb_wedding_gift(call: CallbackQuery, bot: Bot):
     giver_id = call.from_user.id
     bal = await db.get_balance(giver_id)
     if bal < amount:
-        return await call.answer(f"Недостаточно монет для подарка! Нужно {amount:,} 🪙, у вас {bal:,} 🪙.", show_alert=True)
+        return await call.answer(f"Недостаточно монет для подарка! Нужно {amount:,} 🌑, у вас {bal:,} 🌑.", show_alert=True)
 
     rel = await db.get_rel_by_id(rel_id)
     if not rel:
@@ -1537,15 +1352,15 @@ async def cb_wedding_gift(call: CallbackQuery, bot: Bot):
             f"теперь официально муж и жена!\n\n"
             f"Вам открыт <b>1-й уровень пары</b>! Используйте <code>отн меню</code>, "
             f"делайте комплименты и копите средства в <code>семейный банк</code>! ❤️\n\n"
-            f"🎁 <b>Подарков молодым:</b> <code>{total_gifts:,} 🪙</code> <i>(поздравили: {count_givers} гостей)</i>\n"
-            f"✨ <i>Последний подарок от: {mention(call.from_user)} (+{amount:,} 🪙)!</i>",
+            f"🎁 <b>Подарков молодым:</b> <code>{total_gifts:,} 🌑</code> <i>(поздравили: {count_givers} гостей)</i>\n"
+            f"✨ <i>Последний подарок от: {mention(call.from_user)} (+{amount:,} 🌑)!</i>",
             reply_markup=wedding_kb,
             disable_web_page_preview=True
         )
     except Exception:
         pass
 
-    await call.answer(f"🎉 Вы подарили {amount:,} 🪙 молодожёнам! Средства зачислены в их семейный банк.", show_alert=True)
+    await call.answer(f"🎉 Вы подарили {amount:,} 🌑 молодожёнам! Средства зачислены в их семейный банк.", show_alert=True)
 
 
 @router.callback_query(F.data.startswith("rel_qact:"))
@@ -1605,11 +1420,11 @@ async def cmd_family_bank(message: Message, bot: Bot, args: str = "", **kw):
 
     if not p or p[0].lower() in ("инфо", "баланс", "счёт", "счет"):
         gifts_sum, gifts_cnt = await db.get_wedding_gifts_stats(rel["id"])
-        int_tag = f"\n📈 <i>Начислены ежедневные проценты (+1% в день): <b>+{interest:,} 🪙</b>!</i>" if interest > 0 else ""
+        int_tag = f"\n📈 <i>Начислены ежедневные проценты (+1% в день): <b>+{interest:,} 🌑</b>!</i>" if interest > 0 else ""
         return await message.reply(
             f"🏦 <b>СЕМЕЙНЫЙ БАНК ПАРЫ</b> 💰\n\n"
-            f"💵 Баланс совместной казны: <b>{bank_bal:,} 🪙</b> (+1% в день){int_tag}\n"
-            f"🎁 Свадебных подарков от гостей: <b>{gifts_sum:,} 🪙</b> (гостей: {gifts_cnt})\n\n"
+            f"💵 Баланс совместной казны: <b>{bank_bal:,} 🌑</b> (+1% в день){int_tag}\n"
+            f"🎁 Свадебных подарков от гостей: <b>{gifts_sum:,} 🌑</b> (гостей: {gifts_cnt})\n\n"
             f"💡 <b>Команды управления казной:</b>\n"
             f"• <code>семейный банк положить 5000</code> — пополнить казну\n"
             f"• <code>семейный банк снять 2500</code> — снять на личный баланс"
@@ -1624,13 +1439,13 @@ async def cmd_family_bank(message: Message, bot: Bot, args: str = "", **kw):
         if not amt or amt <= 0:
             return await message.reply("Укажите сумму: <code>семейный банк положить 1000</code> или <code>семейный банк положить все</code>")
         if amt > u["balance"]:
-            return await message.reply(f"Недостаточно монет на личном балансе ({u['balance']:,} 🪙).")
+            return await message.reply(f"Недостаточно монет на личном балансе ({u['balance']:,} 🌑).")
         await db.add_balance(me_id, -amt, "family_bank_dep", str(rel["id"]))
         new_bank = await db.add_rel_bank(rel["id"], amt)
         return await message.reply(
             f"🏦 <b>Семейный банк пополнен!</b>\n\n"
-            f"{mention(message.from_user)} внёс в казну: <b>+{amt:,} 🪙</b>\n"
-            f"Текущий баланс семьи: <b>{new_bank:,} 🪙</b>"
+            f"{mention(message.from_user)} внёс в казну: <b>+{amt:,} 🌑</b>\n"
+            f"Текущий баланс семьи: <b>{new_bank:,} 🌑</b>"
         )
 
     elif act in ("снять", "вывести", "забрать", "-"):
@@ -1638,14 +1453,14 @@ async def cmd_family_bank(message: Message, bot: Bot, args: str = "", **kw):
         if not amt or amt <= 0:
             return await message.reply("Укажите сумму: <code>семейный банк снять 1000</code> или <code>семейный банк снять все</code>")
         if amt > bank_bal:
-            return await message.reply(f"В семейном банке недостаточно монет! В наличии: <b>{bank_bal:,} 🪙</b>.")
+            return await message.reply(f"В семейном банке недостаточно монет! В наличии: <b>{bank_bal:,} 🌑</b>.")
         new_bank = await db.add_rel_bank(rel["id"], -amt)
         new_user_bal = await db.add_balance(me_id, amt, "family_bank_withdraw", str(rel["id"]))
         return await message.reply(
             f"🏦 <b>Средства сняты из семейного банка!</b>\n\n"
-            f"{mention(message.from_user)} снял: <b>−{amt:,} 🪙</b>\n"
-            f"Остаток в семейном банке: <b>{new_bank:,} 🪙</b>\n"
-            f"Ваш личный баланс: <b>{new_user_bal:,} 🪙</b>"
+            f"{mention(message.from_user)} снял: <b>−{amt:,} 🌑</b>\n"
+            f"Остаток в семейном банке: <b>{new_bank:,} 🌑</b>\n"
+            f"Ваш личный баланс: <b>{new_user_bal:,} 🌑</b>"
         )
     else:
         return await message.reply(

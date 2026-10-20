@@ -20,7 +20,7 @@ from core_registry import MAX_RANK, Cmd
 from utils import mention_id
 
 router = Router(name="clan_sync")
-log = logging.getLogger("moxxibot.clan_sync")
+log = logging.getLogger("irisbot.clan_sync")
 
 LEAVE_REASON = "Выход из группы"
 ROLE_NAMES = {"admin": "админская", "clan": "основная"}

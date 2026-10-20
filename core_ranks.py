@@ -1,4 +1,4 @@
-"""Система рангов модераторов (0–5), как в Боте."""
+"""Система рангов модераторов (0–5), как в Ирисе."""
 from __future__ import annotations
 
 import time
@@ -60,25 +60,37 @@ async def set_rank(chat_id: int, user_id: int, rank: int, by: int = 0) -> None:
 
 
 async def effective_rank(message: Message, bot: Bot) -> int:
-    """Ранг с учётом ТГ-админки и создателя группы."""
+    """Ранг с учётом ТГ-админки, создателя группы и владельца бота."""
     if message.sender_chat and message.sender_chat.id == message.chat.id:
         return MAX_RANK  # анонимный админ группы = высший ранг
     if not message.from_user:
         return 0
     uid = message.from_user.id
+
+    import config
+    # Создатели и главные владельцы бота всегда имеют наивысший ранг во всех чатах
+    if config.is_bot_owner(uid):
+        return MAX_RANK
+
     if message.chat.type == "private":
-        return MAX_RANK if uid == OWNER_ID else 0
+        return MAX_RANK if config.is_bot_owner(uid) else 0
 
-    r = await get_rank(message.chat.id, uid)
-    if r:
-        return r
-
-    # ТГ-создатель чата получает высший ранг (Владелец чата), админ - 3
+    # Создатель группы в Telegram всегда наивысший ранг
     try:
         m = await bot.get_chat_member(message.chat.id, uid)
         if m.status == "creator":
             await set_rank(message.chat.id, uid, MAX_RANK, by=0)
             return MAX_RANK
+    except Exception:
+        pass
+
+    r = await get_rank(message.chat.id, uid)
+    if r:
+        return r
+
+    # ТГ-администратор по умолчанию получает ранг 5
+    try:
+        m = await bot.get_chat_member(message.chat.id, uid)
         if m.status == "administrator":
             return 5
     except Exception:
@@ -110,6 +122,14 @@ async def require(message: Message, bot: Bot, need: int, key: str = "") -> bool:
     r = await effective_rank(message, bot)
     if r >= need:
         return True
+
+    # Фраза без префикса случайно совпала с командой («всем привет») —
+    # молча пропускаем, ругаться на обычное сообщение нельзя.
+    text = (message.text or message.caption or "").strip()
+    if text and text[0] not in "!./":
+        low = text.lower()
+        if not (low.startswith("ирис") or low.startswith("ириска")):
+            return False
 
     await message.reply(
         f"⛔️ Недостаточно прав.\n"

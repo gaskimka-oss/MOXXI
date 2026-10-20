@@ -218,13 +218,25 @@ async def cmd_dk(message: Message, bot: Bot, args: str = "", **kw):
             return await message.reply(f"Команда «{html.escape(name_part)}» не найдена.\n"
                                        f"Посмотреть список: <code>ДК</code>")
         me = await effective_rank(message, bot)
-        if rank > me:
+        import config
+        is_owner = config.is_bot_owner(message.from_user.id if message.from_user else 0)
+        if not is_owner and rank > me:
             return await message.reply(
                 f"⛔️ Нельзя установить ранг выше своего.\nВаш ранг: <b>{rank_label(me)}</b>")
         await db.execute(
             "INSERT INTO cmd_access (chat_id,cmd,rank,enabled) VALUES (?,?,?,1) "
             "ON CONFLICT(chat_id,cmd) DO UPDATE SET rank=excluded.rank, enabled=1",
             (message.chat.id, cmd.key, rank))
+        if cmd.key == "повысить":
+            await db.execute(
+                "INSERT INTO cmd_access (chat_id,cmd,rank,enabled) VALUES (?,?,?,1) "
+                "ON CONFLICT(chat_id,cmd) DO UPDATE SET rank=excluded.rank, enabled=1",
+                (message.chat.id, "+модер", rank))
+        elif cmd.key == "+модер":
+            await db.execute(
+                "INSERT INTO cmd_access (chat_id,cmd,rank,enabled) VALUES (?,?,?,1) "
+                "ON CONFLICT(chat_id,cmd) DO UPDATE SET rank=excluded.rank, enabled=1",
+                (message.chat.id, "повысить", rank))
         await _log(message.chat.id, cmd.key, rank, 1, message.from_user.id)
         lbl = f"{stars(rank)} {RANK_NAMES.get(rank)}" if rank else "всем участникам"
         return await message.reply(

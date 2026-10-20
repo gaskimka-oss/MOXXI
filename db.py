@@ -1005,6 +1005,232 @@ async def _migrate() -> None:
                     pass
 
 
+
+# ═══════════════════════════════════════════════════════════════
+# СТАФФ БОТА, РАНГИ, ЧС ГРУПП, УПРАВЛЕНИЕ И ГЛОБАЛЬНЫЕ НАСТРОЙКИ
+# ═══════════════════════════════════════════════════════════════
+
+BOT_STAFF_TITLES = {
+    1: "Хелпер",
+    2: "Модератор",
+    3: "Администратор",
+    4: "Владелец"
+}
+
+async def get_bot_staff_rank(user_id: int) -> int:
+    """Возвращает ранг стаффа бота: 4 = Владелец, 3 = Админ, 2 = Модер, 1 = Хелпер, 0 = Обычный игрок."""
+    import config
+    if config.is_bot_owner(user_id):
+        return 4
+    row = await fetchone("SELECT rank FROM bot_staff WHERE user_id=?", (user_id,))
+    if row:
+        return int(row["rank"])
+    return 0
+
+async def set_bot_staff_rank(user_id: int, rank: int, title: str = "", granted_by: int = 0) -> None:
+    now = int(time.time())
+    if not title:
+        title = BOT_STAFF_TITLES.get(rank, "Сотрудник")
+    await execute(
+        "INSERT INTO bot_staff (user_id, rank, title, granted_by, ts) VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET rank=excluded.rank, title=excluded.title, granted_by=excluded.granted_by, ts=excluded.ts",
+        (user_id, rank, title, granted_by, now)
+    )
+
+async def remove_bot_staff(user_id: int) -> bool:
+    await execute("DELETE FROM bot_staff WHERE user_id=?", (user_id,))
+    return True
+
+async def get_all_bot_staff() -> list[dict]:
+    rows = await fetchall(
+        "SELECT s.user_id, s.rank, s.title, s.granted_by, s.ts, u.first_name, u.username, u.nick "
+        "FROM bot_staff s LEFT JOIN users u ON s.user_id = u.user_id "
+        "ORDER BY s.rank DESC, s.ts ASC"
+    )
+    return [dict(r) for r in rows]
+
+async def blacklist_chat(chat_id: int, reason: str = "", banned_by: int = 0) -> None:
+    now = int(time.time())
+    await execute(
+        "INSERT INTO blacklisted_chats (chat_id, reason, banned_by, ts) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(chat_id) DO UPDATE SET reason=excluded.reason, banned_by=excluded.banned_by, ts=excluded.ts",
+        (chat_id, reason, banned_by, now)
+    )
+
+async def unblacklist_chat(chat_id: int) -> bool:
+    await execute("DELETE FROM blacklisted_chats WHERE chat_id=?", (chat_id,))
+    return True
+
+async def is_chat_blacklisted(chat_id: int) -> tuple[bool, str]:
+    row = await fetchone("SELECT reason FROM blacklisted_chats WHERE chat_id=?", (chat_id,))
+    if row:
+        return True, row["reason"] or "Нарушение правил сообщества (интим/18+, спам, коммерция)"
+    return False, ""
+
+async def get_blacklisted_chats() -> list[dict]:
+    rows = await fetchall("SELECT * FROM blacklisted_chats ORDER BY ts DESC")
+    return [dict(r) for r in rows]
+
+async def set_chat_disabled(chat_id: int, disabled: bool, by_id: int = 0) -> None:
+    if disabled:
+        now = int(time.time())
+        await execute(
+            "INSERT INTO disabled_chats (chat_id, disabled_by, ts) VALUES (?, ?, ?) "
+            "ON CONFLICT(chat_id) DO UPDATE SET disabled_by=excluded.disabled_by, ts=excluded.ts",
+            (chat_id, by_id, now)
+        )
+    else:
+        await execute("DELETE FROM disabled_chats WHERE chat_id=?", (chat_id,))
+
+async def is_chat_disabled(chat_id: int) -> bool:
+    row = await fetchone("SELECT 1 FROM disabled_chats WHERE chat_id=?", (chat_id,))
+    return bool(row)
+
+async def set_global_setting(key: str, value: str) -> None:
+    await execute(
+        "INSERT INTO settings (chat_id, key, value) VALUES (0, ?, ?) "
+        "ON CONFLICT(chat_id, key) DO UPDATE SET value=excluded.value",
+        (key, str(value))
+    )
+
+async def get_global_setting(key: str, default: str = "") -> str:
+    row = await fetchone("SELECT value FROM settings WHERE chat_id=0 AND key=?", (key,))
+    return str(row["value"]) if (row and row["value"] is not None) else default
+
+async def get_global_bot_stats() -> dict:
+    row_users = await fetchone("SELECT COUNT(*) as c, COALESCE(SUM(balance), 0) as s FROM users")
+    row_chats = await fetchone("SELECT COUNT(*) as c FROM chats")
+    row_tickets = await fetchone("SELECT COUNT(*) as c FROM support_tickets WHERE status='open'")
+    row_reviews = await fetchone("SELECT COUNT(*) as c FROM reviews")
+    row_sug = await fetchone("SELECT COUNT(*) as c FROM suggestions WHERE status='pending'")
+    row_bl = await fetchone("SELECT COUNT(*) as c FROM blacklisted_chats")
+    return {
+        "users_count": int(row_users["c"]) if row_users else 0,
+        "total_coins": int(row_users["s"]) if row_users else 0,
+        "chats_count": int(row_chats["c"]) if row_chats else 0,
+        "open_tickets": int(row_tickets["c"]) if row_tickets else 0,
+        "reviews_count": int(row_reviews["c"]) if row_reviews else 0,
+        "pending_ideas": int(row_sug["c"]) if row_sug else 0,
+        "blacklisted_chats": int(row_bl["c"]) if row_bl else 0,
+    }
+
+
+# ══════════════════ АНОНСЫ И ПЕРЕКЛИЧКИ С ИИ ══════════════════
+
+async def create_announcement(chat_id: int, creator_id: int, title: str, text: str, event_type: str = "general") -> int:
+    now = int(time.time())
+    cur = await execute(
+        "INSERT INTO announcements (chat_id, creator_id, title, text, event_type, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (chat_id, creator_id, title, text, event_type, now)
+    )
+    return int(cur.lastrowid or 0)
+
+
+async def set_announcement_msg_id(ann_id: int, msg_id: int) -> None:
+    await execute("UPDATE announcements SET msg_id = ? WHERE id = ?", (msg_id, ann_id))
+
+
+async def record_announcement_vote(ann_id: int, user_id: int, user_name: str, vote: str) -> None:
+    now = int(time.time())
+    await execute(
+        "INSERT INTO announcement_votes (ann_id, user_id, user_name, vote, updated_at) "
+        "VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(ann_id, user_id) DO UPDATE SET vote = excluded.vote, user_name = excluded.user_name, updated_at = excluded.updated_at",
+        (ann_id, user_id, user_name, vote, now)
+    )
+
+
+async def get_announcement_vote_counts(ann_id: int) -> dict[str, int]:
+    rows = await fetchall("SELECT vote, COUNT(*) as cnt FROM announcement_votes WHERE ann_id = ? GROUP BY vote", (ann_id,))
+    counts = {"yes": 0, "no": 0, "late": 0}
+    for r in rows:
+        v = r["vote"]
+        if v in counts:
+            counts[v] = int(r["cnt"])
+    return counts
+
+
+async def get_announcement_votes_detailed(ann_id: int) -> dict[str, list[str]]:
+    rows = await fetchall("SELECT user_id, user_name, vote FROM announcement_votes WHERE ann_id = ? ORDER BY updated_at ASC", (ann_id,))
+    res = {"yes": [], "no": [], "late": []}
+    for r in rows:
+        v = r["vote"]
+        if v in res:
+            res[v].append(r["user_name"] or str(r["user_id"]))
+    return res
+
+
+async def get_announcement(ann_id: int) -> dict | None:
+    return await fetchone("SELECT * FROM announcements WHERE id = ?", (ann_id,))
+
+
+# --- Цитатник чата ---------------------------------------------------
+async def add_chat_quote(chat_id: int, user_id: int, quote_text: str, author_name: str, adder_name: str) -> int:
+    now = int(time.time())
+    cur = await execute(
+        "INSERT INTO chat_quotes (chat_id, user_id, quote_text, author_name, adder_name, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (chat_id, user_id, quote_text, author_name, adder_name, now)
+    )
+    return int(cur.lastrowid or 0)
+
+
+async def get_random_chat_quote(chat_id: int) -> dict | None:
+    return await fetchone(
+        "SELECT quote_text, author_name, adder_name, created_at FROM chat_quotes WHERE chat_id=? ORDER BY RANDOM() LIMIT 1",
+        (chat_id,)
+    )
+
+
+async def get_chat_quotes_count(chat_id: int) -> int:
+    row = await fetchone("SELECT COUNT(*) as cnt FROM chat_quotes WHERE chat_id=?", (chat_id,))
+    return int(row["cnt"]) if row else 0
+
+
+# --- Пара Дня (Шипперинг) -------------------------------------------
+async def get_pair_of_day(chat_id: int, date_str: str) -> dict | None:
+    return await fetchone(
+        "SELECT user1_id, user2_id, user1_name, user2_name, compatibility, story FROM chat_pair_of_day "
+        "WHERE chat_id=? AND date_str=?",
+        (chat_id, date_str)
+    )
+
+
+async def set_pair_of_day(chat_id: int, date_str: str, u1_id: int, u2_id: int,
+                          u1_name: str, u2_name: str, compat: int, story: str) -> None:
+    await execute(
+        "INSERT OR REPLACE INTO chat_pair_of_day "
+        "(chat_id, date_str, user1_id, user2_id, user1_name, user2_name, compatibility, story) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (chat_id, date_str, u1_id, u2_id, u1_name, u2_name, compat, story)
+    )
+
+
+# --- Фильтр запрещённых слов ----------------------------------------
+async def add_filtered_word(chat_id: int, word: str, action: str = "warn") -> None:
+    await execute(
+        "INSERT INTO word_filters (chat_id, word, action) VALUES (?,?,?) "
+        "ON CONFLICT(chat_id, word) DO UPDATE SET action=excluded.action",
+        (chat_id, word.lower().strip(), action)
+    )
+
+
+async def remove_filtered_word(chat_id: int, word: str) -> None:
+    await execute(
+        "DELETE FROM word_filters WHERE chat_id=? AND lower(word)=lower(?)",
+        (chat_id, word.strip())
+    )
+
+
+async def get_filtered_words(chat_id: int) -> list[dict]:
+    return await fetchall("SELECT word, action FROM word_filters WHERE chat_id=?", (chat_id,))
+
+
+async def clear_filtered_words(chat_id: int) -> None:
+    await execute("DELETE FROM word_filters WHERE chat_id=?", (chat_id,))
+
+
 async def close() -> None:
     if _conn:
         await _conn.close()
@@ -1695,6 +1921,8 @@ async def set_comets(user_id: int, amount: int) -> int:
 
 
 # --- Игровой уровень и XP (1-100 LVL) -----------------------------------
+import bisect
+
 _BASE_LVLS = [
     (1, 0), (2, 10), (3, 25), (4, 50), (5, 90), (6, 150), (7, 230), (8, 330),
     (9, 450), (10, 600), (11, 800), (12, 1050), (13, 1350), (14, 1700),
@@ -1702,27 +1930,26 @@ _BASE_LVLS = [
 ]
 GAME_LVL_THRESHOLDS = list(_BASE_LVLS)
 _cur_xp = 5600
-for _l in range(21, 101):
+for _l in range(21, 10001):
     _step = int(900 + (_l - 20) * 120)
     _cur_xp += _step
     GAME_LVL_THRESHOLDS.append((_l, _cur_xp))
 
+_THRESHOLDS_XP = [t[1] for t in GAME_LVL_THRESHOLDS]
+
 
 def _calc_game_lvl(xp: int) -> tuple[int, int, int]:
-    """Возвращает (level, next_xp_req, cur_level_base_xp)."""
-    cur_lvl = 1
-    cur_base = 0
-    next_req = 10
-    for lvl, req in GAME_LVL_THRESHOLDS:
-        if xp >= req:
-            cur_lvl = lvl
-            cur_base = req
-        else:
-            next_req = req
-            break
-    else:
-        next_req = cur_base + cur_lvl * 500
-    return min(100, cur_lvl), next_req, cur_base
+    """Возвращает (level, next_xp_req, cur_level_base_xp) масштабируемый до 10 000 LVL."""
+    if xp <= 0:
+        return 1, GAME_LVL_THRESHOLDS[1][1], 0
+    idx = bisect.bisect_right(_THRESHOLDS_XP, xp)
+    if idx >= len(GAME_LVL_THRESHOLDS):
+        max_t = GAME_LVL_THRESHOLDS[-1]
+        return 10000, max_t[1] + 10000 * 500, max_t[1]
+    cur_lvl = GAME_LVL_THRESHOLDS[idx - 1][0]
+    cur_base = GAME_LVL_THRESHOLDS[idx - 1][1]
+    next_req = GAME_LVL_THRESHOLDS[idx][1]
+    return min(10000, cur_lvl), next_req, cur_base
 
 
 async def get_game_profile(user_id: int) -> dict:
@@ -1785,6 +2012,8 @@ async def change_user_business(user_id: int, biz_key: str, count_delta: int) -> 
             await execute("INSERT INTO user_businesses (user_id, biz_key, count, last_collect) VALUES (?, ?, ?, ?)",
                           (user_id, biz_key, new_cnt, now))
         return new_cnt
+
+
     else:
         new_cnt = max(0, int(row["count"]) + count_delta)
         if new_cnt == 0:
@@ -1805,6 +2034,57 @@ async def update_business_collect_time(user_id: int, biz_keys: Iterable[str]) ->
         (now, user_id, *keys)
     )
 
+
+
+
+# --- Улучшение предприятий (до 10 000 LVL) --------------------------------
+async def get_business_level(user_id: int, biz_key: str) -> int:
+    """Возвращает уровень предприятия игрока (по умолчанию 1)."""
+    row = await fetchone("SELECT level FROM business_upgrades WHERE user_id=? AND biz_key=?", (user_id, biz_key))
+    return int(row["level"]) if row else 1
+
+
+async def get_user_business_levels(user_id: int) -> dict[str, int]:
+    """Возвращает словарь {biz_key: level} для всех улучшений игрока."""
+    rows = await fetchall("SELECT biz_key, level FROM business_upgrades WHERE user_id=?", (user_id,))
+    return {r["biz_key"]: int(r["level"]) for r in rows}
+
+
+async def upgrade_business_level(user_id: int, biz_key: str, levels: int = 1) -> tuple[bool, int, str]:
+    """Улучшает предприятие на указанное количество уровней (до 10 000 LVL).
+    Каждый уровень даёт +5% к доходу предприятия.
+    Возвращает (успех, новый_уровень, сообщение).
+    """
+    levels = max(1, min(10000, levels))
+    cur_lvl = await get_business_level(user_id, biz_key)
+    if cur_lvl >= 10000:
+        return False, cur_lvl, "Предприятие уже достигло максимального 10 000 уровня!"
+
+    new_lvl = min(10000, cur_lvl + levels)
+    actual_levels = new_lvl - cur_lvl
+
+    from h_grams import BUSINESS_TYPES
+    info = BUSINESS_TYPES.get(biz_key)
+    base_price = info["base_price"] if info else 10000
+    base_cost = max(500, int(base_price * 0.15))
+
+    total_cost = 0
+    for i in range(actual_levels):
+        lvl_i = cur_lvl + i
+        total_cost += int(base_cost * (1 + 0.04 * (lvl_i - 1)))
+
+    bal = await get_balance(user_id)
+    if bal < total_cost:
+        return False, cur_lvl, f"Недостаточно ирисок. Требуется: <b>{total_cost:,}</b>, ваш баланс: <b>{bal:,}</b>."
+
+    await add_coins(user_id, -total_cost, "upgrade_biz", f"{biz_key}:{new_lvl}")
+    await execute(
+        "INSERT INTO business_upgrades (user_id, biz_key, level) VALUES (?, ?, ?) "
+        "ON CONFLICT(user_id, biz_key) DO UPDATE SET level=?",
+        (user_id, biz_key, new_lvl, new_lvl)
+    )
+    bonus_pct = (new_lvl - 1) * 5
+    return True, new_lvl, f"✅ Предприятие успешно прокачано на +{actual_levels} ур.!\nТекущий уровень: <b>{new_lvl:,} LVL</b>\nБонус к прибыли: <b>+{bonus_pct}%</b>"
 
 
 # --- Питомцы (RPG Pets) ------------------------------------------------

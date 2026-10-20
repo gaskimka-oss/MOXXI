@@ -54,7 +54,7 @@ import h_vip as vip
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s")
-log = logging.getLogger("moxxibot")
+log = logging.getLogger("irisbot")
 
 
 async def keyboard_middleware(handler, event, data: dict):

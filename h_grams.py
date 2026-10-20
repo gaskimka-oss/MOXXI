@@ -351,6 +351,107 @@ BUSINESS_TYPES: dict[str, dict] = {
         "desc": "Абсолютная вершина мироздания и вечной власти",
         "aliases": ["омниверсум", "создатель", "абсолют", "30"]
     },
+    # ══════ МЕГА-ПРЕДПРИЯТИЯ (ТИРЫ 31-40 ДО 10 000 LVL) ══════
+    "god_cradle": {
+        "id": 31,
+        "name": "Колыбель Богов",
+        "emoji": "🏛",
+        "base_price": 25_000_000_000_000_000,
+        "income_per_min": 500_000_000_000_000,
+        "req_lvl": 250,
+        "desc": "Святилище сотворения сущностей высшего порядка",
+        "aliases": ["колыбель", "боги", "колыбель богов", "31"]
+    },
+    "quantum_absolute": {
+        "id": 32,
+        "name": "Квантовый Абсолют",
+        "emoji": "🔮",
+        "base_price": 75_000_000_000_000_000,
+        "income_per_min": 1_600_000_000_000_000,
+        "req_lvl": 500,
+        "desc": "Управление всеми возможными квантовыми исходами вселенной",
+        "aliases": ["квант", "абсолют", "квантовый абсолют", "32"]
+    },
+    "hyper_ark": {
+        "id": 33,
+        "name": "Гипер-Ковчег Миров",
+        "emoji": "🛸",
+        "base_price": 250_000_000_000_000_000,
+        "income_per_min": 5_500_000_000_000_000,
+        "req_lvl": 1000,
+        "desc": "Межгалактический флот колонизации бескрайних галактик",
+        "aliases": ["ковчег", "гипер-ковчег", "ковчег миров", "33"]
+    },
+    "world_engine": {
+        "id": 34,
+        "name": "Титанический Двигатель",
+        "emoji": "⚙️",
+        "base_price": 800_000_000_000_000_000,
+        "income_per_min": 18_000_000_000_000_000,
+        "req_lvl": 2000,
+        "desc": "Терраформирование и сбор энергии целых звёздных скоплений",
+        "aliases": ["двигатель", "титан", "двигатель миров", "34"]
+    },
+    "chrono_singularity": {
+        "id": 35,
+        "name": "Хроно-Сингулярность",
+        "emoji": "⌛️",
+        "base_price": 2_500_000_000_000_000_000,
+        "income_per_min": 60_000_000_000_000_000,
+        "req_lvl": 3500,
+        "desc": "Покорение временного континуума и добыча ресурсов из будущего",
+        "aliases": ["хроно", "сингулярность", "время", "35"]
+    },
+    "galactic_hive": {
+        "id": 36,
+        "name": "Галактический Сверхразум",
+        "emoji": "🧠",
+        "base_price": 8_000_000_000_000_000_000,
+        "income_per_min": 200_000_000_000_000_000,
+        "req_lvl": 5000,
+        "desc": "Единая сеть искусственного интеллекта по управлению метагалактикой",
+        "aliases": ["сверхразум", "галактический разум", "разум", "36"]
+    },
+    "infinity_matrix": {
+        "id": 37,
+        "name": "Матрица Бесконечности",
+        "emoji": "💠",
+        "base_price": 25_000_000_000_000_000_000,
+        "income_per_min": 650_000_000_000_000_000,
+        "req_lvl": 6500,
+        "desc": "Вычислительная сеть моделирования параллельных мультиверсов",
+        "aliases": ["матрица", "бесконечность", "матрица бесконечности", "37"]
+    },
+    "dark_nexus": {
+        "id": 38,
+        "name": "Нексус Тёмной Материи",
+        "emoji": "🌑",
+        "base_price": 80_000_000_000_000_000_000,
+        "income_per_min": 2_200_000_000_000_000_000,
+        "req_lvl": 8000,
+        "desc": "Источник неисчерпаемой антиматерии и тёмной космической энергии",
+        "aliases": ["нексус", "тёмная материя", "нексус материи", "38"]
+    },
+    "primordial_supernova": {
+        "id": 39,
+        "name": "Сверхновая Первоздания",
+        "emoji": "💥",
+        "base_price": 250_000_000_000_000_000_000,
+        "income_per_min": 7_500_000_000_000_000_000,
+        "req_lvl": 9200,
+        "desc": "Управляемый Большой Взрыв для генерации бесконечного богатства",
+        "aliases": ["сверхновая", "первоздание", "взрыв", "39"]
+    },
+    "architect_throne": {
+        "id": 40,
+        "name": "Трон Архитектора Реальности",
+        "emoji": "👑",
+        "base_price": 1_000_000_000_000_000_000_000,
+        "income_per_min": 30_000_000_000_000_000_000,
+        "req_lvl": 10000,
+        "desc": "Престол истинного Творца всего сущего во всех временах и пространствах",
+        "aliases": ["трон", "архитектор", "трон архитектора", "40"]
+    },
     # Обратная совместимость для ранее купленных ключей:
     "cafe": {"id": 1, "name": "Кофейня", "emoji": "☕️", "base_price": 10_000, "income_per_min": 32, "req_lvl": 1, "desc": "Кофейня", "aliases": ["кофейня", "кафе"]},
     "autoservice": {"id": 2, "name": "Автосервис", "emoji": "🚗", "base_price": 35_000, "income_per_min": 115, "req_lvl": 2, "desc": "Автосервис", "aliases": ["автосервис"]},
@@ -444,6 +545,16 @@ async def casino_enabled(chat_id: int) -> bool:
 async def topic_ok(message: Message) -> bool:
     """Проверяет тему для игр, казино, заработка, ограблений и монет."""
     if message.chat.type != "private":
+        tid = _tid(message)
+        # В теме описаний никогда не выводим предупреждения казино!
+        try:
+            from h_userinfo import get_form_topic
+            form_top = await get_form_topic(message.chat.id)
+            if form_top and tid == form_top:
+                return False
+        except Exception:
+            pass
+
         if not await casino_enabled(message.chat.id):
             await message.reply(
                 "🎰 <b>Казино и игры отключены в этом чате администрацией.</b>\n"
@@ -453,20 +564,18 @@ async def topic_ok(message: Message) -> bool:
             return False
 
         ft = await get_gram_topic(message.chat.id)
-        if ft:
-            tid = _tid(message)
-            if tid != ft:
-                chat_id = message.chat.id
-                text = (
-                    f"❌ {mention(message.from_user)}, здесь нельзя играть и совершать операции с валютой!\n\n"
-                    f"🎰 <b>Игры, казино, работа, ограбления и монеты</b> — только в этой теме:\n"
-                    f"{_tlink(chat_id, ft)}"
-                )
-                try:
-                    await message.reply(text, disable_web_page_preview=True)
-                except Exception:
-                    pass
-                return False
+        if ft and tid != ft:
+            chat_id = message.chat.id
+            text = (
+                f"❌ {mention(message.from_user)}, здесь нельзя играть и совершать операции с валютой!\n\n"
+                f"🎰 <b>Игры, казино, работа, ограбления и монеты</b> — только в этой теме:\n"
+                f"{_tlink(chat_id, ft)}"
+            )
+            try:
+                await message.reply(text, disable_web_page_preview=True)
+            except Exception:
+                pass
+            return False
     return True
 
 
@@ -568,13 +677,6 @@ async def take_bet(message: Message, raw: str, **kw) -> int | None:
 async def cmd_balance(message: Message, bot: Bot, args: str = "", **kw):
     if not await topic_ok(message):
         return
-    had_prefix = kw.get("had_prefix", False)
-    in_group = message.chat.type in {"group", "supergroup"}
-    if not had_prefix and in_group and (args or "").strip():
-        from core_resolve import real_reply
-        if not args.strip().startswith("@") and not args.strip().isdigit() and real_reply(message) is None:
-            return
-
     uid, name, _ = await resolve_target(message, args, bot)
     if not uid:
         uid, name = message.from_user.id, message.from_user.first_name
@@ -613,12 +715,12 @@ async def cmd_balance(message: Message, bot: Bot, args: str = "", **kw):
     txt = (
         f"💳 <b>ФИНАНСОВЫЙ ПРОФИЛЬ</b>\n"
         f"👤 {mention_id(uid, name)}\n\n"
-        f"🪙 <b>Баланс Монет:</b> <code>{c(bal)}</code>\n\n"
+        f"🌑 <b>Баланс:</b> <code>{c(bal)}</code>\n\n"
         f"🎮 <b>Игровой уровень:</b> <b>{lvl} LVL</b> ({xp}/{next_xp} XP)\n"
         f"📊 Прогресс: <code>[{bar}]</code> {pct}%\n"
         f"🎲 Сыграно игр: <b>{prof['games_played']}</b> (побед: {prof['games_won']})\n\n"
         f"🏢 <b>Предприятия:</b> <b>{total_biz} шт.</b>\n"
-        f"💵 Доход: <b>+{income_min:,} 🪙/мин</b>\n"
+        f"💵 Доход: <b>+{income_min:,} 🌑/мин</b>\n"
         f"🔒 Мешок: <b>{bag_status}</b>\n\n"
         f"{bonus_line}\n"
         f"💡 <i>Команды:</i> <code>бизнесы</code> · <code>игры</code> · <code>скрыть мешок</code>"
@@ -632,12 +734,9 @@ async def cmd_balance(message: Message, bot: Bot, args: str = "", **kw):
 
 
 @router.message(Cmd("бонус", "бонус монет", "бонус коинов", "бонус грамм", "монеты бонус", "ежедневный бонус", section=S,
-                    usage="бонус", desc="Бонус от 1 до 30 000 монет"))
-async def cmd_daily(message: Message, args: str = "", **kw):
+                    usage="бонус", desc=f"Бонус {DAILY_COINS:,} монет"))
+async def cmd_daily(message: Message, **kw):
     if not await topic_ok(message):
-        return
-    had_prefix = kw.get("had_prefix", False)
-    if not had_prefix and message.chat.type in {"group", "supergroup"} and (args or "").strip():
         return
     uid = message.from_user.id
     await _ensure_start(uid)
@@ -645,43 +744,20 @@ async def cmd_daily(message: Message, args: str = "", **kw):
     cd = 3600 if (vip_active and vip_lvl >= 2) else (7200 if (vip_active and vip_lvl >= 1) else 14400)
     left = await db.cooldown_left(uid, "gram_daily", cd)
     if left:
-        return await message.reply(
-            f"⏳ Бонус уже получен.\n"
-            f"Следующий через <b>{hms(left)}</b>\n\n"
-            f"<i>💡 Кулдаун общий для всех чатов и личных сообщений бота.</i>"
-        )
-    # Сначала фиксируем кулдаун в БД для предотвращения одновременного сбора
+        return await message.reply(f"⏳ Бонус уже получен.\nСледующий через <b>{hms(left)}</b>")
+    bal = await db.add_balance(uid, DAILY_COINS, "daily_bonus")
     await db.set_cooldown(uid, "gram_daily")
-
-    base_bonus = random.randint(1, 30_000)
-    vip_mult = 2.0 if (vip_active and vip_lvl >= 2) else (1.5 if (vip_active and vip_lvl >= 1) else 1.0)
-    final_bonus = int(base_bonus * vip_mult)
-
-    bal = await db.add_balance(uid, final_bonus, "daily_bonus")
-
-    vip_tag = ""
-    if vip_active and vip_lvl >= 2:
-        vip_tag = f"\n🌟 <i>VIP+ бонус x2 (+{final_bonus - base_bonus:,} 🪙)!</i>"
-    elif vip_active and vip_lvl >= 1:
-        vip_tag = f"\n⭐️ <i>VIP бонус +50% (+{final_bonus - base_bonus:,} 🪙)!</i>"
-
     await message.reply(
         f"🎁 <b>Ежедневный бонус!</b>\n\n"
-        f"🎲 Выпало: <b>+{c(final_bonus)}</b> 🎉{vip_tag}\n"
-        f"💰 Ваш баланс: <b>{c(bal)}</b>\n"
-        f"⏳ Следующий бонус через <b>{hms(cd)}</b>"
-    )
+        f"Начислено: <b>+{c(DAILY_COINS)}</b> 🎉\n"
+        f"Ваш баланс: <b>{c(bal)}</b>")
 
 
-@router.message(Cmd("топ", "топ монет", "топ игроков", "топ коинов", "топ грамм", "топ граммов", "топ грами", "топ богатых", "топ баланс", "топ по монетам", "топ монет", section=S,
+@router.message(Cmd("топ", "топ монет", "топ игроков", "топ коинов", "топ грамм", "топ граммов", "топ грами", "топ богатых", "топ баланс", "топ по ирискам", "топ ирисок", section=S,
                     usage="топ", desc="Богатейшие игроки"))
-async def cmd_top(message: Message, args: str = "", **kw):
+async def cmd_top(message: Message, **kw):
     if not await topic_ok(message):
         return
-    had_prefix = kw.get("had_prefix", False)
-    if not had_prefix and message.chat.type in {"group", "supergroup"} and (args or "").strip():
-        if (args or "").strip().lower() not in {"монет", "игроков", "коинов", "грамм", "граммов", "баланс", "богатых", "по монетам"}:
-            return
     rows = await db.fetchall(
         "SELECT user_id, first_name, username, balance FROM users WHERE balance > 0 "
         "ORDER BY balance DESC LIMIT 10")
@@ -692,7 +768,7 @@ async def cmd_top(message: Message, args: str = "", **kw):
     for i, r in enumerate(rows):
         uname = r["first_name"] or r["username"] or f"Игрок {r['user_id']}"
         lines.append(f"{medals[i]} {mention_id(r['user_id'], uname)} — {c(r['balance'])}")
-    await message.reply(f"🪙 <b>Топ игроков по балансу</b>\n\n" + "\n".join(lines))
+    await message.reply(f"🌑 <b>Топ игроков по балансу</b>\n\n" + "\n".join(lines))
 
 
 @router.message(Cmd("восстановить топ", "сброс топа", "сбросить топ", "вернуть топ", "фикс топа", "исправить топ",
@@ -721,7 +797,7 @@ async def cmd_restore_top(message: Message, bot: Bot, **kw):
         f"✅ Сброшены накрученные триллионы и баги\n"
         f"✅ Снесено накрученных предприятий: <b>{res['businesses_deleted']}</b> шт.\n"
         f"✅ Сброшены уровни казино у <b>{res['stats_reset']}</b> пользователей\n\n"
-        f"🪙 <b>Актуальный топ по балансу:</b>\n{top_lines}")
+        f"🌑 <b>Актуальный топ по балансу:</b>\n{top_lines}")
 
 
 @router.message(Cmd("снести фермы", "сброс ферм", "сбросить фермы", "снести бизнесы", "сброс бизнесов",
@@ -752,30 +828,28 @@ async def cmd_wipe_businesses(message: Message, bot: Bot, **kw):
         f"✅ <b>Снесено предприятий:</b> {res['businesses_deleted']} шт. (все фермы, заводы, дома, ТЦ, шахты удалены)\n"
         f"✅ <b>Сброшены уровни казино:</b> у {res['stats_reset']} игроков\n"
         f"✅ <b>Балансы игроков:</b> возвращены к исходному состоянию до ошибки!\n\n"
-        f"🪙 <b>Актуальный эталонный топ:</b>\n{top_lines}")
+        f"🌑 <b>Актуальный эталонный топ:</b>\n{top_lines}")
 
 
 @router.message(Cmd("п", "п.", "передать", "перевод", "дать", "передать монеты", "дать монеты", "перевод монет",
                     "передать коины", "дать коины", "передать граммы", "дать граммы", "pay", "give", section=S,
-                    usage="п {ссылка} {сумма}", desc="Передать валюту 🪙"))
+                    usage="п {ссылка} {сумма}", desc="Передать валюту 🌑"))
 async def cmd_give(message: Message, bot: Bot, args: str = "", **kw):
+    had_prefix = kw.get("had_prefix", False)
+    raw_args = (args or "").strip()
+    if not had_prefix and not raw_args and not message.reply_to_message:
+        return  # Одиночная буква 'п' в чате без параметров и без реплая игнорируется
     if not await topic_ok(message):
         return
-    had_prefix = kw.get("had_prefix", False)
-    in_group = message.chat.type in {"group", "supergroup"}
-
     uid, name, rest = await resolve_target(message, args, bot)
-    bal = await db.get_balance(message.from_user.id)
-    amount = parse_amount(rest, bal, 1)
-
-    if not had_prefix and in_group:
-        if not uid or not amount or amount <= 0:
-            return
-
     if not uid:
+        if not had_prefix and not message.reply_to_message:
+            return
         return await message.reply("Укажите получателя: реплаем или @ником.\nПример: <code>п @user 5000</code> или <code>п 5000</code> ответом")
     if uid == message.from_user.id:
         return await message.reply("Себе передать нельзя 🙂")
+    bal = await db.get_balance(message.from_user.id)
+    amount = parse_amount(rest, bal, 1)
     if not amount or amount <= 0:
         return await message.reply("Укажите сумму: <code>п @user 5000</code> или <code>п 5000</code> ответом")
     if amount > bal:
@@ -873,11 +947,8 @@ def _render_biz_menu(uid: int, user_biz: dict[str, dict], prof: dict, page: int 
 
 @router.message(Cmd("бизнесы", "бизнес", "предприятия", "имущество", "заводы", "фермы", "недвижимость", section=S,
                     usage="бизнесы", desc="Рынок предприятий, покупка и сбор прибыли"))
-async def cmd_businesses(message: Message, args: str = "", **kw):
+async def cmd_businesses(message: Message, **kw):
     if not await topic_ok(message):
-        return
-    had_prefix = kw.get("had_prefix", False)
-    if not had_prefix and message.chat.type in {"group", "supergroup"} and (args or "").strip():
         return
     uid = message.from_user.id
     await _ensure_start(uid)
@@ -889,18 +960,13 @@ async def cmd_businesses(message: Message, args: str = "", **kw):
 
 @router.message(Cmd("собрать", "прибыль", "собрать прибыль", "снять прибыль", section=S,
                     usage="собрать", desc="Собрать накопленную прибыль с предприятий"))
-async def cmd_collect_profit(message: Message, args: str = "", **kw):
+async def cmd_collect_profit(message: Message, **kw):
     if not await topic_ok(message):
-        return
-    had_prefix = kw.get("had_prefix", False)
-    if not had_prefix and message.chat.type in {"group", "supergroup"} and (args or "").strip():
         return
     uid = message.from_user.id
     await _ensure_start(uid)
     user_biz = await db.get_user_businesses(uid)
     if not user_biz:
-        if not had_prefix and message.chat.type in {"group", "supergroup"}:
-            return
         return await message.reply("У вас пока нет купленных предприятий. Купите что-нибудь в <code>бизнесы</code>!")
 
     now = int(time.time())
@@ -912,13 +978,13 @@ async def cmd_collect_profit(message: Message, args: str = "", **kw):
             last_col = data.get("last_collect", now)
             mins = min(24 * 60, max(0, int((now - last_col) // 60)))
             if mins > 0:
-                profit = mins * data["count"] * BUSINESS_TYPES[k]["income_per_min"]
+                biz_lvl = await db.get_business_level(uid, k)
+                multiplier = 1.0 + 0.05 * (biz_lvl - 1)
+                profit = int(mins * data["count"] * BUSINESS_TYPES[k]["income_per_min"] * multiplier)
                 total_collected += profit
                 keys_to_update.append(k)
 
     if total_collected <= 0:
-        if not had_prefix and message.chat.type in {"group", "supergroup"}:
-            return
         return await message.reply("⏳ Прибыль ещё не успела накопиться (начисление происходит каждую минуту).")
 
     await db.update_business_collect_time(uid, keys_to_update)
@@ -931,20 +997,61 @@ async def cmd_collect_profit(message: Message, args: str = "", **kw):
     )
 
 
-@router.message(Cmd("купить", "приобрести", "buy", section=S,
-                    usage="купить {название} [кол-во]", desc="Купить предприятие на рынке"))
-async def cmd_buy_business(message: Message, args: str = "", **kw):
+
+@router.message(Cmd("прокачать", "улучшить", "прокачать бизнес", "улучшить бизнес",
+                    "апнуть", "апнуть бизнес", "прокачка", section=S,
+                    usage="прокачать {бизнес} [уровни]",
+                    desc="Прокачать уровень предприятия (каждый ур. +5% прибыли, до 10 000 LVL)"))
+async def cmd_upgrade_business(message: Message, bot: Bot, args: str = "", **kw):
     if not await topic_ok(message):
         return
-    had_prefix = kw.get("had_prefix", False)
-    in_group = message.chat.type in {"group", "supergroup"}
     uid = message.from_user.id
     await _ensure_start(uid)
 
     parts = (args or "").strip().split()
     if not parts:
-        if not had_prefix and in_group:
-            return
+        return await message.reply(
+            "🏢 <b>Прокачка предприятий (до 10 000 LVL):</b>\n\n"
+            "Каждый уровень даёт <b>+5% к доходу</b> предприятия!\n\n"
+            "Формат: <code>прокачать [название] [уровни]</code>\n"
+            "Пример: <code>прокачать ферму 10</code> · <code>прокачать завод</code>\n\n"
+            "Ваши предприятия: <code>бизнесы</code>"
+        )
+
+    levels = 1
+    if parts[-1].isdigit():
+        levels = max(1, min(10000, int(parts[-1])))
+        name_q = " ".join(parts[:-1])
+    else:
+        name_q = " ".join(parts)
+
+    if not name_q:
+        return await message.reply("Укажите предприятие: <code>прокачать ферму 5</code>")
+
+    biz_key, info = find_business_by_alias(name_q)
+    if not biz_key:
+        return await message.reply("❌ Предприятие не найдено. Напишите <code>бизнесы</code>, чтобы посмотреть список.")
+
+    user_biz = await db.get_user_businesses(uid)
+    if biz_key not in user_biz or user_biz[biz_key]["count"] <= 0:
+        return await message.reply(f"❌ У вас пока нет предприятия {info['emoji']} <b>{info['name']}</b>. Сначала купите его: <code>купить {info['name']}</code>")
+
+    ok, new_lvl, msg = await db.upgrade_business_level(uid, biz_key, levels)
+    await message.reply(
+        f"{info['emoji']} <b>Прокачка предприятия «{info['name']}»:</b>\n\n{msg}"
+    )
+
+
+@router.message(Cmd("купить", "приобрести", "buy", section=S,
+                    usage="купить {название} [кол-во]", desc="Купить предприятие на рынке"))
+async def cmd_buy_business(message: Message, args: str = "", **kw):
+    if not await topic_ok(message):
+        return
+    uid = message.from_user.id
+    await _ensure_start(uid)
+
+    parts = (args or "").strip().split()
+    if not parts:
         return await message.reply(
             "🏢 <b>Покупка предприятий:</b>\n"
             "Формат: <code>купить [название] [кол-во]</code>\n"
@@ -961,8 +1068,6 @@ async def cmd_buy_business(message: Message, args: str = "", **kw):
 
     biz_key, info = find_business_by_alias(name_q)
     if not biz_key:
-        if not had_prefix and in_group:
-            return
         return await message.reply("❌ Предприятие не найдено. Напишите <code>бизнесы</code>, чтобы посмотреть каталог.")
 
     prof = await db.get_game_profile(uid)
@@ -1006,7 +1111,7 @@ async def cmd_buy_business(message: Message, args: str = "", **kw):
         f"Вы приобрели: {info['emoji']} <b>{info['name']}</b> × {count} шт.\n"
         f"Списано: <b>−{c(total_cost)}</b>\n"
         f"Всего у вас: <b>{new_count} шт.</b>\n"
-        f"Доход: <b>+{new_count * info['income_per_min']:,} 🪙/мин</b>\n"
+        f"Доход: <b>+{new_count * info['income_per_min']:,} 🌑/мин</b>\n"
         f"Баланс: <b>{c(new_bal)}</b>"
     )
 
@@ -1016,15 +1121,11 @@ async def cmd_buy_business(message: Message, args: str = "", **kw):
 async def cmd_sell_business(message: Message, args: str = "", **kw):
     if not await topic_ok(message):
         return
-    had_prefix = kw.get("had_prefix", False)
-    in_group = message.chat.type in {"group", "supergroup"}
     uid = message.from_user.id
     await _ensure_start(uid)
 
     parts = (args or "").strip().split()
     if not parts:
-        if not had_prefix and in_group:
-            return
         return await message.reply("Формат: <code>продать [название] [кол-во]</code>\nПример: <code>продать завод 1</code>")
 
     count = 1
@@ -1036,8 +1137,6 @@ async def cmd_sell_business(message: Message, args: str = "", **kw):
 
     biz_key, info = find_business_by_alias(name_q)
     if not biz_key:
-        if not had_prefix and in_group:
-            return
         return await message.reply("❌ Предприятие не найдено. Напишите <code>бизнесы</code>.")
 
     user_biz = await db.get_user_businesses(uid)
@@ -1066,27 +1165,17 @@ async def cmd_sell_business(message: Message, args: str = "", **kw):
 @router.callback_query(F.data.startswith("biz:"))
 async def cb_businesses(call: CallbackQuery):
     uid = call.from_user.id
-    parts = call.data.split(":")
-    action = parts[1]
+    action = call.data.split(":")[1]
 
-    # Определяем страницу
-    cur_page = 1
-    if action == "page" and len(parts) > 2 and parts[2].isdigit():
-        cur_page = int(parts[2])
-    elif action in ("refresh", "collect") and len(parts) > 2 and parts[2].isdigit():
-        cur_page = int(parts[2])
-    elif action == "buy" and len(parts) > 3 and parts[3].isdigit():
-        cur_page = int(parts[3])
-
-    if action in ("menu", "refresh", "page"):
+    if action in ("menu", "refresh"):
         user_biz = await db.get_user_businesses(uid)
         prof = await db.get_game_profile(uid)
-        text, kb = _render_biz_menu(uid, user_biz, prof, page=cur_page)
+        text, kb = _render_biz_menu(uid, user_biz, prof)
         try:
             await call.message.edit_text(text, reply_markup=kb)
         except Exception:
             pass
-        return await call.answer(f"Страница {cur_page}/3")
+        return await call.answer("Рынок обновлён")
 
     if action == "collect":
         user_biz = await db.get_user_businesses(uid)
@@ -1105,15 +1194,11 @@ async def cb_businesses(call: CallbackQuery):
             return await call.answer("⏳ Прибыль ещё не накопилась (начисляется каждую минуту).", show_alert=True)
         await db.update_business_collect_time(uid, keys)
         await db.add_coins(uid, total, "biz_income")
-        try:
-            core_backup.schedule_quick_backup(call.bot)
-        except Exception:
-            pass
-        await call.answer(f"💰 Собрано: +{total:,} 🪙!", show_alert=True)
-        # Обновляем меню на текущей странице
+        await call.answer(f"💰 Собрано: +{total:,} 🌑!", show_alert=True)
+        # Обновляем меню
         user_biz = await db.get_user_businesses(uid)
         prof = await db.get_game_profile(uid)
-        text, kb = _render_biz_menu(uid, user_biz, prof, page=cur_page)
+        text, kb = _render_biz_menu(uid, user_biz, prof)
         try:
             await call.message.edit_text(text, reply_markup=kb)
         except Exception:
@@ -1121,7 +1206,7 @@ async def cb_businesses(call: CallbackQuery):
         return
 
     if action == "buy":
-        biz_key = parts[2]
+        biz_key = call.data.split(":")[2]
         info = BUSINESS_TYPES.get(biz_key)
         if not info:
             return await call.answer("Ошибка")
@@ -1134,7 +1219,7 @@ async def cb_businesses(call: CallbackQuery):
         buy_p, _ = get_market_price(biz_key, is_sell=False)
         bal = await db.get_coins(uid)
         if bal < buy_p:
-            return await call.answer(f"Недостаточно монет! Нужно {buy_p:,} 🪙", show_alert=True)
+            return await call.answer(f"Недостаточно монет! Нужно {buy_p:,} 🌑", show_alert=True)
         await db.add_coins(uid, -buy_p, "biz_buy", biz_key)
         await db.change_user_business(uid, biz_key, 1)
         try:
@@ -1143,7 +1228,7 @@ async def cb_businesses(call: CallbackQuery):
             pass
         await call.answer(f"🎉 Куплено: {info['name']}!", show_alert=True)
         user_biz = await db.get_user_businesses(uid)
-        text, kb = _render_biz_menu(uid, user_biz, prof, page=cur_page)
+        text, kb = _render_biz_menu(uid, user_biz, prof)
         try:
             await call.message.edit_text(text, reply_markup=kb)
         except Exception:
@@ -1153,84 +1238,8 @@ async def cb_businesses(call: CallbackQuery):
 
 
 # ═══════════════ БИЗНЕС-АУКЦИОНЫ В ЧАТЕ ═══════════════
-def get_business_tier(biz_key: str) -> str:
-    """Определяет категорию бизнеса: cheap, mythic, legendary"""
-    info = BUSINESS_TYPES.get(biz_key, {})
-    biz_id = info.get("id", 1)
-    if biz_id <= 10:
-        return "cheap"
-    elif biz_id <= 20:
-        return "mythic"
-    else:
-        return "legendary"
-
-
-TIER_TITLES = {
-    "cheap": "🌱 Дешёвый / Обычный (1-10 LVL)",
-    "mythic": "🔮 Мифический (11-20 LVL)",
-    "legendary": "👑 Легендарный (21-30 LVL)",
-}
-
-_auction_votes: dict[int, dict[int, str]] = {}  # chat_id -> {user_id: tier}
-
-
-def _render_auction_vote_kb(chat_id: int) -> InlineKeyboardMarkup:
-    votes = _auction_votes.get(chat_id, {})
-    c_count = sum(1 for t in votes.values() if t == "cheap")
-    m_count = sum(1 for t in votes.values() if t == "mythic")
-    l_count = sum(1 for t in votes.values() if t == "legendary")
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text=f"🌱 Дешёвый ({c_count})", callback_data=f"auc_vote:{chat_id}:cheap"),
-            InlineKeyboardButton(text=f"🔮 Мифический ({m_count})", callback_data=f"auc_vote:{chat_id}:mythic"),
-            InlineKeyboardButton(text=f"👑 Легендарный ({l_count})", callback_data=f"auc_vote:{chat_id}:legendary"),
-        ]
-    ])
-
-
-def _render_auction_voting_view(chat_id: int) -> tuple[str, InlineKeyboardMarkup]:
-    votes = _auction_votes.get(chat_id, {})
-    total_votes = len(votes)
-    c_count = sum(1 for t in votes.values() if t == "cheap")
-    m_count = sum(1 for t in votes.values() if t == "mythic")
-    l_count = sum(1 for t in votes.values() if t == "legendary")
-
-    def _bar(cnt: int, tot: int) -> str:
-        if tot <= 0:
-            return "░░░░░░░░░░ 0%"
-        pct = int(round((cnt / tot) * 100))
-        filled = min(10, max(0, int(round((cnt / tot) * 10))))
-        return f"{'█' * filled}{'░' * (10 - filled)} {pct}%"
-
-    text = (
-        "🗳 <b>ГОЛОСОВАНИЕ: КАТЕГОРИЯ СЛЕДУЮЩЕГО АУКЦИОНА</b> 🔨\n"
-        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-        "Игроки беседы решают, какая категория предприятия выпадет на следующих торгах!\n\n"
-        f"🌱 <b>Дешёвые / Обычные</b> (1–10 ур.):\n"
-        f"<code>{_bar(c_count, total_votes)}</code> ({c_count} голосов)\n"
-        "<i>Ферма, Дом, Завод, Торговый центр, Шахта, СТО...</i>\n\n"
-        f"🔮 <b>Мифические</b> (11–20 ур.):\n"
-        f"<code>{_bar(m_count, total_votes)}</code> ({m_count} голосов)\n"
-        "<i>Корпорация, Сфера Дайсона, Марсианская база...</i>\n\n"
-        f"👑 <b>Легендарные</b> (21–30 ур.):\n"
-        f"<code>{_bar(l_count, total_votes)}</code> ({l_count} голосов)\n"
-        "<i>Квантовый мир, Галактическая империя...</i>\n\n"
-        f"👥 Всего голосов: <b>{total_votes}</b>\n"
-        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-        "👇 <b>Нажмите на кнопку с категорией, чтобы проголосовать:</b>"
-    )
-
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"🌱 Дешёвый (1-10 ур) · {c_count}", callback_data=f"auc_vote:{chat_id}:cheap")],
-        [InlineKeyboardButton(text=f"🔮 Мифический (11-20 ур) · {m_count}", callback_data=f"auc_vote:{chat_id}:mythic")],
-        [InlineKeyboardButton(text=f"👑 Легендарный (21-30 ур) · {l_count}", callback_data=f"auc_vote:{chat_id}:legendary")],
-        [InlineKeyboardButton(text="🔄 Обновить результаты", callback_data=f"auc_vote_rf:{chat_id}")]
-    ])
-    return text, kb
-
-
 class ChatAuction:
-    def __init__(self, chat_id: int, biz_key: str, start_bid: int, duration_sec: int = 600, tier_name: str = "Обычный"):
+    def __init__(self, chat_id: int, biz_key: str, start_bid: int, duration_sec: int = 600):
         self.chat_id = chat_id
         self.biz_key = biz_key
         self.start_bid = start_bid
@@ -1242,7 +1251,6 @@ class ChatAuction:
         self.msg_id: int | None = None
         self.thread_id: int | None = None
         self.task: asyncio.Task | None = None
-        self.tier_name: str = tier_name
 
 
 _active_auctions: dict[int, ChatAuction] = {}
@@ -1267,28 +1275,24 @@ def _render_auction_card(auc: ChatAuction) -> tuple[str, InlineKeyboardMarkup]:
     step2 = max(500, int(auc.current_bid * 0.15))
     step3 = max(1000, int(auc.current_bid * 0.35))
 
-    tier_label = getattr(auc, "tier_name", "Обычный")
-
     text = (
         f"🏛 <b>БИЗНЕС-АУКЦИОН В ЧАТЕ!</b> 🔨\n"
         f"✦ ══ • ⊰ 💎 🏢 ⚡️ 🛰 🚀 🏦 ⊱ • ══ ✦\n\n"
-        f"🏷 <b>Категория лота:</b> <b>{tier_label}</b>\n"
         f"📦 <b>Выставленный лот:</b> {emoji} <b>{name}</b>\n"
         f"🏷 <b>Рыночная цена:</b> <b>{c(base)}</b>\n"
-        f"💵 <b>Пассивный доход:</b> <code>+{income:,} 🪙/мин</code>\n\n"
+        f"💵 <b>Пассивный доход:</b> <code>+{income:,} 🌑/мин</code>\n\n"
         f"💰 <b>Текущая ставка:</b> <b>{c(auc.current_bid)}</b>\n"
         f"👤 <b>Лидер аукциона:</b> {leader_str}\n"
         f"⏳ <b>До завершения торгов:</b> <b>{left_sec} сек.</b>\n\n"
-        f"⚠️ <i>Правило: игроки, у которых уже есть это предприятие, не могут участвовать!</i>\n\n"
         f"💡 <i>Перебить ставку:</i> напишите <code>ставка [сумма]</code>\n"
         f"<i>(например, <code>ставка {auc.current_bid + step1}</code>) или нажмите кнопки ниже:</i>"
     )
 
     rows = [
         [
-            InlineKeyboardButton(text=f"➕ {step1:,} 🪙", callback_data=f"auc_bid:{auc.chat_id}:{step1}"),
-            InlineKeyboardButton(text=f"➕ {step2:,} 🪙", callback_data=f"auc_bid:{auc.chat_id}:{step2}"),
-            InlineKeyboardButton(text=f"➕ {step3:,} 🪙", callback_data=f"auc_bid:{auc.chat_id}:{step3}"),
+            InlineKeyboardButton(text=f"➕ {step1:,} 🌑", callback_data=f"auc_bid:{auc.chat_id}:{step1}"),
+            InlineKeyboardButton(text=f"➕ {step2:,} 🌑", callback_data=f"auc_bid:{auc.chat_id}:{step2}"),
+            InlineKeyboardButton(text=f"➕ {step3:,} 🌑", callback_data=f"auc_bid:{auc.chat_id}:{step3}"),
         ],
         [
             InlineKeyboardButton(text="🔄 Обновить статус", callback_data=f"auc_refresh:{auc.chat_id}"),
@@ -1311,39 +1315,21 @@ async def _auction_timer_task(bot: Bot, chat_id: int):
             emoji = info.get("emoji", "🏢")
 
             if auc.has_bids and auc.highest_bidder_id:
-                user_biz = await db.get_user_businesses(auc.highest_bidder_id)
-                if user_biz.get(auc.biz_key, {}).get("count", 0) > 0:
-                    # У игрока уже есть такой бизнес — отменяем и возвращаем ставку
-                    await db.add_coins(auc.highest_bidder_id, auc.current_bid, "auction_refund", auc.biz_key)
-                    win_text = (
-                        f"⚠️ <b>Аукцион завершён без передачи лота!</b>\n\n"
-                        f"Лидер торгов {mention_id(auc.highest_bidder_id, auc.highest_bidder_name or 'Игрок')} уже имеет в собственности {emoji} <b>{name}</b>.\n"
-                        f"Ставка <b>{c(auc.current_bid)}</b> полностью возвращена на баланс."
-                    )
-                else:
-                    await db.change_user_business(auc.highest_bidder_id, auc.biz_key, 1)
-                    try:
-                        core_backup.schedule_quick_backup(bot)
-                    except Exception:
-                        pass
-                    win_text = (
-                        f"🔨 💥 <b>АУКЦИОН ЗАВЕРШЁН! ПРОДАНО!</b> 💥 🔨\n\n"
-                        f"👑 <b>Победитель:</b> {mention_id(auc.highest_bidder_id, auc.highest_bidder_name or 'Игрок')}\n"
-                        f"🏆 <b>Выигранный лот:</b> {emoji} <b>{name}</b> за <b>{c(auc.current_bid)}</b>!\n\n"
-                        f"🎉 Предприятие перешло в вашу собственность! Прибыль начисляется каждую минуту (<code>бизнесы</code>)."
-                    )
+                await db.change_user_business(auc.highest_bidder_id, auc.biz_key, 1)
+                win_text = (
+                    f"🔨 💥 <b>АУКЦИОН ЗАВЕРШЁН! ПРОДАНО!</b> 💥 🔨\n\n"
+                    f"👑 <b>Победитель:</b> {mention_id(auc.highest_bidder_id, auc.highest_bidder_name or 'Игрок')}\n"
+                    f"🏆 <b>Выигранный лот:</b> {emoji} <b>{name}</b> за <b>{c(auc.current_bid)}</b>!\n\n"
+                    f"🎉 Предприятие перешло в вашу собственность! Прибыль начисляется каждую минуту (<code>бизнесы</code>)."
+                )
             else:
                 win_text = (
                     f"⌛️ <b>Аукцион завершён!</b>\n\n"
                     f"📦 Лот {emoji} <b>{name}</b> снят с торгов, так как никто не сделал начальную ставку <b>{c(auc.start_bid)}</b>."
                 )
 
-            # Добавляем интерактивное голосование за лот следующего аукциона!
-            vote_kb = _render_auction_vote_kb(chat_id)
-            win_text += "\n\n🗳 <b>Голосуйте, какую категорию бизнеса выставить на следующий аукцион:</b>"
-
             try:
-                await bot.send_message(chat_id, win_text, reply_markup=vote_kb, message_thread_id=auc.thread_id)
+                await bot.send_message(chat_id, win_text, message_thread_id=auc.thread_id)
             except Exception:
                 pass
             break
@@ -1769,68 +1755,42 @@ async def cmd_auction_vote_message(message: Message, bot: Bot, args: str = "", *
 
 
 # ═══════════════ СПИСОК ИГР ═══════════════
-GAMES_TEXT = f"""🎮 <b>ВСЕ ДОСТУПНЫЕ ИГРЫ НА МОНЕТЫ 🪙</b>
-✦ ══ • ⊰ 🎰 🎲 🎯 💣 💥 🎡 🃏 🏇 ⚽ 🏀 🎳 ⚔️ 🎣 🧠 ⊱ • ══ ✦
+GAMES_TEXT = f"""🎮 <b>ДОСТУПНЫЕ ИГРЫ НА МОНЕТЫ 🌑</b>
 
 🎰 <b>СЛОТЫ / КАЗИНО</b> — <code>казик 1000</code> / <code>слоты 1к</code>
-   Крути барабан · до x10 · Куш джекпота при 7️⃣7️⃣7️⃣!
+   Крути барабан · до x10
 
-🪙 <b>ОРЁЛ И РЕШКА</b> — <code>орёл 1000</code> / <code>решка 1к</code>
-   Угадай сторону подброшенной монеты · x2
+🪙 <b>ОРЁЛ / РЕШКА</b> — <code>орёл 1000</code> / <code>решка 1к</code>
+   Угадай сторону монеты · x2
 
 💣 <b>МИНЫ</b> — <code>мины 1000</code>
-   Открывай ячейки 4x4, обходи мины, забирай банк вовремя · до x24
+   Открывай клетки, не наткнись на мину · до x24
 
 🎯 <b>ДАРТС</b> — <code>дартс 1000</code>
-   Бросок дротика в центр мишени · x1 / x1.5 / x2 / x3 / x5
+   Бросок в мишень · до x3
 
 💥 <b>КРАШ</b> — <code>краш 1000</code>
-   Множитель растёт в реальном времени — успей забрать до взрыва · до x50
+   Множитель растёт — успей забрать · до x50
 
-🎡 <b>КОЛЕСО ФОРТУНЫ</b> — <code>колесо 1000</code>
-   Барабан удачи с щедрыми секторами · до x10
+🎡 <b>КОЛЕСО</b> — <code>колесо 1000</code>
+   Барабан удачи · до x10
 
-🎲 <b>КУБИК / КОСТИ</b> — <code>куб 1000</code> / <code>кости 1к</code>
-   Бросок двух кубиков против бота · x2
+🎲 <b>КУБИК / КОСТИ</b> — <code>куб 1000</code>
+   Бросок костей с ботом · x2
 
 💣 <b>САПЁР</b> — <code>сапёр 1000</code>
-   Дуэль 1 на 1 (ответом на сообщение оппонента) · 9 клеток, 1 мина
+   Дуэль на двоих (ответом на сообщение друга)
 
-🎡 <b>РУЛЕТКА 2.0</b> — <code>рулетка красное 1000</code>
-   • Цвета & чёт/нечет: <code>рулетка 1000 красное</code> (x2)
-   • Диапазоны чисел: <code>рулетка 1000 на 7-8</code> (x18), <code>1-8</code> (x4.5), <code>1-12</code> (x3)
-   • Числа: <code>рулетка 1000 36</code> (x36) или экспресс <code>23000000 11 12 14 13...</code>
+🎡 <b>РУЛЕТКА</b> — <code>рулетка красное 1000</code>
+   Цвет x2 · число x14
 
 🃏 <b>БЛЭКДЖЕК / 21 ОЧКО</b> — <code>бд 1000</code> / <code>блэкджек 1к</code> / <code>21 1000</code>
-   Интерактивная карточная дуэль против дилера Мокси · Натуральный x2.5
+   Интерактивная игра с Мокси · Натуральный блэкджек x2.5
 
-🏇 <b>СКАЧКИ НА ИППОДРОМЕ</b> — <code>скачки 1 1000</code> / <code>ипподром</code>
-   5 уникальных скакунов · коэффициенты до x15 · ставки всей беседы
+🏇 <b>СКАЧКИ / ИППОДРОМ</b> — <code>скачки 1 1000</code> / <code>ипподром</code>
+   5 скакунов · коэффициенты до x15 · ставки для всех игроков
 
-🎳 <b>БОУЛИНГ</b> — <code>боулинг 1000</code>
-   Сбей все кегли броском шара · Страйк x5
-
-⚽ <b>ФУТБОЛ</b> — <code>футбол 1000</code>
-   Пенальти по воротам · Гол x2.5
-
-🏀 <b>БАСКЕТБОЛ</b> — <code>баскетбол 1000</code>
-   Бросок мяча в корзину · Чистое попадание x2.5
-
-⚔️ <b>ДУЭЛЬ</b> — <code>дуэль @юзер 1000</code>
-   PvP-поединок один на один за монеты и снаряжение
-
-👹 <b>РЕЙД-БОСС</b> — <code>босс</code> / <code>босс атака</code>
-   Командная битва чата против мирового босса за легендарный лут
-
-🎣 <b>РЫБАЛКА</b> — <code>рыбалка</code> / <code>забросить</code>
-   Лови редкую рыбу и сундуки, продавай улов на рынке за монеты
-
-🧠 <b>ВИКТОРИНА</b> — <code>викторина</code>
-   Интеллектуальная битва на скорость правильных ответов за монеты
-
-━━━━━━━━━━━━━━━━━━━━
-🛡 <i>Система Anti-Spam Game Lock защищает баланс: новая игра доступна сразу после получения исхода текущего раунда!</i>
-🚀 <i>За каждую игру вы получаете игровой XP и повышаете уровень для покупки предприятий!</i>"""
+🚀 <i>За каждую игру вы получаете опыт XP и повышаете уровень для покупки заводов и ферм!</i>"""
 
 
 @router.message(Cmd("игры", "список игр", "games", "казик инфо", section=S, usage="игры",
@@ -2409,7 +2369,6 @@ def _bj_kb(key: str, can_double: bool = False) -> InlineKeyboardMarkup:
 async def _finish_bj_game(call: CallbackQuery, key: str, st: dict, outcome: str):
     _bj_games.pop(key, None)
     uid = st["uid"]
-    unlock_game(uid)
     bet = st["bet"]
     chat_id = st["chat_id"]
 
@@ -2449,7 +2408,7 @@ async def _finish_bj_game(call: CallbackQuery, key: str, st: dict, outcome: str)
                 await db.record_big_win(uid, call.from_user.first_name, chat_id, "Блэкджек 🃏", bet, payout)
             except Exception:
                 pass
-        profit_str = f"+{c(profit)}" if profit > 0 else "0 🪙 (возврат)"
+        profit_str = f"+{c(profit)}" if profit > 0 else "0 🌑 (возврат)"
         gain_line = f"💰 <b>Выплата:</b> <b>{profit_str}</b>\n"
     else:
         new_bal = await db.get_comets(uid)
@@ -2479,14 +2438,10 @@ async def start_quick_blackjack(call: CallbackQuery, bet: int):
     """Быстрый старт блэкджека по нажатию инлайн-кнопки реплея."""
     uid = call.from_user.id
     chat_id = call.message.chat.id
-    active = is_in_game(uid)
-    if active:
-        return await call.answer(f"⏳ Вы уже играете в {active}! Дождитесь завершения раунда.", show_alert=True)
     bal = await db.get_comets(uid)
     if bal < bet:
         return await call.answer(f"Недостаточно монет! Баланс: {c(bal)}", show_alert=True)
 
-    lock_game(uid, "bj", chat_id)
     await db.add_comets(uid, -bet, "bj_bet")
     if call.message.chat.type in {"group", "supergroup"}:
         try:
@@ -2516,7 +2471,6 @@ async def start_quick_blackjack(call: CallbackQuery, bet: int):
     if p_pts == 21:
         if d_pts == 21:
             _bj_games.pop(key, None)
-            unlock_game(uid)
             new_bal = await db.add_comets(uid, bet, "bj_refund")
             p_hand_str = _fmt_hand(player_hand, hide_second=False)
             d_hand_str = _fmt_hand(dealer_hand, hide_second=False)
@@ -2530,7 +2484,6 @@ async def start_quick_blackjack(call: CallbackQuery, bet: int):
             return await call.message.reply(text, reply_markup=make_game_replay_kb("bj", bet, uid))
         else:
             _bj_games.pop(key, None)
-            unlock_game(uid)
             payout = int(bet * 2.5)
             new_bal = await db.add_comets(uid, payout, "bj_natural_win")
             try:
@@ -2570,7 +2523,6 @@ async def cmd_blackjack(message: Message, args: str = "", **kw):
         return
     uid = message.from_user.id
     chat_id = message.chat.id
-    lock_game(uid, "bj", chat_id)
 
     # Списываем ставку
     await db.add_comets(uid, -bet, "bj_bet")
@@ -2604,7 +2556,6 @@ async def cmd_blackjack(message: Message, args: str = "", **kw):
     if p_pts == 21:
         if d_pts == 21:
             _bj_games.pop(key, None)
-            unlock_game(uid)
             new_bal = await db.add_comets(uid, bet, "bj_refund")
             p_hand_str = _fmt_hand(player_hand, hide_second=False)
             d_hand_str = _fmt_hand(dealer_hand, hide_second=False)
@@ -2618,7 +2569,6 @@ async def cmd_blackjack(message: Message, args: str = "", **kw):
             return await message.reply(text, reply_markup=make_game_replay_kb("bj", bet, uid))
         else:
             _bj_games.pop(key, None)
-            unlock_game(uid)
             payout = int(bet * 2.5)
             new_bal = await db.add_comets(uid, payout, "bj_natural_win")
             try:
@@ -2944,78 +2894,91 @@ async def start_quick_race(call: CallbackQuery, bet: int, horse_idx: int):
     await _run_race_animation(msg, call.from_user.first_name, chosen_h, bet, uid, call.message.chat.id)
 
 
-# ═══════════════ АДМИНСКИЕ КОМАНДЫ ДЛЯ ВАЛЮТЫ (ТОЛЬКО СОЗДАТЕЛЬ) ═══════════════
-@router.message(Cmd("монеты выдать", "выдать монеты", "начислить монеты", "coin give", "coins give", section=S, rank=10,
-                    usage="монеты выдать {ссылка} {сумма}",
-                    desc="Начислить купленную валюту 🪙 (Создатель)"))
+# ═══════════════ АДМИНСКИЕ КОМАНДЫ ДЛЯ ВАЛЮТЫ ═══════════════
+@router.message(Cmd("монеты выдать", "выдать монеты", "начислить монеты", "coin give", "coins give", "выдать коины", "выдать граммы", "выдать кометы", "дать монеты", "дать коины", "кометы выдать", "выдать", "начислить", "p give", section=S, rank=6,
+                    usage="выдать {ссылка} {сумма}",
+                    desc="Начислить валюту 🌑 (техадмин / 6+ ранг)"))
 async def cmd_give_admin(message: Message, bot: Bot, args: str = "", **kw):
-    import config
-    sender_id = message.from_user.id if message.from_user else 0
-    if not config.is_bot_owner(sender_id):
+    from core_ranks import require
+    if not await require(message, bot, 6):
         return
     uid, name, rest = await resolve_target(message, args, bot)
     if not uid:
-        return await message.reply("Укажите кому начислить купленные монеты: <code>монеты выдать @user 50000</code>")
-    if uid == sender_id:
-        return await message.reply("⛔️ Запрещено выдавать монеты самому себе. Монеты можно только заработать в играх или приобрести через Создателя.")
+        # Если цель не указана — действие к себе
+        uid, name = message.from_user.id, message.from_user.first_name
+        rest = args
     amount = parse_amount(rest, 10**14, 1)
     if not amount:
-        return await message.reply("Укажите сумму: <code>монеты выдать @user 50000</code>")
-    bal = await db.add_balance(uid, amount, "admin_add", str(sender_id))
+        return await message.reply("Укажите сумму: <code>выдать @user 50000</code>")
+    bal = await db.add_balance(uid, amount, "admin_add", str(message.from_user.id))
     await message.reply(f"✅ {mention_id(uid, name)} получил <b>+{c(amount)}</b>\n"
                         f"Баланс: <b>{c(bal)}</b>")
 
 
-@router.message(Cmd("выдать бизнес", "бизнес выдать", "выдать предприятие", section=S, rank=10,
-                    usage="выдать бизнес {ссылка} {название}",
-                    desc="Выдать предприятие игроку (Создатель)"))
+@router.message(Cmd("выдать бизнес", "дать бизнес", "бизнес выдать", "выдать предприятие", section=S, rank=6,
+                    usage="выдать бизнес {ссылка} {название} [кол-во]",
+                    desc="Выдать предприятие игроку (техадмин / 6+ ранг)"))
 async def cmd_give_business(message: Message, bot: Bot, args: str = "", **kw):
-    import config
-    sender_id = message.from_user.id if message.from_user else 0
-    if not config.is_bot_owner(sender_id):
+    from core_ranks import require
+    if not await require(message, bot, 6):
         return
     uid, name, rest = await resolve_target(message, args, bot)
     if not uid:
-        return await message.reply("Использование: <code>выдать бизнес @user ферма</code>")
-    if uid == sender_id:
-        return await message.reply("⛔️ Нельзя выдавать предприятия самому себе.")
+        uid, name = message.from_user.id, message.from_user.first_name
+        rest = args
     parts = (rest or "").strip().split()
     if not parts:
-        return await message.reply("Использование: <code>выдать бизнес @user ферма</code>")
-    name_q = " ".join(parts[:-1]) if parts[-1].isdigit() else " ".join(parts)
+        return await message.reply("Использование: <code>выдать бизнес @user ферма 1</code>")
+    count = 1
+    if parts[-1].isdigit():
+        count = max(1, min(1000, int(parts[-1])))
+        name_q = " ".join(parts[:-1])
+    else:
+        name_q = " ".join(parts)
     biz_key, info = find_business_by_alias(name_q)
     if not biz_key:
         return await message.reply("❌ Предприятие не найдено. Напишите <code>бизнесы</code>.")
-    user_biz = await db.get_user_businesses(uid)
-    if user_biz.get(biz_key, {}).get("count", 0) >= 1:
-        return await message.reply(f"⚠️ У {mention_id(uid, name)} уже есть предприятие {info['emoji']} <b>{info['name']}</b>! Максимум 1 шт.")
-    new_count = await db.change_user_business(uid, biz_key, 1)
+    new_count = await db.change_user_business(uid, biz_key, count)
     try:
         core_backup.schedule_quick_backup(bot)
     except Exception:
         pass
-    await message.reply(f"✅ {mention_id(uid, name)} выдано: {info['emoji']} <b>{info['name']}</b> (всего: <b>{new_count} шт.</b>)")
+    await message.reply(f"✅ {mention_id(uid, name)} выдано: {info['emoji']} <b>{info['name']}</b> × {count} шт. (всего: <b>{new_count} шт.</b>)")
 
 
-@router.message(Cmd("монеты забрать", "монеты снять", "забрать монеты", "списать монеты", section=S, rank=10,
-                    usage="монеты забрать {ссылка} {сумма}",
-                    desc="Списать валюту 🪙 (Создатель)"))
-async def cmd_take_admin(message: Message, bot: Bot, args: str = "", **kw):
-    import config
-    sender_id = message.from_user.id if message.from_user else 0
-    if not config.is_bot_owner(sender_id):
+@router.message(Cmd("монеты сет", "монеты set", "сет монет", "установить монеты", "coin set", "set coins", "кометы сет", "сет", "set", "установить", "p set", section=S, rank=6,
+                    usage="сет {ссылка} {сумма}",
+                    desc="Установить точный баланс (техадмин / 6+ ранг)"))
+async def cmd_set_admin(message: Message, bot: Bot, args: str = "", **kw):
+    from core_ranks import require
+    if not await require(message, bot, 6):
         return
     uid, name, rest = await resolve_target(message, args, bot)
     if not uid:
-        return await message.reply("Укажите у кого списать монеты: <code>монеты забрать @user 50000</code>")
-    if uid == sender_id:
-        return await message.reply("⛔️ Нельзя списывать монеты у самого себя.")
-    if config.is_bot_owner(uid):
-        return await message.reply("👑 Нельзя списывать монеты у Владельца бота.")
+        uid, name = message.from_user.id, message.from_user.first_name
+        rest = args
+    amount = parse_amount(rest, 10**14, 0)
+    if amount is None or amount < 0:
+        return await message.reply("Укажите сумму: <code>сет @user 100000</code>")
+    bal = await db.set_balance(uid, amount)
+    await message.reply(f"✅ Баланс {mention_id(uid, name)} установлен на <b>{c(bal)}</b>")
+
+
+@router.message(Cmd("монеты снять", "снять монеты", "забрать монеты", "снять коины", "забрать коины", "кометы снять", "снять", "забрать", section=S, rank=6,
+                    usage="снять {ссылка} {сумма}",
+                    desc="Снять валюту 🌑 (техадмин / 6+ ранг)"))
+async def cmd_take_admin(message: Message, bot: Bot, args: str = "", **kw):
+    from core_ranks import require
+    if not await require(message, bot, 6):
+        return
+    uid, name, rest = await resolve_target(message, args, bot)
+    if not uid:
+        uid, name = message.from_user.id, message.from_user.first_name
+        rest = args
     amount = parse_amount(rest, 10**14, 1)
     if not amount:
-        return await message.reply("Укажите сумму: <code>монеты забрать @user 50000</code>")
-    bal = await db.add_balance(uid, -amount, "admin_take", str(sender_id))
+        return await message.reply("Укажите сумму: <code>снять @user 50000</code>")
+    bal = await db.add_balance(uid, -amount, "admin_take", str(message.from_user.id))
     await message.reply(f"✅ У {mention_id(uid, name)} списано <b>−{c(amount)}</b>\n"
                         f"Баланс: <b>{c(bal)}</b>")
 
@@ -3057,7 +3020,7 @@ async def cmd_gram_topic(message: Message, bot: Bot, args: str = "", **kw):
         cur = await get_gram_topic(message.chat.id)
         cur_txt = (f"Сейчас: {_tlink(message.chat.id, cur)}" if cur else "Сейчас: не задана")
         return await message.reply(
-            f"🪙 <b>Тема для игр и валюты</b>\n\n{cur_txt}\n\n"
+            f"🌑 <b>Тема для игр и валюты</b>\n\n{cur_txt}\n\n"
             f"Установить — напишите команду <b>в нужной теме</b>:\n"
             f"<code>тема игр</code>\n\n"
             f"Или ссылкой:\n<code>тема игр https://t.me/c/123456/789</code>\n\n"
@@ -3066,7 +3029,7 @@ async def cmd_gram_topic(message: Message, bot: Bot, args: str = "", **kw):
 
     await db.set_setting(message.chat.id, "gram_topic", str(tid))
     await message.reply(
-        f"✅ <b>Тема для игр и валюты установлена</b>\n\n🪙 {_tlink(message.chat.id, tid)}\n\n"
+        f"✅ <b>Тема для игр и валюты установлена</b>\n\n🌑 {_tlink(message.chat.id, tid)}\n\n"
         f"Все игры и команды валюты теперь работают <b>только там</b>.",
         disable_web_page_preview=True)
 
@@ -3084,7 +3047,7 @@ async def cmd_exchange(message: Message, **kw):
     await message.reply(
         f"ℹ️ В боте действует <b>единая валюта {COIN}</b>!\n\n"
         f"💰 Ваш баланс: <b>{c(bal)}</b>\n\n"
-        f"Обмен не требуется — все игры, предприятия, переводы и покупки работают напрямую с вашим единым балансом 🪙.\n\n"
+        f"Обмен не требуется — все игры, предприятия, переводы и покупки работают напрямую с вашим единым балансом 🌑.\n\n"
         f"💡 <i>Открыть рынок: <code>бизнесы</code> · Игры: <code>игры</code> · Баланс: <code>б</code></i>")
 
 

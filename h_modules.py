@@ -524,11 +524,11 @@ async def market(message: Message, **kw):
     rows = await db.fetchall("SELECT m.*, u.first_name FROM market m LEFT JOIN users u "
                              "ON u.user_id=m.user_id ORDER BY m.id DESC LIMIT 15")
     if not rows:
-        return await message.reply("💱 <b>Биржа монет</b>\nЗаявок нет.\n"
+        return await message.reply("💱 <b>Ирис-биржа</b>\nЗаявок нет.\n"
                                    "Создать: <code>продать 1000 за 500</code>")
     lines = [f"#{r['id']} {mention_id(r['user_id'], r['first_name'])} — "
              f"{r['kind']} {money(r['amount'])} за {money(r['price'])}" for r in rows]
-    await message.reply("💱 <b>Биржа монет</b>\n" + "\n".join(lines))
+    await message.reply("💱 <b>Ирис-биржа</b>\n" + "\n".join(lines))
 
 
 @router.message(Cmd("продать", section=S_MARKET, usage="продать {кол-во} за {цена}",
@@ -543,7 +543,7 @@ async def market_sell(message: Message, args: str = "", **kw):
     if not amount or not price:
         return await message.reply("Некорректные числа.")
     if amount > u["balance"]:
-        return await message.reply("Недостаточно монет.")
+        return await message.reply("Недостаточно ирисок.")
     await db.add_balance(message.from_user.id, -amount, "market_lock")
     await db.execute("INSERT INTO market (user_id,kind,amount,price,ts) VALUES (?,?,?,?,?)",
                      (message.from_user.id, "продажа", amount, price, int(time.time())))

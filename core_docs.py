@@ -64,7 +64,7 @@ def build_content() -> tuple[list, dict[int, str]]:
         {"tag": "code", "children": ["!"]}, " ",
         {"tag": "code", "children": ["."]}, " ",
         {"tag": "code", "children": ["/"]}, " ",
-        {"tag": "code", "children": ["Бот"]},
+        {"tag": "code", "children": ["Ирис"]},
         " и, в большинстве случаев, вообще без префикса.",
     ]})
     content.append({"tag": "p", "children": [
@@ -193,7 +193,7 @@ def publish(title: str = "📖 Справка — команды") -> dict:
             {"tag": "code", "children": ["!"]}, " ",
             {"tag": "code", "children": ["."]}, " ",
             {"tag": "code", "children": ["/"]}, " ",
-            {"tag": "code", "children": ["Бот"]},
+            {"tag": "code", "children": ["Ирис"]},
             " и без префикса. {ссылка} — реплай, @ник или id.",
         ]}]
         body = head + content

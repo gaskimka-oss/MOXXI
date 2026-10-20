@@ -389,7 +389,7 @@ async def greet_show(message: Message, **kw):
                         "Установить: <code>установить приветствие Привет, %имя%!</code>")
 
 
-@router.message(Cmd("установить приветствие", section=S_CHAT, rank=3,
+@router.message(Cmd("+приветствие", "установить приветствие", section=S_CHAT, rank=3,
                     usage="установить приветствие {текст}", desc="Задать приветствие"))
 async def greet_set(message: Message, bot: Bot, args: str = "", **kw):
     if not await require(message, bot, 3):
@@ -401,7 +401,7 @@ async def greet_set(message: Message, bot: Bot, args: str = "", **kw):
     await message.reply("✅ Приветствие установлено.")
 
 
-@router.message(Cmd("удалить приветствие", section=S_CHAT, rank=3,
+@router.message(Cmd("-приветствие", "удалить приветствие", section=S_CHAT, rank=3,
                     usage="удалить приветствие", desc="Убрать приветствие"))
 async def greet_del(message: Message, bot: Bot, **kw):
     if not await require(message, bot, 3):
@@ -775,7 +775,7 @@ async def topic(message: Message, bot: Bot, args: str = "", **kw):
 
     if here and here == gram_t:
         return await message.reply(
-            "🪙 <b>Эта тема: монеты, бизнесы и игры</b>\n\n"
+            "🌑 <b>Эта тема: монеты, бизнесы и игры</b>\n\n"
             "Здесь работают команды монет и рынок.\n"
             "Баланс: <code>б</code> · Игры: <code>игры</code>\n"
             "Бизнесы: <code>бизнесы</code> · Бонус: <code>бонус</code>")
@@ -808,7 +808,7 @@ async def topic(message: Message, bot: Bot, args: str = "", **kw):
                  + (topic_link(message.chat.id, boss_t) if boss_t else "не задана (напишите <code>+тема босс</code>)"))
     lines.append(f"📝 Описания: "
                  + (topic_link(message.chat.id, form_t) if form_t else "не задана"))
-    lines.append(f"🪙 Монеты: "
+    lines.append(f"🌑 Монеты: "
                  + (topic_link(message.chat.id, gram_t) if gram_t else "не задана"))
     await message.reply("\n".join(lines), disable_web_page_preview=True)
 

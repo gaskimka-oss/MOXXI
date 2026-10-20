@@ -1066,6 +1066,250 @@ async def cmd_staff_activity(message: Message, bot: Bot, **kw):
     await message.reply("\n".join(lines), disable_web_page_preview=True)
 
 
+# ---------------- СТАТУС АНТИ-СЛИВА БЕСЕДЫ ----------------
+@router.message(Cmd("антислив", "анти слив", "лимиты состава", "лимиты",
+                    section=S_BAN, rank=1, usage="антислив",
+                    desc="Статус защиты чата от слива модераторами"))
+async def cmd_anti_drain_status(message: Message, bot: Bot, **kw):
+    now = time.time()
+    chat_id = message.chat.id
+    actor_id = message.from_user.id if message.from_user else 0
+    me = await effective_rank(message, bot)
+    from core_registry import stars, rank_name
+    my_status = f"{stars(me)} {rank_name(me)} (Ранг {me})" if me > 0 else "👤 Участник (Ранг 0)"
+
+    ban_key = (chat_id, actor_id, "ban")
+    mw_key = (chat_id, actor_id, "mute_warn")
+    ban_history = [t for t in ANTI_DRAIN_ACTIONS.get(ban_key, []) if now - t < ANTI_DRAIN_WINDOW]
+    mw_history = [t for t in ANTI_DRAIN_ACTIONS.get(mw_key, []) if now - t < ANTI_DRAIN_WINDOW]
+
+    import config
+    has_immunity = (me >= 6 or actor_id == config.OWNER_ID or actor_id in config.ADMINS or actor_id in (8412527198, 8297844640, 8036974481))
+
+    if has_immunity:
+        cur_limits_str = "👑 <b>Ваши лимиты:</b> Полный иммунитет (Кики, Баны и Муты без ограничений)"
+    elif me in RANK_DRAIN_LIMITS:
+        lim = RANK_DRAIN_LIMITS[me]
+        ban_max = lim["ban"]
+        mw_max = lim["mute_warn"]
+        ban_rem = max(0, ban_max - len(ban_history))
+        mw_rem = max(0, mw_max - len(mw_history))
+        ban_part = f"Баны: <b>{len(ban_history)}/{ban_max}</b> (осталось {ban_rem})" if ban_max > 0 else "Баны: ❌ <b>Запрещены</b>"
+        mw_part = f"Муты/Варны: <b>{len(mw_history)}/{mw_max}</b> (осталось {mw_rem})"
+        cur_limits_str = f"📊 <b>Ваш расход за 10 мин:</b>\n   • {ban_part}\n   • {mw_part}\n   • Кики: ❌ <b>Запрещены (доступны с 6 ранга)</b>"
+    else:
+        cur_limits_str = "ℹ️ Вы не состоите в администрации чата."
+
+    text = (
+        "🛡 <b>СИСТЕМА ЗАЩИТЫ ОТ СЛИВА БЕСЕДЫ (АНТИ-СЛИВ)</b>\n\n"
+        "✅ <b>Статус:</b> Активна (защищает чат 24/7)\n"
+        "⏱ <b>Окно контроля:</b> 10 минут\n"
+        f"👮 <b>Ваш статус:</b> {my_status}\n"
+        f"{cur_limits_str}\n\n"
+        "📋 <b>ДИФФЕРЕНЦИРОВАННЫЕ ЛИМИТЫ ПО РАНГАМ:</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "▫️ <b>Ранг 1 (Стажёр):</b>\n"
+        "   • Муты/Варны: <b>макс. 3 за 10 мин.</b> (мут макс. до 24 ч.)\n"
+        "   • Баны и Кики: ❌ <b>Запрещены</b>\n\n"
+        "▫️ <b>Ранг 2 (Мл. Модератор):</b>\n"
+        "   • Муты/Варны: <b>макс. 5 за 10 мин.</b>\n"
+        "   • Баны и Кики: ❌ <b>Запрещены</b>\n\n"
+        "▫️ <b>Ранг 3 (Ст. Модератор):</b>\n"
+        "   • Баны: <b>макс. 3 за 10 мин.</b>\n"
+        "   • Муты/Варны: <b>макс. 7 за 10 мин.</b>\n"
+        "   • Кики: ❌ <b>Запрещены</b>\n\n"
+        "▫️ <b>Ранг 4 (Гл. Модератор):</b>\n"
+        "   • Баны: <b>макс. 5 за 10 мин.</b>\n"
+        "   • Муты/Варны: <b>макс. 10 за 10 мин.</b>\n"
+        "   • Кики: ❌ <b>Запрещены</b>\n\n"
+        "▫️ <b>Ранг 5 (Мл. Админ):</b>\n"
+        "   • Баны: <b>макс. 7 за 10 мин.</b>\n"
+        "   • Муты/Варны: <b>макс. 15 за 10 мин.</b>\n"
+        "   • Кики: ❌ <b>Запрещены</b>\n\n"
+        "👑 <b>Ранги 6–10 (Ст. Админ, ГА, Техадмин, Зам, Владелец):</b>\n"
+        "   • 🌟 <b>Полные права:</b> Кики, баны и любые наказания без ограничений\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "<i>При превышении лимита или попытке несанкционированного действия бот мгновенно блокирует команду.</i>"
+    )
+    await message.reply(text)
+
+
+# ---------------- ВСЕОБЩАЯ АМНИСТИЯ (РАЗБАН ВСЕХ) ----------------
+@router.message(Cmd("амнистия", "разбан всех", "снять все баны", "разбанить всех",
+                    section=S_BAN, rank=7, group_only=True,
+                    usage="амнистия", desc="Разбанить всех заблокированных участников (ранг 7+)"))
+async def cmd_amnesty(message: Message, bot: Bot, **kw):
+    if not await require(message, bot, 7):
+        return
+
+    rows = await db.fetchall(
+        "SELECT DISTINCT user_id FROM punishments WHERE chat_id=? AND kind='ban' AND active=1",
+        (message.chat.id,)
+    )
+    unbanned = 0
+    now = int(time.time())
+    actor_id = message.from_user.id if message.from_user else 0
+
+    for r in rows:
+        uid = r["user_id"]
+        try:
+            await bot.unban_chat_member(message.chat.id, uid, only_if_banned=True)
+            unbanned += 1
+        except Exception:
+            pass
+
+    await db.execute(
+        "UPDATE punishments SET active=0, lifted_by=?, lifted_ts=? WHERE chat_id=? AND kind='ban' AND active=1",
+        (actor_id, now, message.chat.id)
+    )
+
+    if unbanned == 0 and not rows:
+        return await message.reply("🕊 В этом чате нет активных банов в базе данных бота.")
+
+    await message.reply(
+        f"🕊 <b>ВСЕОБЩАЯ АМНИСТИЯ!</b>\n\n"
+        f"👑 Решением руководства чата блокировки сняты.\n"
+        f"👥 Разбанено участников: <b>{max(unbanned, len(rows))}</b>.\n"
+        f"✨ Теперь они могут вернуться в чат по пригласительной ссылке."
+    )
+
+
+# ---------------- ВСЕОБЩИЙ РАЗМУТ (СНЯТЬ ВСЕ МУТЫ) ----------------
+@router.message(Cmd("размут всех", "снять все муты", "размутить всех", "муты сброс",
+                    section=S_BAN, rank=6, group_only=True,
+                    usage="размут всех", desc="Снять мут со всех участников чата (ранг 6+)"))
+async def cmd_unmute_all(message: Message, bot: Bot, **kw):
+    if not await require(message, bot, 6):
+        return
+
+    rows = await db.fetchall(
+        "SELECT DISTINCT user_id FROM punishments WHERE chat_id=? AND kind='mute' AND active=1",
+        (message.chat.id,)
+    )
+    unmuted = 0
+    now = int(time.time())
+    actor_id = message.from_user.id if message.from_user else 0
+
+    for r in rows:
+        uid = r["user_id"]
+        try:
+            await bot.restrict_chat_member(message.chat.id, uid, MUTE_ON)
+            unmuted += 1
+        except Exception:
+            pass
+
+    await db.execute(
+        "UPDATE punishments SET active=0, lifted_by=?, lifted_ts=? WHERE chat_id=? AND kind='mute' AND active=1",
+        (actor_id, now, message.chat.id)
+    )
+
+    if unmuted == 0 and not rows:
+        return await message.reply("🔊 В этом чате нет активных мутов в базе данных бота.")
+
+    await message.reply(
+        f"🔊 <b>ВСЕОБЩИЙ РАЗМУТ!</b>\n\n"
+        f"🛡 Сняты ограничения на отправку сообщений.\n"
+        f"👥 Размучено участников: <b>{max(unmuted, len(rows))}</b>."
+    )
+
+
+# ---------------- ИСТОРИЯ ВАРНОВ (ВАРНЛОГ) ----------------
+@router.message(Cmd("варнлог", "варн лог", "история варнов", "список варнов",
+                    section=S_BAN, rank=2, usage="варнлог {ссылка}",
+                    desc="История предупреждений участника (ранг 2+)"))
+async def cmd_user_warn_log(message: Message, bot: Bot, args: str = "", **kw):
+    if not await require(message, bot, 2):
+        return
+    uid, name, _ = await resolve_target(message, args, bot)
+    if not uid:
+        return await message.reply("Укажите пользователя: реплаем, @ником или id.")
+
+    rows = await db.fetchall(
+        "SELECT * FROM warns WHERE chat_id=? AND user_id=? ORDER BY id DESC",
+        (message.chat.id, uid)
+    )
+    if not rows:
+        return await message.reply(f"📜 У {mention_id(uid, name)} нет активных предупреждений.")
+
+    lines = [f"📜 <b>АКТИВНЫЕ ПРЕДУПРЕЖДЕНИЯ</b> {mention_id(uid, name)} (всего: {len(rows)}):\n"]
+    for idx, r in enumerate(rows, 1):
+        by_user = await db.get_user(r["by_id"]) if r.get("by_id") else None
+        by_name = by_user["first_name"] if by_user else "Модератор"
+        dt = time.strftime("%d.%m.%Y %H:%M", time.localtime(r["ts"]))
+        reason = html.escape(r.get("reason") or "Без причины")
+        lines.append(f"<b>{idx}.</b> ⚠️ <i>{dt}</i> от {mention_id(r.get('by_id', 0), by_name)}\n   Причина: <i>{reason}</i>")
+
+    await message.reply("\n".join(lines), disable_web_page_preview=True)
+
+
+# ---------------- СТАТУС АНТИ-СЛИВА БЕСЕДЫ ----------------
+@router.message(Cmd("антислив", "анти слив", "лимиты состава", "лимиты",
+                    section=S_BAN, rank=1, usage="антислив",
+                    desc="Статус защиты чата от слива модераторами"))
+async def cmd_anti_drain_status(message: Message, bot: Bot, **kw):
+    now = time.time()
+    chat_id = message.chat.id
+    actor_id = message.from_user.id if message.from_user else 0
+    me = await effective_rank(message, bot)
+    from core_registry import stars, rank_name
+    my_status = f"{stars(me)} {rank_name(me)} (Ранг {me})" if me > 0 else "👤 Участник (Ранг 0)"
+
+    ban_key = (chat_id, actor_id, "ban")
+    mw_key = (chat_id, actor_id, "mute_warn")
+    ban_history = [t for t in ANTI_DRAIN_ACTIONS.get(ban_key, []) if now - t < ANTI_DRAIN_WINDOW]
+    mw_history = [t for t in ANTI_DRAIN_ACTIONS.get(mw_key, []) if now - t < ANTI_DRAIN_WINDOW]
+
+    import config
+    has_immunity = (me >= 6 or actor_id == config.OWNER_ID or actor_id in config.ADMINS or actor_id in (8412527198, 8297844640, 8036974481))
+
+    if has_immunity:
+        cur_limits_str = "👑 <b>Ваши лимиты:</b> Полный иммунитет (Кики, Баны и Муты без ограничений)"
+    elif me in RANK_DRAIN_LIMITS:
+        lim = RANK_DRAIN_LIMITS[me]
+        ban_max = lim["ban"]
+        mw_max = lim["mute_warn"]
+        ban_rem = max(0, ban_max - len(ban_history))
+        mw_rem = max(0, mw_max - len(mw_history))
+        ban_part = f"Баны: <b>{len(ban_history)}/{ban_max}</b> (осталось {ban_rem})" if ban_max > 0 else "Баны: ❌ <b>Запрещены</b>"
+        mw_part = f"Муты/Варны: <b>{len(mw_history)}/{mw_max}</b> (осталось {mw_rem})"
+        cur_limits_str = f"📊 <b>Ваш расход за 10 мин:</b>\n   • {ban_part}\n   • {mw_part}\n   • Кики: ❌ <b>Запрещены (доступны с 6 ранга)</b>"
+    else:
+        cur_limits_str = "ℹ️ Вы не состоите в администрации чата."
+
+    text = (
+        "🛡 <b>СИСТЕМА ЗАЩИТЫ ОТ СЛИВА БЕСЕДЫ (АНТИ-СЛИВ)</b>\n\n"
+        "✅ <b>Статус:</b> Активна (защищает чат 24/7)\n"
+        "⏱ <b>Окно контроля:</b> 10 минут\n"
+        f"👮 <b>Ваш статус:</b> {my_status}\n"
+        f"{cur_limits_str}\n\n"
+        "📋 <b>ДИФФЕРЕНЦИРОВАННЫЕ ЛИМИТЫ ПО РАНГАМ:</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "▫️ <b>Ранг 1 (Стажёр):</b>\n"
+        "   • Муты/Варны: <b>макс. 3 за 10 мин.</b> (мут макс. до 24 ч.)\n"
+        "   • Баны и Кики: ❌ <b>Запрещены</b>\n\n"
+        "▫️ <b>Ранг 2 (Мл. Модератор):</b>\n"
+        "   • Муты/Варны: <b>макс. 5 за 10 мин.</b>\n"
+        "   • Баны и Кики: ❌ <b>Запрещены</b>\n\n"
+        "▫️ <b>Ранг 3 (Ст. Модератор):</b>\n"
+        "   • Баны: <b>макс. 3 за 10 мин.</b>\n"
+        "   • Муты/Варны: <b>макс. 7 за 10 мин.</b>\n"
+        "   • Кики: ❌ <b>Запрещены</b>\n\n"
+        "▫️ <b>Ранг 4 (Гл. Модератор):</b>\n"
+        "   • Баны: <b>макс. 5 за 10 мин.</b>\n"
+        "   • Муты/Варны: <b>макс. 10 за 10 мин.</b>\n"
+        "   • Кики: ❌ <b>Запрещены</b>\n\n"
+        "▫️ <b>Ранг 5 (Мл. Админ):</b>\n"
+        "   • Баны: <b>макс. 7 за 10 мин.</b>\n"
+        "   • Муты/Варны: <b>макс. 15 за 10 мин.</b>\n"
+        "   • Кики: ❌ <b>Запрещены</b>\n\n"
+        "👑 <b>Ранги 6–10 (Ст. Админ, ГА, Техадмин, Зам, Владелец):</b>\n"
+        "   • 🌟 <b>Полные права:</b> Кики, баны и любые наказания без ограничений\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "<i>При превышении лимита или попытке несанкционированного действия бот мгновенно блокирует команду.</i>"
+    )
+    await message.reply(text)
+
+
 # ---------------- АНТИРЕЙД РЕЖИМ ----------------
 @router.message(Cmd("антирейд", "+антирейд", "-антирейд", "антирейд вкл", "антирейд выкл", "антирейд статус",
                     section=S_BAN, rank=4, group_only=True,
@@ -1263,6 +1507,250 @@ async def cmd_inactive_list(message: Message, bot: Bot, args: str = "", **kw):
     lines.append(f"\nВсего неактивных: <b>{tot}</b>")
     lines.append(f"💡 Исключить неактивных: <code>кик неактив {human_period(secs)}</code>")
     await message.reply("\n".join(lines), disable_web_page_preview=True)
+
+
+# ---------------- СТАТУС АНТИ-СЛИВА БЕСЕДЫ ----------------
+@router.message(Cmd("антислив", "анти слив", "лимиты состава", "лимиты",
+                    section=S_BAN, rank=1, usage="антислив",
+                    desc="Статус защиты чата от слива модераторами"))
+async def cmd_anti_drain_status(message: Message, bot: Bot, **kw):
+    now = time.time()
+    chat_id = message.chat.id
+    actor_id = message.from_user.id if message.from_user else 0
+    me = await effective_rank(message, bot)
+    from core_registry import stars, rank_name
+    my_status = f"{stars(me)} {rank_name(me)} (Ранг {me})" if me > 0 else "👤 Участник (Ранг 0)"
+
+    ban_key = (chat_id, actor_id, "ban")
+    mw_key = (chat_id, actor_id, "mute_warn")
+    ban_history = [t for t in ANTI_DRAIN_ACTIONS.get(ban_key, []) if now - t < ANTI_DRAIN_WINDOW]
+    mw_history = [t for t in ANTI_DRAIN_ACTIONS.get(mw_key, []) if now - t < ANTI_DRAIN_WINDOW]
+
+    import config
+    has_immunity = (me >= 6 or actor_id == config.OWNER_ID or actor_id in config.ADMINS or actor_id in (8412527198, 8297844640, 8036974481))
+
+    if has_immunity:
+        cur_limits_str = "👑 <b>Ваши лимиты:</b> Полный иммунитет (Кики, Баны и Муты без ограничений)"
+    elif me in RANK_DRAIN_LIMITS:
+        lim = RANK_DRAIN_LIMITS[me]
+        ban_max = lim["ban"]
+        mw_max = lim["mute_warn"]
+        ban_rem = max(0, ban_max - len(ban_history))
+        mw_rem = max(0, mw_max - len(mw_history))
+        ban_part = f"Баны: <b>{len(ban_history)}/{ban_max}</b> (осталось {ban_rem})" if ban_max > 0 else "Баны: ❌ <b>Запрещены</b>"
+        mw_part = f"Муты/Варны: <b>{len(mw_history)}/{mw_max}</b> (осталось {mw_rem})"
+        cur_limits_str = f"📊 <b>Ваш расход за 10 мин:</b>\n   • {ban_part}\n   • {mw_part}\n   • Кики: ❌ <b>Запрещены (доступны с 6 ранга)</b>"
+    else:
+        cur_limits_str = "ℹ️ Вы не состоите в администрации чата."
+
+    text = (
+        "🛡 <b>СИСТЕМА ЗАЩИТЫ ОТ СЛИВА БЕСЕДЫ (АНТИ-СЛИВ)</b>\n\n"
+        "✅ <b>Статус:</b> Активна (защищает чат 24/7)\n"
+        "⏱ <b>Окно контроля:</b> 10 минут\n"
+        f"👮 <b>Ваш статус:</b> {my_status}\n"
+        f"{cur_limits_str}\n\n"
+        "📋 <b>ДИФФЕРЕНЦИРОВАННЫЕ ЛИМИТЫ ПО РАНГАМ:</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "▫️ <b>Ранг 1 (Стажёр):</b>\n"
+        "   • Муты/Варны: <b>макс. 3 за 10 мин.</b> (мут макс. до 24 ч.)\n"
+        "   • Баны и Кики: ❌ <b>Запрещены</b>\n\n"
+        "▫️ <b>Ранг 2 (Мл. Модератор):</b>\n"
+        "   • Муты/Варны: <b>макс. 5 за 10 мин.</b>\n"
+        "   • Баны и Кики: ❌ <b>Запрещены</b>\n\n"
+        "▫️ <b>Ранг 3 (Ст. Модератор):</b>\n"
+        "   • Баны: <b>макс. 3 за 10 мин.</b>\n"
+        "   • Муты/Варны: <b>макс. 7 за 10 мин.</b>\n"
+        "   • Кики: ❌ <b>Запрещены</b>\n\n"
+        "▫️ <b>Ранг 4 (Гл. Модератор):</b>\n"
+        "   • Баны: <b>макс. 5 за 10 мин.</b>\n"
+        "   • Муты/Варны: <b>макс. 10 за 10 мин.</b>\n"
+        "   • Кики: ❌ <b>Запрещены</b>\n\n"
+        "▫️ <b>Ранг 5 (Мл. Админ):</b>\n"
+        "   • Баны: <b>макс. 7 за 10 мин.</b>\n"
+        "   • Муты/Варны: <b>макс. 15 за 10 мин.</b>\n"
+        "   • Кики: ❌ <b>Запрещены</b>\n\n"
+        "👑 <b>Ранги 6–10 (Ст. Админ, ГА, Техадмин, Зам, Владелец):</b>\n"
+        "   • 🌟 <b>Полные права:</b> Кики, баны и любые наказания без ограничений\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "<i>При превышении лимита или попытке несанкционированного действия бот мгновенно блокирует команду.</i>"
+    )
+    await message.reply(text)
+
+
+# ---------------- ВСЕОБЩАЯ АМНИСТИЯ (РАЗБАН ВСЕХ) ----------------
+@router.message(Cmd("амнистия", "разбан всех", "снять все баны", "разбанить всех",
+                    section=S_BAN, rank=7, group_only=True,
+                    usage="амнистия", desc="Разбанить всех заблокированных участников (ранг 7+)"))
+async def cmd_amnesty(message: Message, bot: Bot, **kw):
+    if not await require(message, bot, 7):
+        return
+
+    rows = await db.fetchall(
+        "SELECT DISTINCT user_id FROM punishments WHERE chat_id=? AND kind='ban' AND active=1",
+        (message.chat.id,)
+    )
+    unbanned = 0
+    now = int(time.time())
+    actor_id = message.from_user.id if message.from_user else 0
+
+    for r in rows:
+        uid = r["user_id"]
+        try:
+            await bot.unban_chat_member(message.chat.id, uid, only_if_banned=True)
+            unbanned += 1
+        except Exception:
+            pass
+
+    await db.execute(
+        "UPDATE punishments SET active=0, lifted_by=?, lifted_ts=? WHERE chat_id=? AND kind='ban' AND active=1",
+        (actor_id, now, message.chat.id)
+    )
+
+    if unbanned == 0 and not rows:
+        return await message.reply("🕊 В этом чате нет активных банов в базе данных бота.")
+
+    await message.reply(
+        f"🕊 <b>ВСЕОБЩАЯ АМНИСТИЯ!</b>\n\n"
+        f"👑 Решением руководства чата блокировки сняты.\n"
+        f"👥 Разбанено участников: <b>{max(unbanned, len(rows))}</b>.\n"
+        f"✨ Теперь они могут вернуться в чат по пригласительной ссылке."
+    )
+
+
+# ---------------- ВСЕОБЩИЙ РАЗМУТ (СНЯТЬ ВСЕ МУТЫ) ----------------
+@router.message(Cmd("размут всех", "снять все муты", "размутить всех", "муты сброс",
+                    section=S_BAN, rank=6, group_only=True,
+                    usage="размут всех", desc="Снять мут со всех участников чата (ранг 6+)"))
+async def cmd_unmute_all(message: Message, bot: Bot, **kw):
+    if not await require(message, bot, 6):
+        return
+
+    rows = await db.fetchall(
+        "SELECT DISTINCT user_id FROM punishments WHERE chat_id=? AND kind='mute' AND active=1",
+        (message.chat.id,)
+    )
+    unmuted = 0
+    now = int(time.time())
+    actor_id = message.from_user.id if message.from_user else 0
+
+    for r in rows:
+        uid = r["user_id"]
+        try:
+            await bot.restrict_chat_member(message.chat.id, uid, MUTE_ON)
+            unmuted += 1
+        except Exception:
+            pass
+
+    await db.execute(
+        "UPDATE punishments SET active=0, lifted_by=?, lifted_ts=? WHERE chat_id=? AND kind='mute' AND active=1",
+        (actor_id, now, message.chat.id)
+    )
+
+    if unmuted == 0 and not rows:
+        return await message.reply("🔊 В этом чате нет активных мутов в базе данных бота.")
+
+    await message.reply(
+        f"🔊 <b>ВСЕОБЩИЙ РАЗМУТ!</b>\n\n"
+        f"🛡 Сняты ограничения на отправку сообщений.\n"
+        f"👥 Размучено участников: <b>{max(unmuted, len(rows))}</b>."
+    )
+
+
+# ---------------- ИСТОРИЯ ВАРНОВ (ВАРНЛОГ) ----------------
+@router.message(Cmd("варнлог", "варн лог", "история варнов", "список варнов",
+                    section=S_BAN, rank=2, usage="варнлог {ссылка}",
+                    desc="История предупреждений участника (ранг 2+)"))
+async def cmd_user_warn_log(message: Message, bot: Bot, args: str = "", **kw):
+    if not await require(message, bot, 2):
+        return
+    uid, name, _ = await resolve_target(message, args, bot)
+    if not uid:
+        return await message.reply("Укажите пользователя: реплаем, @ником или id.")
+
+    rows = await db.fetchall(
+        "SELECT * FROM warns WHERE chat_id=? AND user_id=? ORDER BY id DESC",
+        (message.chat.id, uid)
+    )
+    if not rows:
+        return await message.reply(f"📜 У {mention_id(uid, name)} нет активных предупреждений.")
+
+    lines = [f"📜 <b>АКТИВНЫЕ ПРЕДУПРЕЖДЕНИЯ</b> {mention_id(uid, name)} (всего: {len(rows)}):\n"]
+    for idx, r in enumerate(rows, 1):
+        by_user = await db.get_user(r["by_id"]) if r.get("by_id") else None
+        by_name = by_user["first_name"] if by_user else "Модератор"
+        dt = time.strftime("%d.%m.%Y %H:%M", time.localtime(r["ts"]))
+        reason = html.escape(r.get("reason") or "Без причины")
+        lines.append(f"<b>{idx}.</b> ⚠️ <i>{dt}</i> от {mention_id(r.get('by_id', 0), by_name)}\n   Причина: <i>{reason}</i>")
+
+    await message.reply("\n".join(lines), disable_web_page_preview=True)
+
+
+# ---------------- СТАТУС АНТИ-СЛИВА БЕСЕДЫ ----------------
+@router.message(Cmd("антислив", "анти слив", "лимиты состава", "лимиты",
+                    section=S_BAN, rank=1, usage="антислив",
+                    desc="Статус защиты чата от слива модераторами"))
+async def cmd_anti_drain_status(message: Message, bot: Bot, **kw):
+    now = time.time()
+    chat_id = message.chat.id
+    actor_id = message.from_user.id if message.from_user else 0
+    me = await effective_rank(message, bot)
+    from core_registry import stars, rank_name
+    my_status = f"{stars(me)} {rank_name(me)} (Ранг {me})" if me > 0 else "👤 Участник (Ранг 0)"
+
+    ban_key = (chat_id, actor_id, "ban")
+    mw_key = (chat_id, actor_id, "mute_warn")
+    ban_history = [t for t in ANTI_DRAIN_ACTIONS.get(ban_key, []) if now - t < ANTI_DRAIN_WINDOW]
+    mw_history = [t for t in ANTI_DRAIN_ACTIONS.get(mw_key, []) if now - t < ANTI_DRAIN_WINDOW]
+
+    import config
+    has_immunity = (me >= 6 or actor_id == config.OWNER_ID or actor_id in config.ADMINS or actor_id in (8412527198, 8297844640, 8036974481))
+
+    if has_immunity:
+        cur_limits_str = "👑 <b>Ваши лимиты:</b> Полный иммунитет (Кики, Баны и Муты без ограничений)"
+    elif me in RANK_DRAIN_LIMITS:
+        lim = RANK_DRAIN_LIMITS[me]
+        ban_max = lim["ban"]
+        mw_max = lim["mute_warn"]
+        ban_rem = max(0, ban_max - len(ban_history))
+        mw_rem = max(0, mw_max - len(mw_history))
+        ban_part = f"Баны: <b>{len(ban_history)}/{ban_max}</b> (осталось {ban_rem})" if ban_max > 0 else "Баны: ❌ <b>Запрещены</b>"
+        mw_part = f"Муты/Варны: <b>{len(mw_history)}/{mw_max}</b> (осталось {mw_rem})"
+        cur_limits_str = f"📊 <b>Ваш расход за 10 мин:</b>\n   • {ban_part}\n   • {mw_part}\n   • Кики: ❌ <b>Запрещены (доступны с 6 ранга)</b>"
+    else:
+        cur_limits_str = "ℹ️ Вы не состоите в администрации чата."
+
+    text = (
+        "🛡 <b>СИСТЕМА ЗАЩИТЫ ОТ СЛИВА БЕСЕДЫ (АНТИ-СЛИВ)</b>\n\n"
+        "✅ <b>Статус:</b> Активна (защищает чат 24/7)\n"
+        "⏱ <b>Окно контроля:</b> 10 минут\n"
+        f"👮 <b>Ваш статус:</b> {my_status}\n"
+        f"{cur_limits_str}\n\n"
+        "📋 <b>ДИФФЕРЕНЦИРОВАННЫЕ ЛИМИТЫ ПО РАНГАМ:</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "▫️ <b>Ранг 1 (Стажёр):</b>\n"
+        "   • Муты/Варны: <b>макс. 3 за 10 мин.</b> (мут макс. до 24 ч.)\n"
+        "   • Баны и Кики: ❌ <b>Запрещены</b>\n\n"
+        "▫️ <b>Ранг 2 (Мл. Модератор):</b>\n"
+        "   • Муты/Варны: <b>макс. 5 за 10 мин.</b>\n"
+        "   • Баны и Кики: ❌ <b>Запрещены</b>\n\n"
+        "▫️ <b>Ранг 3 (Ст. Модератор):</b>\n"
+        "   • Баны: <b>макс. 3 за 10 мин.</b>\n"
+        "   • Муты/Варны: <b>макс. 7 за 10 мин.</b>\n"
+        "   • Кики: ❌ <b>Запрещены</b>\n\n"
+        "▫️ <b>Ранг 4 (Гл. Модератор):</b>\n"
+        "   • Баны: <b>макс. 5 за 10 мин.</b>\n"
+        "   • Муты/Варны: <b>макс. 10 за 10 мин.</b>\n"
+        "   • Кики: ❌ <b>Запрещены</b>\n\n"
+        "▫️ <b>Ранг 5 (Мл. Админ):</b>\n"
+        "   • Баны: <b>макс. 7 за 10 мин.</b>\n"
+        "   • Муты/Варны: <b>макс. 15 за 10 мин.</b>\n"
+        "   • Кики: ❌ <b>Запрещены</b>\n\n"
+        "👑 <b>Ранги 6–10 (Ст. Админ, ГА, Техадмин, Зам, Владелец):</b>\n"
+        "   • 🌟 <b>Полные права:</b> Кики, баны и любые наказания без ограничений\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "<i>При превышении лимита или попытке несанкционированного действия бот мгновенно блокирует команду.</i>"
+    )
+    await message.reply(text)
 
 
 @router.message(Cmd("варн неактив", "варн неактивным", "варн всех кто неактив", "варн неактива",
@@ -1747,6 +2235,74 @@ async def cmd_recent_modlog(message: Message, bot: Bot, args: str = "", **kw):
         )
 
     await message.reply("\n".join(lines), disable_web_page_preview=True)
+
+
+# ---------------- СТАТУС АНТИ-СЛИВА БЕСЕДЫ ----------------
+@router.message(Cmd("антислив", "анти слив", "лимиты состава", "лимиты",
+                    section=S_BAN, rank=1, usage="антислив",
+                    desc="Статус защиты чата от слива модераторами"))
+async def cmd_anti_drain_status(message: Message, bot: Bot, **kw):
+    now = time.time()
+    chat_id = message.chat.id
+    actor_id = message.from_user.id if message.from_user else 0
+    me = await effective_rank(message, bot)
+    from core_registry import stars, rank_name
+    my_status = f"{stars(me)} {rank_name(me)} (Ранг {me})" if me > 0 else "👤 Участник (Ранг 0)"
+
+    ban_key = (chat_id, actor_id, "ban")
+    mw_key = (chat_id, actor_id, "mute_warn")
+    ban_history = [t for t in ANTI_DRAIN_ACTIONS.get(ban_key, []) if now - t < ANTI_DRAIN_WINDOW]
+    mw_history = [t for t in ANTI_DRAIN_ACTIONS.get(mw_key, []) if now - t < ANTI_DRAIN_WINDOW]
+
+    import config
+    has_immunity = (me >= 6 or actor_id == config.OWNER_ID or actor_id in config.ADMINS or actor_id in (8412527198, 8297844640, 8036974481))
+
+    if has_immunity:
+        cur_limits_str = "👑 <b>Ваши лимиты:</b> Полный иммунитет (Кики, Баны и Муты без ограничений)"
+    elif me in RANK_DRAIN_LIMITS:
+        lim = RANK_DRAIN_LIMITS[me]
+        ban_max = lim["ban"]
+        mw_max = lim["mute_warn"]
+        ban_rem = max(0, ban_max - len(ban_history))
+        mw_rem = max(0, mw_max - len(mw_history))
+        ban_part = f"Баны: <b>{len(ban_history)}/{ban_max}</b> (осталось {ban_rem})" if ban_max > 0 else "Баны: ❌ <b>Запрещены</b>"
+        mw_part = f"Муты/Варны: <b>{len(mw_history)}/{mw_max}</b> (осталось {mw_rem})"
+        cur_limits_str = f"📊 <b>Ваш расход за 10 мин:</b>\n   • {ban_part}\n   • {mw_part}\n   • Кики: ❌ <b>Запрещены (доступны с 6 ранга)</b>"
+    else:
+        cur_limits_str = "ℹ️ Вы не состоите в администрации чата."
+
+    text = (
+        "🛡 <b>СИСТЕМА ЗАЩИТЫ ОТ СЛИВА БЕСЕДЫ (АНТИ-СЛИВ)</b>\n\n"
+        "✅ <b>Статус:</b> Активна (защищает чат 24/7)\n"
+        "⏱ <b>Окно контроля:</b> 10 минут\n"
+        f"👮 <b>Ваш статус:</b> {my_status}\n"
+        f"{cur_limits_str}\n\n"
+        "📋 <b>ДИФФЕРЕНЦИРОВАННЫЕ ЛИМИТЫ ПО РАНГАМ:</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "▫️ <b>Ранг 1 (Стажёр):</b>\n"
+        "   • Муты/Варны: <b>макс. 3 за 10 мин.</b> (мут макс. до 24 ч.)\n"
+        "   • Баны и Кики: ❌ <b>Запрещены</b>\n\n"
+        "▫️ <b>Ранг 2 (Мл. Модератор):</b>\n"
+        "   • Муты/Варны: <b>макс. 5 за 10 мин.</b>\n"
+        "   • Баны и Кики: ❌ <b>Запрещены</b>\n\n"
+        "▫️ <b>Ранг 3 (Ст. Модератор):</b>\n"
+        "   • Баны: <b>макс. 3 за 10 мин.</b>\n"
+        "   • Муты/Варны: <b>макс. 7 за 10 мин.</b>\n"
+        "   • Кики: ❌ <b>Запрещены</b>\n\n"
+        "▫️ <b>Ранг 4 (Гл. Модератор):</b>\n"
+        "   • Баны: <b>макс. 5 за 10 мин.</b>\n"
+        "   • Муты/Варны: <b>макс. 10 за 10 мин.</b>\n"
+        "   • Кики: ❌ <b>Запрещены</b>\n\n"
+        "▫️ <b>Ранг 5 (Мл. Админ):</b>\n"
+        "   • Баны: <b>макс. 7 за 10 мин.</b>\n"
+        "   • Муты/Варны: <b>макс. 15 за 10 мин.</b>\n"
+        "   • Кики: ❌ <b>Запрещены</b>\n\n"
+        "👑 <b>Ранги 6–10 (Ст. Админ, ГА, Техадмин, Зам, Владелец):</b>\n"
+        "   • 🌟 <b>Полные права:</b> Кики, баны и любые наказания без ограничений\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "<i>При превышении лимита или попытке несанкционированного действия бот мгновенно блокирует команду.</i>"
+    )
+    await message.reply(text)
 
 
 # ---------------- ВСЕОБЩАЯ АМНИСТИЯ (РАЗБАН ВСЕХ) ----------------

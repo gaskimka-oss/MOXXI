@@ -299,7 +299,7 @@ async def transcribe_voice(message: Message, bot: Bot) -> None:
             pass
     except Exception as e:
         import logging
-        logging.getLogger("moxxibot").warning("расшифровка: %s", str(e)[:150])
+        logging.getLogger("irisbot").warning("расшифровка: %s", str(e)[:150])
 
 
 # ── Медиа от тех, кто без описания ──────────────────────────────────
@@ -481,30 +481,28 @@ async def activity(message: Message, bot: Bot):
                             pass
                 return
             else:
-                # Описание уже есть.
-                # Если участник в теме анкет отправляет новую анкету — мягко напоминаем
+                # Описание уже заполнено: закрываем тему описаний для обычных участников (ранг < 3)
                 form_topic = await get_form_topic(message.chat.id)
                 if form_topic and topic_id(message) == form_topic:
-                    lines = _split_lines(text_raw)
-                    hits = sum(1 for l in lines if LINE_RE.match(l.strip()))
-                    if hits >= 2 or (hits >= 1 and looks_like_form(text_raw)):
+                    from core_ranks import effective_rank
+                    staff_r = await effective_rank(message, bot)
+                    if staff_r < 3:
                         try:
                             await message.delete()
                         except Exception:
                             pass
-                        if not await db.cooldown_left(uid, "form_dup", 60):
-                            await db.set_cooldown(uid, "form_dup")
-                            note = (f"✅ {mention(message.from_user)}, вы уже "
-                                    f"заполнили описание — второй раз не нужно.\n\n"
-                                    f"Можете спокойно общаться в других темах.\n"
-                                    f"Посмотреть своё: <code>описание</code>")
+                        if not await db.cooldown_left(uid, "form_done_lock", 60):
+                            await db.set_cooldown(uid, "form_done_lock")
+                            note = (f"🔒 {mention(message.from_user)}, ваше описание уже принято и сохранено!\n\n"
+                                    f"Тема описаний закрыта для общения.\n"
+                                    f"Вы можете свободно общаться в остальных темах беседы!")
                             try:
                                 warn = await message.bot.send_message(
                                     message.chat.id, note,
                                     message_thread_id=form_topic,
                                     disable_web_page_preview=True)
                                 import asyncio as _a
-                                _a.create_task(_del_later(warn, 120))
+                                _a.create_task(_del_later(warn, 60))
                             except Exception:
                                 pass
                         return

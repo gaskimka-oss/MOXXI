@@ -12,7 +12,7 @@ import time
 
 import db
 
-log = logging.getLogger("moxxibot.seed")
+log = logging.getLogger("irisbot.seed")
 
 MAIN_CHAT = -1003934033202
 

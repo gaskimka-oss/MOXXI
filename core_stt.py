@@ -18,7 +18,7 @@ import os
 import urllib.request
 import uuid
 
-log = logging.getLogger("moxxibot.stt")
+log = logging.getLogger("irisbot.stt")
 
 # ── ключ и адрес ────────────────────────────────────────────────────
 _STT_KEY = (os.getenv("STT_API_KEY") or "").strip()

@@ -119,10 +119,30 @@ async def _ai_review(log_id: int, punish_id: int, chat_id: int,
             (r["verdict"], r["score"], r["reason"], r.get("advice", ""),
              log_id))
 
-        # Оценки сохраняются в базу чата mod_log для панели чата,
-        # без пересылки в личку владельца бота, чтобы изолировать чаты друг от друга.
+        # молча пропускаем справедливые и неуверенные оценки
+        if r["verdict"] == "ok" or r["score"] < 6 or bot is None:
+            return
+        if await db.get_setting(chat_id, "ai_alerts", "1") != "1":
+            return
+
+        from core_resolve import human_period
+        kinds = {"mute": "🔇 Мут", "ban": "🔨 Бан",
+                 "warn": "⚠️ Варн", "kick": "👢 Кик"}
+        term = (human_period(seconds) if seconds else
+                "без срока" if kind == "warn" else
+                "однократно" if kind == "kick" else "бессрочно")
+        text = ai.render_review(r, kinds.get(kind, kind), target,
+                                moderator, term)
+        text += f"\n\n<code>#{log_id}</code> · разбор: <code>админ</code>"
+
+        import config
+        try:
+            await bot.send_message(config.OWNER_ID, text,
+                                   disable_web_page_preview=True)
+        except Exception:
+            pass
     except Exception as e:
-        logging.getLogger("moxxibot.ai").warning("разбор наказания: %s", e)
+        logging.getLogger("irisbot.ai").warning("разбор наказания: %s", e)
 
 
 async def autodelete(bot: Bot, chat_id: int, message_id: int,

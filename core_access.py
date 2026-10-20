@@ -87,18 +87,18 @@ async def check(message, bot, key: str, base_rank: int,
     if have >= need:
         return None
 
-    # В группах любые сообщения без командного префикса (!, /, .) от участников с недостаточным рангом
-    # считаются обычным разговором и НИКОГДА не должны спамить ошибкой прав
-    if not had_prefix and chat.type in ("group", "supergroup"):
+    # Случайные разговорные фразы без префикса («спасибо», «кто», «дать» и т.п.) пропускаем молча
+    from core_registry import EXPLICIT_ADDRESS_NAMES
+    if not had_prefix and key in EXPLICIT_ADDRESS_NAMES:
+        return ""
+
+    ADMIN_KEYS = {"повысить", "+модер", "понизить", "-модер", "снять", "кик", "бан", "мут", "варн", "дк", "чистка"}
+    # Обычный разговор от участников без ранга не спамит ошибками на простые команды
+    if not had_prefix and have == 0 and key not in ADMIN_KEYS:
         return ""
 
     quiet = await db.get_setting(chat.id, "dk_silent", "0") == "1"
-    if quiet:
-        return ""
-
-    # Случайные разговорные фразы без префикса («спасибо», «кто») пропускаем молча
-    from core_registry import EXPLICIT_ADDRESS_NAMES
-    if not had_prefix and key in EXPLICIT_ADDRESS_NAMES:
+    if quiet and key not in ADMIN_KEYS:
         return ""
 
     return (f"⛔️ Недостаточно прав для этой команды.\n"
