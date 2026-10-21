@@ -151,14 +151,16 @@ async def _queue_unknown_target(message: Message, args: str, kind: str) -> bool:
                            message.from_user.id if message.from_user else 0)
     action = "предупреждение" if kind == "warn" else ("мут" if kind == "mute" else "бан")
     period_str = f"⏱ Срок: <b>{human_period(seconds)}</b>\n" if kind != "warn" else ""
+    action_label = "Бан" if kind == "ban" else ("Мут" if kind == "mute" else "Предупреждение")
+    period_str = f"⏱ Срок: <b>{human_period(seconds)}</b>\n" if kind != "warn" else ""
     await message.reply(
-        f"⏳ <b>{action.capitalize()} сохранено для @{html.escape(username)}</b>\n\n"
-        "Telegram пока не передал его числовой ID. Наказание автоматически "
-        "применится при его следующем сообщении, входе или событии участника.\n"
+        f"⛔️ <b>{action_label} активирован для @{html.escape(username)}</b>\n\n"
+        f"👤 <b>Нарушитель:</b> @{html.escape(username)}\n"
         f"{period_str}"
-        f"📝 Причина: {html.escape(reason)}\n\n"
-        "Для немедленного применения можно указать числовой ID или ответить "
-        "командой на сообщение пользователя.")
+        f"📝 <b>Причина:</b> {html.escape(reason)}\n\n"
+        f"🔒 <b>Пользователь добавлен в чёрный список чата.</b>\n"
+        f"Наказание применится автоматически в ту же секунду при любой его активности или входе."
+    )
     return True
 
 

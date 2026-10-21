@@ -106,16 +106,13 @@ def _autodel(msg, delay: int = 120) -> None:
 async def _profile(uid: int, chat_id: int = 0):
     if chat_id < 0:
         row = await db.fetchone("SELECT * FROM chat_profiles WHERE chat_id=? AND user_id=?", (chat_id, uid))
-        if not row:
-            await db.execute("INSERT OR IGNORE INTO chat_profiles (chat_id, user_id) VALUES (?, ?)", (chat_id, uid))
-            row = await db.fetchone("SELECT * FROM chat_profiles WHERE chat_id=? AND user_id=?", (chat_id, uid))
-        return row
+        if row and (row["filled"] or row.get("custom") or any(row[c] for _, _, c in FIELDS if c in row.keys() and row[c])):
+            return row
     row = await db.fetchone("SELECT * FROM profiles WHERE user_id=?", (uid,))
     if not row:
         await db.execute("INSERT OR IGNORE INTO profiles (user_id) VALUES (?)", (uid,))
         row = await db.fetchone("SELECT * FROM profiles WHERE user_id=?", (uid,))
     return row
-
 
 def _split_lines(text: str) -> list[str]:
     """Режем текст на строки. Если анкету прислали одной строкой
@@ -232,7 +229,7 @@ async def is_tg_admin(bot: Bot, chat_id: int, uid: int) -> str | None:
 async def render_card(message: Message, bot: Bot, uid: int, name: str | None) -> str:
     """Карточка участника в стиле Ириса."""
     u = await db.get_user(uid)
-    p = await _profile(uid)
+    p = await _profile(uid, message.chat.id)
     rank = await get_rank(message.chat.id, uid)
     if not rank:
         try:
@@ -592,31 +589,6 @@ async def cmd_description(message: Message, bot: Bot, args: str = "", **kw):
     # показываем главное описание беседы и шаблон анкеты для всех участников!
     from core_resolve import real_reply
     me = message.from_user.id
-    if message.chat.type != "private" and not a and real_reply(message) is None:
-        g_desc = await db.get_setting(message.chat.id, "global_desc")
-        ft = await get_form_topic(message.chat.id)
-        topic_str = f"\n📌 <b>Тема для заполнения описаний:</b> {topic_link(message.chat.id, ft)}" if ft else ""
-        if g_desc:
-            text = (
-                f"📋 <b>ОПИСАНИЕ И ШАБЛОН БЕСЕДЫ «{html.escape(message.chat.title or '')}»</b>\n\n"
-                f"{g_desc}\n\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"💡 <i>Чтобы посмотреть своё описание:</i> <code>мое описание</code>\n"
-                f"💡 <i>Чтобы посмотреть описание участника:</i> <code>описание @юзер</code>"
-                f"{topic_str}"
-            )
-        else:
-            text = (
-                f"📋 <b>ОПИСАНИЕ И ШАБЛОН БЕСЕДЫ «{html.escape(message.chat.title or '')}»</b>\n\n"
-                f"В этой беседе используется форма анкеты:\n\n"
-                f"<code>{TEMPLATE}</code>\n\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"💡 <i>Чтобы посмотреть своё описание:</i> <code>мое описание</code>\n"
-                f"💡 <i>Чтобы посмотреть описание участника:</i> <code>описание @юзер</code>\n"
-                f"💡 <i>Администраторам для своего шаблона:</i> <code>+глописание [текст]</code>"
-                f"{topic_str}"
-            )
-        return await message.reply(text, disable_web_page_preview=True)
 
     if a or real_reply(message) is not None:
         uid, name, _ = await resolve_target(message, a, bot)
@@ -633,7 +605,7 @@ async def cmd_description(message: Message, bot: Bot, args: str = "", **kw):
         uid, name = me, message.from_user.first_name
 
     u = await db.get_user(uid)
-    p = await _profile(uid)
+    p = await _profile(uid, message.chat.id)
     mine = (uid == me)
 
     head = f"📋 <b>Описание</b> {mention_id(uid, html.escape(name or str(uid)))}"
@@ -686,32 +658,30 @@ EXAMPLE = """☆ Имя: Дима
 ☆ Ник: ZRG Dima"""
 
 
-@router.message(Cmd("удалить описание", "снести описание", "очистить описание",
+@router.message(Cmd("-описание", "- описание", "-анкета", "- анкета",
+                    "удалить описание", "удалить мое описание", "снести описание", "очистить описание",
                     "стереть описание", "сброс описания",
-                    section=S, rank=4, usage="удалить описание @ник",
-                    desc="Стереть описание участнику (ранг 4+)"))
+                    section=S, usage="-описание [@ник]",
+                    desc="Удалить своё описание (или чужое для админов 4+)"))
 async def cmd_wipe_description(message: Message, bot: Bot, args: str = "", **kw):
-    """Полностью очищает анкету человека, чтобы он заполнил её заново."""
-    from core_ranks import require
-    if not await require(message, bot, 4):
-        return
-
+    """Удаляет своё описание (или чужое для модераторов)."""
     a = (args or "").strip()
-    if not a and not real_reply(message):
-        return await message.reply(
-            "🧹 <b>Удалить описание участнику</b>\n\n"
-            "<code>удалить описание @ник</code>\n"
-            "или ответом на его сообщение.\n\n"
-            "Анкета очистится, человек заполнит заново.\n\n"
-            "Найти чужие копии одной анкеты:\n"
-            "<code>дубли описаний</code>")
+    rep = real_reply(message)
+    me = message.from_user.id
+    from core_ranks import effective_rank
+    my_rank = await effective_rank(message, bot)
 
-    uid, name, _ = await resolve_target(message, a, bot)
-    if not uid:
-        who = html.escape((name or a).lstrip("@")[:32])
-        return await message.reply(
-            f"🤔 Не знаю участника <b>@{who}</b>.\n"
-            f"Ответьте на его сообщение или укажите ID.")
+    if a or rep is not None:
+        if my_rank < 4:
+            return await message.reply("⛔️ Удалять чужие описания могут только администраторы (ранг 4+).")
+        uid, name, _ = await resolve_target(message, a, bot)
+        if not uid:
+            who = html.escape((name or a).lstrip("@")[:32])
+            return await message.reply(f"🤔 Не знаю участника <b>@{who}</b>.")
+        is_self = (uid == me)
+    else:
+        uid, name = me, message.from_user.first_name
+        is_self = True
 
     cols = ", ".join(f"{c}=NULL" for _, _, c in FIELDS)
     cid = message.chat.id
@@ -725,11 +695,17 @@ async def cmd_wipe_description(message: Message, bot: Bot, args: str = "", **kw)
         f"UPDATE profiles SET {cols}, about=NULL, custom=NULL, custom_by=NULL, "
         f"custom_ts=NULL, filled=0, filled_ts=NULL WHERE user_id=?", (uid,))
 
-    await message.reply(
-        f"🧹 <b>Описание удалено</b>\n"
-        f"👤 {mention_id(uid, html.escape(name or str(uid)))}\n\n"
-        f"Человек заполнит анкету заново в теме описаний.")
-
+    if is_self:
+        await message.reply(
+            "🗑 <b>Ваше описание успешно удалено!</b>\n\n"
+            "Вы можете создать новое описание с помощью команды <code>шаблон</code> или <code>+описание</code>."
+        )
+    else:
+        await message.reply(
+            f"🧹 <b>Описание удалено</b>\n"
+            f"👤 {mention_id(uid, html.escape(name or str(uid)))}\n\n"
+            f"Человек заполнит анкету заново в теме описаний."
+        )
 
 @router.message(Cmd("дубли описаний", "одинаковые описания", "проверить описания",
                     "поиск дублей", section=S, rank=4,
@@ -867,19 +843,24 @@ async def cmd_edit_description(message: Message, bot: Bot, args: str = "", **kw)
         disable_web_page_preview=True)
 
 
-@router.message(Cmd("добавить описание", "новое описание", "заполнить анкету",
-                    "заполнить описание", section=S, usage="добавить описание [текст анкеты]",
+@router.message(Cmd("+описание", "+ описание", "+анкета", "+ анкета",
+                    "добавить описание", "новое описание", "заполнить анкету",
+                    "заполнить описание", section=S, usage="+описание [текст анкеты]",
                     desc="Добавить или изменить своё описание"))
 async def cmd_add_description(message: Message, bot: Bot, args: str = "", **kw):
-    """«добавить описание» — добавить своё описание."""
+    """«+описание» — добавить своё описание."""
     a = (args or "").strip()
+    rep = real_reply(message)
+    if not a and rep and (rep.text or rep.caption):
+        rep_text = rep.text or rep.caption or ""
+        if parse_form(rep_text) or looks_like_form(rep_text):
+            return await _save_form(message, rep_text)
     if a and (parse_form(a) or looks_like_form(a)):
         return await _save_form(message, a)
     return await cmd_template(message, bot, **kw)
 
 
-@router.message(Cmd("шаблон", "шаблон описания", "заполнить описание",
-                    "как заполнить описание", "анкета шаблон", section=S,
+@router.message(Cmd("шаблон", "+шаблон", "+ шаблон", "шаблон описания", "заполнить описание", "как заполнить описание", "анкета шаблон", "форма описания", section=S,
                     usage="шаблон", desc="Шаблон анкеты и как её заполнить"))
 async def cmd_template(message: Message, bot: Bot, **kw):
     """Шаблон анкеты — ОДНИМ сообщением, чтобы удобно копировать."""
@@ -1009,11 +990,7 @@ async def _save_form(message: Message, text: str) -> None:
 
 
 # ---------------- ОБЯЗАТЕЛЬНАЯ АНКЕТА ----------------
-@router.message(Cmd("+описание", "-описание", "+анкета", "-анкета",
-                    "+ описание", "- описание", "+ анкета", "- анкета",
-                    "анкета обязательна", "требовать анкету", "обязательное описание",
-                    "вкл описание", "выкл описание", "вкл анкету", "выкл анкету",
-                    section=S, usage="+описание / -описание",
+@router.message(Cmd("+обязательное описание", "-обязательное описание", "+ обязательное описание", "- обязательное описание", "анкета обязательна", "требовать анкету", "обязательное описание", "вкл описание", "выкл описание", "вкл анкету", "выкл анкету", section=S, rank=4, usage="+обязательное описание / -обязательное описание",
                     desc="Включить/выключить обязательное описание для участников"))
 async def cmd_require_form(message: Message, bot: Bot, args: str = "", **kw):
     a = (args or "").strip()
@@ -1074,17 +1051,25 @@ MIN_FIELDS = 2
 
 
 async def form_done(uid: int, chat_id: int = 0) -> bool:
-    """Заполнено ли описание для этого конкретного чата."""
+    """Заполнено ли описание для этого конкретного чата или глобально."""
     p = await _profile(uid, chat_id)
-    if not p:
-        return False
-    # админ вписал описание вручную — считаем заполненным
-    if "custom" in p.keys() and p["custom"]:
-        return True
-    if p["filled"]:
-        return True
-    return sum(1 for _, _, c in FIELDS if p[c]) >= MIN_FIELDS
-
+    if p:
+        if p.get("custom") and not str(p["custom"]).startswith("🧠 ИИ"):
+            return True
+        if p.get("filled"):
+            return True
+        if sum(1 for _, _, c in FIELDS if c in p.keys() and p[c]) >= MIN_FIELDS:
+            return True
+    if chat_id != 0:
+        p_glob = await _profile(uid, 0)
+        if p_glob:
+            if p_glob.get("custom") and not str(p_glob["custom"]).startswith("🧠 ИИ"):
+                return True
+            if p_glob.get("filled"):
+                return True
+            if sum(1 for _, _, c in FIELDS if c in p_glob.keys() and p_glob[c]) >= MIN_FIELDS:
+                return True
+    return False
 
 async def needs_form(chat_id: int, uid: int) -> bool:
     """Требуется ли этому участнику заполнить анкету в данном чате."""
@@ -1162,7 +1147,7 @@ async def get_nick(uid: int, chat_id: int = 0) -> str:
     u = await db.get_user(uid)
     if u["nick"]:
         return str(u["nick"])
-    p = await _profile(uid)
+    p = await _profile(uid, chat_id)
     return str(p["hobby"] or "")
 
 

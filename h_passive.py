@@ -466,7 +466,7 @@ async def activity(message: Message, bot: Bot):
                         note = (f"📝 {mention(message.from_user)}, вам пока нельзя "
                                 f"писать здесь.\n\n"
                                 f"✍️ <b>Сначала заполните описание:</b>\n{link}")
-                        target_thread = form_topic
+                        target_thread = here or None
                     try:
                         warn = await message.bot.send_message(
                             message.chat.id, note,

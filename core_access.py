@@ -179,7 +179,10 @@ async def access_middleware(handler, event, data: dict):
                 try:
                     await event.reply(msg, disable_web_page_preview=True)
                 except Exception:
-                    pass
+                    try:
+                        await event.answer(msg, disable_web_page_preview=True)
+                    except Exception:
+                        pass
                 return
 
         # тема описаний — только для незаполнивших: остальным там тихо

@@ -69,6 +69,21 @@ async def _lookup_user_by_text(q: str) -> Optional[tuple[int, str]]:
     if s_row and s_row["user_id"]:
         return s_row["user_id"], (s_row["name"] or str(s_row["user_id"]))
 
+    # 3.1 Поиск в chat_nicks
+    cn_row = await db.fetchone(
+        "SELECT user_id, nick FROM chat_nicks WHERE lower(nick)=lower(?) LIMIT 1",
+        (clean_q,))
+    if cn_row and cn_row["user_id"]:
+        return cn_row["user_id"], (cn_row["nick"] or str(cn_row["user_id"]))
+
+    # 3.2 Поиск в chat_profiles
+    cp_row = await db.fetchone(
+        "SELECT user_id, nick2, real_name, hobby FROM chat_profiles "
+        "WHERE lower(nick2)=lower(?) OR lower(real_name)=lower(?) OR lower(hobby)=lower(?) LIMIT 1",
+        (clean_q, clean_q, clean_q))
+    if cp_row and cp_row["user_id"]:
+        return cp_row["user_id"], (cp_row["nick2"] or cp_row["real_name"] or str(cp_row["user_id"]))
+
     # 4. Префиксное совпадение если длина >= 3
     if len(clean_q) >= 3:
         row = await db.fetchone(
