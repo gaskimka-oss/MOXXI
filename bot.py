@@ -476,13 +476,20 @@ async def main() -> None:
             pass
 
     try:
-        await bot.delete_webhook(drop_pending_updates=True)
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
-    except TelegramConflictError:
-        log.error("❌ Бот уже запущен где-то ещё (другой сервер или локально). "
-                  "Остановите второй экземпляр — Telegram разрешает только один.")
-    except asyncio.CancelledError:
-        log.info("Получен сигнал остановки — завершаюсь.")
+        while True:
+            try:
+                await bot.delete_webhook(drop_pending_updates=True)
+                await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+                break
+            except asyncio.CancelledError:
+                log.info("Получен сигнал остановки — завершаюсь.")
+                break
+            except TelegramConflictError:
+                log.error("❌ Конфликт: бот уже запущен в другом месте (или Telegram ещё закрывает предыдущую сессию). Повтор через 20с...")
+                await asyncio.sleep(20)
+            except Exception as e:
+                log.warning("Сбой сетевого соединения (%s): %s. Автоматическое переподключение через 5с...", type(e).__name__, e)
+                await asyncio.sleep(5)
     finally:
         log.info("Закрываю соединения…")
         try:
