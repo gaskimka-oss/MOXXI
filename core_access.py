@@ -205,4 +205,9 @@ async def access_middleware(handler, event, data: dict):
             object.__setattr__(event, "_dk_ok", True)
         except Exception:
             pass
+        if event.from_user:
+            try:
+                await db.track_daily_activity(event.from_user.id, action="cmd", is_group=(event.chat.type != "private"))
+            except Exception:
+                pass
     return await handler(event, data)

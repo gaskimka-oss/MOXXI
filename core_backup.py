@@ -33,10 +33,10 @@ log = logging.getLogger("moxxibot.backup")
 ARCHIVE_NAME = "moxxi_backup.db.gz"
 TAG = "#moxxi_backup"
 
-# интервал создания бэкапов (минуты) — по умолчанию 5 минут
-INTERVAL_MIN = int(os.getenv("BACKUP_INTERVAL_MIN", "5") or 5)
+# интервал создания бэкапов (минуты) — по умолчанию 60 минут (чтобы не спамить в ЛС)
+INTERVAL_MIN = int(os.getenv("BACKUP_INTERVAL_MIN", "60") or 60)
 
-_last_backup_msg_id: int = 0
+_last_backup_msgs: dict[int, int] = {}
 _quick_backup_task: asyncio.Task | None = None
 
 
@@ -145,11 +145,20 @@ async def save(bot: Bot, note: str = "") -> bool:
     delivered = 0
     for chat in targets:
         try:
+            # Удаляем предыдущий файл бэкапа, чтобы не засорять ЛС владельца десятками копий
+            old_mid = _last_backup_msgs.get(chat)
+            if old_mid:
+                try:
+                    await bot.delete_message(chat, old_mid)
+                except Exception:
+                    pass
+
             msg = await bot.send_document(
                 chat, BufferedInputFile(blob, filename=ARCHIVE_NAME),
                 caption=caption + (f"\n{note}" if note else ""),
                 disable_notification=True)
             delivered += 1
+            _last_backup_msgs[chat] = msg.message_id
             try:
                 await bot.unpin_all_chat_messages(chat)
                 await bot.pin_chat_message(chat, msg.message_id, disable_notification=True)

@@ -78,7 +78,7 @@ def _review_rate_kb() -> InlineKeyboardMarkup:
     ])
 
 
-@router.message(Cmd("отзыв", "отзывы", "оставить отзыв", "написать отзыв", section=S_COMMUNITY,
+@router.message(Cmd("отзыв", "отзывы", "оставить отзыв", "написать отзыв", "посмотреть отзывы", section=S_COMMUNITY,
                     usage="отзыв [текст]", desc="Оставить или посмотреть отзывы о боте"))
 async def cmd_reviews(message: Message, bot: Bot, args: str = "", **kw):
     uid = message.from_user.id
@@ -86,8 +86,20 @@ async def cmd_reviews(message: Message, bot: Bot, args: str = "", **kw):
 
     txt = (args or "").strip()
     if txt:
-        # Если текст сразу передан: "отзыв бот супер всё быстро пришло"
-        # Записываем с высшей оценкой 5 звёзд по умолчанию или предлагаем выбор
+        # Проверка кулдауна на оставление отзыва: 10 часов (36000 сек)
+        cd_left = await db.cooldown_left(uid, "leave_review", 36000)
+        if cd_left > 0:
+            return await message.reply(
+                f"⏳ <b>Кулдаун на отзыв!</b>\n\n"
+                f"Оставлять отзывы можно не чаще одного раза в <b>10 часов</b>.\n"
+                f"Пожалуйста, подождите ещё <b>{hms(cd_left)}</b>, прежде чем писать следующий отзыв.\n\n"
+                f"📖 Чтобы читать чужие отзывы: <code>отзывы</code> или кнопка «Все отзывы».",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="📖 Все отзывы", callback_data="rev:list:0")
+                ]])
+            )
+
+        await db.set_cooldown(uid, "leave_review")
         rev_id = await db.add_review(uid, name, 5, txt)
         stats = await db.get_review_stats()
         # Отправка в привязанную группу отзывов, если задана
@@ -197,6 +209,7 @@ def _sug_kb(sug_id: int, up: int = 0, down: int = 0) -> InlineKeyboardMarkup:
 
 
 @router.message(Cmd("идея", "идеи", "предложение", "предложения", "предложка", "добавить идею",
+                    "написать идею", "посмотреть идеи",
                     section=S_COMMUNITY, usage="идея [текст идеи]",
                     desc="Предложить идею по улучшению бота или посмотреть предложения"))
 async def cmd_suggestions(message: Message, bot: Bot, args: str = "", **kw):
@@ -205,6 +218,17 @@ async def cmd_suggestions(message: Message, bot: Bot, args: str = "", **kw):
     txt = (args or "").strip()
 
     if txt:
+        # Проверка кулдауна на предложение идеи: 1 час (3600 сек)
+        cd_left = await db.cooldown_left(uid, "leave_idea", 3600)
+        if cd_left > 0:
+            return await message.reply(
+                f"⏳ <b>Кулдаун на предложение идеи!</b>\n\n"
+                f"Предлагать новые идеи можно не чаще одного раза в <b>1 час</b>.\n"
+                f"Пожалуйста, подождите ещё <b>{hms(cd_left)}</b>, прежде чем отправлять следующую идею.\n\n"
+                f"💡 Чтобы посмотреть уже предложенные идеи: <code>идеи</code>."
+            )
+
+        await db.set_cooldown(uid, "leave_idea")
         sug_id = await db.add_suggestion(uid, name, txt)
         card = (
             f"💡 ✨ <b>НОВАЯ ИДЕЯ ДЛЯ БОТА #{sug_id}</b> ✨ 💡\n"
@@ -362,6 +386,54 @@ def _auto_answer_templates_kb(ticket_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+import re
+
+def is_nonsense_support_ticket(text: str) -> bool:
+    """Определяет бессмысленные, слишком короткие или спам-обращения."""
+    t = text.strip().lower()
+    if len(t) < 4:
+        return True
+    words = t.split()
+    if len(words) == 1 and words[0] in {
+        "да", "нет", "ок", "хай", "ку", "прив", "привет", "чо", "че", "хз", "ппп", "ааа",
+        "test", "тест", "123", "что", "почему", "ало", "алло", "пж", "помоги", "help",
+        "куку", "гы", "лол", "lol", "хмм", "ммм", "ну", "ага", "угу", "э", "эй"
+    }:
+        return True
+    return False
+
+
+def detect_staff_abuse(text: str) -> tuple[bool, str]:
+    """Проверяет ответ сотрудника поддержки на оскорбления, мат и упоминание родных ('мать', 'мамка' и т.д.)."""
+    t = text.lower()
+    subs = {'@': 'а', 'a': 'а', 'm': 'м', 't': 'т', 'b': 'б', '0': 'о', 'o': 'о', 'e': 'е'}
+    norm = "".join(subs.get(c, c) for c in t)
+
+    # 1. Оскорбления родных (мать, мамка, отчим, батя в грубом контексте, mq)
+    parent_patterns = [
+        r'\b(мать|матери|матерью|мамаша|мамашу|мамка|мамку|мамке|мамок|мамки|мку|mq|матери)\b',
+        r'(твой|твою|твоя|твоей|твоем)\s+(мать|мамк|мамаш)',
+        r'(сын|дочь|отродье)\s+(шлюхи|бляди|собаки)',
+        r'(ебал|ебем|ебут|сношал)\s+.*(мать|мамк)',
+    ]
+    for pat in parent_patterns:
+        if re.search(pat, norm):
+            return True, "Упоминание/оскорбление родных"
+
+    # 2. Грубый мат и прямые оскорбления игрока
+    insult_patterns = [
+        r'\b(шлюх|блядин|уебищ|уёбищ|хуесос|пидорас|пидар|гандон|мразь|тварь)\w*',
+        r'(пошел|пошёл|иди)\s+на\s*хуй',
+        r'рот\s+(твой\s+)?ебал',
+        r'\b(долбоеб|долбоёб|даун|ублюдок)\b',
+    ]
+    for pat in insult_patterns:
+        if re.search(pat, norm):
+            return True, "Нецензурная брань / оскорбление игрока"
+
+    return False, ""
+
+
 @router.message(Cmd("поддержка", "тикет", "саппорт", "техподдержка", "support", "ticket", "хелп админ", "помощь админа",
                     section=S_COMMUNITY, usage="поддержка [вопрос]",
                     desc="Обратиться в службу техподдержки с вопросом или проблемой"))
@@ -392,27 +464,61 @@ async def cmd_support(message: Message, bot: Bot, args: str = "", **kw):
     await db.set_cooldown(uid, "support_ticket")
     ticket_id = await db.create_support_ticket(uid, name, txt)
 
-    # Уведомляем пользователя
-    await message.reply(
-        f"📨 <b>Ваш запрос в техподдержку принят! (Тикет #{ticket_id})</b>\n\n"
-        f"📝 <b>Причина / Проблема:</b> «<i>{html.escape(txt)}</i>»\n\n"
-        f"⏳ <b>Установлен кулдаун: 30 минут</b> на повторные обращения.\n"
-        f"👨‍💻 Администрация рассмотрит ваш вопрос и пришлёт ответ прямо сюда в личные сообщения.\n"
-        f"🤖 <i>Резервный ИИ-помощник подключится, если ответ задержится более чем на 6 часов.</i>"
-    )
+    is_nonsense = is_nonsense_support_ticket(txt)
+    if is_nonsense:
+        # Автоматический вежливый ответ пользователю с разъяснением
+        user_msg = (
+            f"🤖 <b>Автоматический ответ Техподдержки (Тикет #{ticket_id}):</b>\n\n"
+            f"Здравствуйте, {html.escape(name)}! Ваше обращение «<i>{html.escape(txt)}</i>» слишком краткое или не содержит сути проблемы.\n\n"
+            f"❓ Чтобы администрация могла оперативно вам помочь, пожалуйста, уточните:\n"
+            f"• Проблема с донатом, звездами или переводом монет;\n"
+            f"• Ошибка или баг в конкретной команде;\n"
+            f"• Жалоба или вопрос по блокировке.\n\n"
+            f"ℹ️ <i>Ваш запрос передан Администрации бота. Если это реальный вопрос, администраторы ответят вам повторно вторым сообщением!</i>"
+        )
+        await message.reply(user_msg)
 
-    # Уведомляем Администрацию бота (строго владельца / админов, без посторонних)
-    admin_notify = (
-        f"🆘 🔔 <b>НОВЫЙ ТИКЕТ В ТЕХПОДДЕРЖКУ #{ticket_id}</b>\n"
-        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-        f"👤 <b>От:</b> {mention_id(uid, name)} (<code>{uid}</code>)\n"
-        f"📝 <b>Причина / Вопрос:</b>\n«{html.escape(txt)}»\n\n"
-        f"💡 <b>Команды для ответа:</b>\n"
-        f"• Свой ответ: <code>+ответ {ticket_id} [текст вашего ответа]</code>\n"
-        f"• Быстрый шаблон: <code>автоответ тикет {ticket_id} [1-5]</code>\n"
-        f"• Закрыть тикет: <code>закрыть тикет {ticket_id}</code>"
-    )
-    recipients = {config.OWNER_ID}
+        admin_notify = (
+            f"🆘 🔔 <b>НОВЫЙ ТИКЕТ В ТЕХПОДДЕРЖКУ #{ticket_id}</b>\n"
+            f"⚠️ <i>(ИИ отправил автоотклонение: обращение слишком короткое/неинформативное)</i>\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"👤 <b>От:</b> {mention_id(uid, name)} (<code>{uid}</code>)\n"
+            f"📝 <b>Причина / Проблема:</b>\n«{html.escape(txt)}»\n\n"
+            f"💡 <b>Команды для ответа:</b>\n"
+            f"• Свой ответ: <code>+ответ {ticket_id} [текст вашего ответа]</code>\n"
+            f"• Быстрый шаблон: <code>автоответ тикет {ticket_id} [1-5]</code>\n"
+            f"• Закрыть тикет: <code>закрыть тикет {ticket_id}</code>"
+        )
+    else:
+        # Обычный подробный тикет
+        await message.reply(
+            f"📨 <b>Ваш запрос в техподдержку принят! (Тикет #{ticket_id})</b>\n\n"
+            f"📝 <b>Причина / Проблема:</b> «<i>{html.escape(txt)}</i>»\n\n"
+            f"⏳ <b>Установлен кулдаун: 30 минут</b> на повторные обращения.\n"
+            f"👨‍💻 Администрация рассмотрит ваш вопрос и пришлёт ответ прямо сюда в личные сообщения.\n"
+            f"🤖 <i>Резервный ИИ-помощник подключится, если ответ задержится более чем на 6 часов.</i>"
+        )
+        admin_notify = (
+            f"🆘 🔔 <b>НОВЫЙ ТИКЕТ В ТЕХПОДДЕРЖКУ #{ticket_id}</b>\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"👤 <b>От:</b> {mention_id(uid, name)} (<code>{uid}</code>)\n"
+            f"📝 <b>Причина / Вопрос:</b>\n«{html.escape(txt)}»\n\n"
+            f"💡 <b>Команды для ответа:</b>\n"
+            f"• Свой ответ: <code>+ответ {ticket_id} [текст вашего ответа]</code>\n"
+            f"• Быстрый шаблон: <code>автоответ тикет {ticket_id} [1-5]</code>\n"
+            f"• Закрыть тикет: <code>закрыть тикет {ticket_id}</code>"
+        )
+
+    # Оповещаем владельцев бота (Fanat & Simba) и стафф
+    recipients = set(getattr(config, "BOT_OWNERS", {config.OWNER_ID}))
+    try:
+        staff_rows = await db.get_all_bot_staff()
+        for sm in staff_rows:
+            if sm.get("rank", 0) >= 1:
+                recipients.add(sm["user_id"])
+    except Exception:
+        pass
+
     supp_chat = await db.get_global_setting("global_support_chat", "")
     supp_topic = await db.get_global_setting("global_support_chat_topic", "")
     if supp_chat:
@@ -440,6 +546,14 @@ async def cmd_answer_ticket(message: Message, bot: Bot, args: str = "", **kw):
     if not is_admin:
         return await message.reply("⛔️ Отвечать на тикеты и закрывать их может <b>ТОЛЬКО официальная администрация бота</b>!")
 
+    # Проверка на мут сотрудника стаффа
+    muted, sec_left = await db.is_staff_muted(sender_id)
+    if muted:
+        return await message.reply(
+            f"🔇 <b>Вы временно заглушены в стаффе бота!</b>\n"
+            f"Осталось времени: <b>{hms(sec_left)}</b>. Вы не можете отправлять ответы игрокам."
+        )
+
     parts = (args or "").strip().split(maxsplit=1)
     if len(parts) < 2 or not parts[0].isdigit():
         return await message.reply("Формат: <code>+ответ [id_тикета] [текст ответа]</code>")
@@ -453,6 +567,84 @@ async def cmd_answer_ticket(message: Message, bot: Bot, args: str = "", **kw):
 
     if ticket.get("status") == "closed":
         return await message.reply(f"⚠️ Тикет #{ticket_id} уже закрыт!")
+
+    # Проверка на мат / упоминание родных сотрудником стаффа
+    is_abuse, abuse_reason = detect_staff_abuse(answer_text)
+    if is_abuse:
+        warns = await db.add_staff_warn(sender_id)
+        rank_title = db.BOT_STAFF_TITLES.get(staff_rank, f"Ранг {staff_rank}")
+        sender_name = message.from_user.first_name or "Сотрудник"
+        sender_tag = mention_id(sender_id, sender_name)
+
+        penalty_action = ""
+        if staff_rank in (1, 2) and warns >= 3:
+            await db.remove_bot_staff(sender_id)
+            penalty_action = "🚫 <b>СНЯТ С ДОЛЖНОСТИ СТАФФА</b> (3/3 варнов)"
+            try:
+                await bot.send_message(
+                    sender_id,
+                    "🚫 <b>Вы были сняты с должности сотрудника стаффа Moxxi!</b>\n"
+                    "Причина: получение 3/3 варнов за оскорбления / нецензурную брань в ответах поддержки."
+                )
+            except Exception:
+                pass
+        elif staff_rank == 3 and warns >= 3:
+            await db.set_bot_staff_rank(sender_id, 2, "Модератор")
+            await db.reset_staff_warns(sender_id)
+            penalty_action = "⚠️ <b>ПОНИЖЕН С АДМИНИСТРАТОРА ДО МОДЕРАТОРА</b> (варны сброшены на 0)"
+            try:
+                await bot.send_message(
+                    sender_id,
+                    "⚠️ <b>Вы были понижены с Администратора до Модератора!</b>\n"
+                    "Причина: получение 3/3 варнов за нецензурную брань в поддержке. Ваши варны сброшены на 0."
+                )
+            except Exception:
+                pass
+        else:
+            penalty_action = f"⚠️ <b>ВЫДАН ВАРН</b> ({warns}/3)"
+            try:
+                await bot.send_message(
+                    sender_id,
+                    f"⚠️ <b>Вам начислен выговор (варн) стаффа! ({warns}/3)</b>\n"
+                    f"Причина: обнаружена нецензурная брань / упоминание родных в ответе на тикет #{ticket_id}.\n"
+                    f"<i>Сообщение игроку заблокировано и не отправлено.</i>"
+                )
+            except Exception:
+                pass
+
+        await message.reply(
+            f"❌ <b>ОТВЕТ ЗАБЛОКИРОВАН СИСТЕМОЙ БЕЗОПАСНОСТИ!</b>\n\n"
+            f"Обнаружено: <b>{abuse_reason}</b>.\n"
+            f"Ваш ответ <b>НЕ был отправлен игроку</b>.\n"
+            f"Статус: {penalty_action}."
+        )
+
+        # Оповещаем Высшую Администрацию (Fanat & Simba) с интерактивными кнопками
+        u_name = ticket.get("user_name") or str(ticket["user_id"])
+        u_tag = mention_id(ticket["user_id"], u_name)
+
+        higher_admin_msg = (
+            f"🚨 <b>НАРУШЕНИЕ ПРАВИЛ СОТРУДНИКОМ СТАФФА В ПОДДЕРЖКЕ!</b>\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"👤 <b>Сотрудник:</b> {sender_tag} (ID: <code>{sender_id}</code>, {rank_title})\n"
+            f"⚠️ <b>Варны сотрудника:</b> <b>{warns}/3</b>\n"
+            f"🎫 <b>Тикет:</b> #{ticket_id} от игрока {u_tag}\n\n"
+            f"❓ <b>Вопрос игрока:</b>\n«<i>{html.escape(ticket['text'])}</i>»\n\n"
+            f"🚫 <b>Заблокированный ответ сотрудника:</b>\n«<b>{html.escape(answer_text)}</b>»\n\n"
+            f"🛡 <i>Бот автоматически заблокировал отправку игроку. Выберите решение:</i>"
+        )
+        kb_higher = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🟢 Оправдать (Снять варн)", callback_data=f"staff_act:unwarn:{sender_id}:{ticket_id}"),
+                InlineKeyboardButton(text="⚖️ Выбрать наказание", callback_data=f"staff_act:choose:{sender_id}:{ticket_id}")
+            ]
+        ])
+        for owner_id in getattr(config, "BOT_OWNERS", {config.OWNER_ID}):
+            try:
+                await bot.send_message(owner_id, higher_admin_msg, reply_markup=kb_higher)
+            except Exception:
+                pass
+        return
 
     await db.answer_support_ticket(ticket_id, answer_text, answered_by=sender_id, answered_name="Администрация", is_ai=False)
 
@@ -1016,4 +1208,138 @@ async def cmd_unbind_commands_topic(message: Message, bot: Bot, **kw):
     await db.set_global_setting("global_commands_chat_topic", "0")
     await db.set_global_setting("global_commands_topic", "0")
     await message.reply("✅ <b>Привязка темы команд снята.</b>")
+
+
+# ═══════════════════════════════════════════════════════════════
+# 7. ДЕЙСТВИЯ ВЫСШЕЙ АДМИНИСТРАЦИИ НАД СТАФФОМ (ОПРАВДАНИЕ / МУТ / ВАРН)
+# ═══════════════════════════════════════════════════════════════
+
+@router.callback_query(F.data.startswith("staff_act:"))
+async def cb_staff_action(call: CallbackQuery, bot: Bot):
+    uid = call.from_user.id
+    if not config.is_bot_owner(uid):
+        return await call.answer("🔒 Доступно только Высшей Администрации (Владельцам) бота!", show_alert=True)
+
+    parts = call.data.split(":")
+    action = parts[1]
+    staff_id = int(parts[2])
+    ticket_id = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
+
+    if action == "unwarn":
+        new_warns = await db.remove_staff_warn(staff_id)
+        try:
+            await bot.send_message(
+                staff_id,
+                "✅ <b>Ваш варн снят!</b>\nВысшая администрация во всём разобралась, извиняемся перед вами за ложное срабатывание."
+            )
+        except Exception:
+            pass
+        await call.message.edit_text(
+            call.message.html_text + f"\n\n✅ <b>Сотрудник оправдан Высшей Администрацией.</b>\nВарн аннулирован (текущих варнов: {new_warns}/3). Извинения отправлены сотруднику в ЛС."
+        )
+        return await call.answer("Сотрудник оправдан, варн снят!", show_alert=True)
+
+    if action == "choose":
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⚠️ Выдать варн", callback_data=f"staff_act:warn:{staff_id}:{ticket_id}"),
+                InlineKeyboardButton(text="🔇 Мут на 1 час", callback_data=f"staff_act:mute:{staff_id}:{ticket_id}")
+            ],
+            [
+                InlineKeyboardButton(text="🚫 Снять со стаффа", callback_data=f"staff_act:demote:{staff_id}:{ticket_id}"),
+                InlineKeyboardButton(text="🟢 Снять мут / Оправдать", callback_data=f"staff_act:unmute:{staff_id}:{ticket_id}")
+            ],
+            [
+                InlineKeyboardButton(text="⬅️ Назад", callback_data=f"staff_act:back:{staff_id}:{ticket_id}")
+            ]
+        ])
+        await call.message.edit_reply_markup(reply_markup=kb)
+        return await call.answer()
+
+    if action == "back":
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🟢 Оправдать (Снять варн)", callback_data=f"staff_act:unwarn:{staff_id}:{ticket_id}"),
+                InlineKeyboardButton(text="⚖️ Выбрать наказание", callback_data=f"staff_act:choose:{staff_id}:{ticket_id}")
+            ]
+        ])
+        await call.message.edit_reply_markup(reply_markup=kb)
+        return await call.answer()
+
+    if action == "warn":
+        warns = await db.add_staff_warn(staff_id)
+        try:
+            await bot.send_message(staff_id, f"⚠️ <b>Высшая Администрация утвердила выговор (варн)!</b>\nВаш текущий баланс варнов: {warns}/3.")
+        except Exception:
+            pass
+        await call.message.edit_text(
+            call.message.html_text + f"\n\n⚖️ <b>Высшая Администрация утвердила выговор.</b> Варнов: {warns}/3."
+        )
+        return await call.answer(f"Варн выдан! Всего: {warns}/3", show_alert=True)
+
+    if action == "mute":
+        await db.staff_mute(staff_id, 3600)
+        try:
+            await bot.send_message(staff_id, "🔇 <b>Высшая Администрация выдала вам мут на 1 час</b> в системе ответов техподдержки.")
+        except Exception:
+            pass
+        await call.message.edit_text(
+            call.message.html_text + "\n\n🔇 <b>Сотруднику выдан мут на 1 час</b> в техподдержке."
+        )
+        return await call.answer("Мут выдан на 1 час", show_alert=True)
+
+    if action == "unmute":
+        await db.staff_unmute(staff_id)
+        try:
+            await bot.send_message(
+                staff_id,
+                "✅ <b>Ваш мут снят!</b>\nВысшая администрация во всём разобралась, извиняемся перед вами."
+            )
+        except Exception:
+            pass
+        await call.message.edit_text(
+            call.message.html_text + "\n\n🟢 <b>Мут успешно снят.</b> Извещение с извинениями отправлено сотруднику."
+        )
+        return await call.answer("Мут снят!", show_alert=True)
+
+    if action == "demote":
+        await db.remove_bot_staff(staff_id)
+        try:
+            await bot.send_message(staff_id, "🚫 <b>Вы были сняты со стаффа бота</b> решением Высшей Администрации.")
+        except Exception:
+            pass
+        await call.message.edit_text(
+            call.message.html_text + "\n\n🚫 <b>Сотрудник снят со стаффа бота.</b>"
+        )
+        return await call.answer("Сотрудник снят со стаффа", show_alert=True)
+
+
+# ═══════════════════════════════════════════════════════════════
+# 8. ОБРАЗЕЦ ОФОРМЛЕНИЯ ТЕМЫ КОМАНД (+ОБРАЗЕЦ ТЕМЫ / -ОБРАЗЕЦ ТЕМЫ)
+# ═══════════════════════════════════════════════════════════════
+
+@router.message(Cmd("+образец темы", "образец темы вкл", "образец темы", section=S_COMMUNITY, rank=0, group_only=False,
+                    usage="+образец темы", desc="Включить образец оформления для темы команд (только Владелец)"))
+async def cmd_sample_topic_on(message: Message, bot: Bot, **kw):
+    uid = message.from_user.id if message.from_user else 0
+    if not config.is_bot_owner(uid):
+        return  # Тихий пропуск для обычных игроков!
+    await db.set_setting(message.chat.id, "sample_topic_enabled", "1")
+    await message.reply(
+        "✅ <b>Образец оформления темы успешно включён!</b>\n\n"
+        "Теперь при активности в теме бот будет подсказывать игрокам образец правильного вопроса:\n"
+        "<code>❓ Вопрос: [ваш вопрос]</code>\n"
+        "<code>💬 Описание: [подробности]</code>"
+    )
+
+
+@router.message(Cmd("-образец темы", "образец темы выкл", section=S_COMMUNITY, rank=0, group_only=False,
+                    usage="-образец темы", desc="Выключить образец оформления для темы команд (только Владелец)"))
+async def cmd_sample_topic_off(message: Message, bot: Bot, **kw):
+    uid = message.from_user.id if message.from_user else 0
+    if not config.is_bot_owner(uid):
+        return  # Тихий пропуск для обычных игроков!
+    await db.set_setting(message.chat.id, "sample_topic_enabled", "0")
+    await message.reply("✅ <b>Образец оформления темы выключен.</b>")
+
 

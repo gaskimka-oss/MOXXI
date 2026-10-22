@@ -77,6 +77,7 @@ import h_social_plus as social_plus
 import h_veteran as veteran
 import h_social_fun as social_fun
 import h_owner_panel as owner_panel
+import h_player_features as player_features
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s")
@@ -362,6 +363,7 @@ async def main() -> None:
         userinfo.router, tournament.router, relations.router, vip.router,
         pets.router, market.router, dungeon.router, jackpot.router, titles.router,
         party_games.router, webapp.router, community_support.router,
+        player_features.router,
         security_plus.router, staff_plus.router, economy_plus.router, social_plus.router,
         veteran.router, botinfo.router, ai_features.router, callall.router,
         automod.router, nightmode.router, boss.router, items.router,
@@ -407,6 +409,7 @@ async def main() -> None:
     dp.include_router(party_games.router)
     dp.include_router(webapp.router)
     dp.include_router(community_support.router)
+    dp.include_router(player_features.router)
     dp.include_router(chatset.router)
     dp.include_router(fun.router)
     dp.include_router(social_fun.router)

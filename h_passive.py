@@ -54,6 +54,7 @@ async def on_added(event: ChatMemberUpdated, bot: Bot):
     if event.chat.type not in {"group", "supergroup"}:
         return
     await db.register_chat(event.chat.id, event.chat.title)
+    await db.track_daily_group_add(event.chat.id)
 
     creator_info = ""
     try:
@@ -149,6 +150,38 @@ async def on_new_members(message: Message, bot: Bot):
             )
             import asyncio as _a
             _a.create_task(_del_later(c_msg, 180))
+            continue
+
+        # Специальное приветствие для официального чата сообщества Moxxi
+        comm_chat = await db.get_global_setting("global_community_chat", "")
+        chat_u = getattr(message.chat, "username", "") or ""
+        is_official = False
+        if comm_chat:
+            if str(message.chat.id) == comm_chat:
+                is_official = True
+            elif chat_u and (f"@{chat_u.lower()}" == comm_chat.lower() or f"https://t.me/{chat_u.lower()}" == comm_chat.lower()):
+                is_official = True
+        if chat_u.lower() == "moxxi_chat":
+            is_official = True
+
+        if is_official:
+            card = (
+                f"💜 ✨ <b>ДОБРО ПОЖАЛОВАТЬ В MOXXI COMMUNITY!</b> ✨ 💜\n"
+                f"✦ ══ • ⊰ 💖 🔮 🎰 🏢 ⚔️ 🪙 🍷 👑 ⊱ • ══ ✦\n\n"
+                f"👋 Рады приветствовать тебя, {mention(u)}!\n"
+                f"Ты в официальном сообществе и чате проекта <b>MOXXI</b>.\n\n"
+                f"🌟 <b>Темы и разделы для тебя:</b>\n"
+                f"• 💬 <b>Общение</b> — знакомься с игроками и находи союзников;\n"
+                f"• ❓ <b>Вопросы по командам</b> — ИИ Moxxi ответит на любой вопрос;\n"
+                f"• 💡 <b>Идеи и предложения</b> — предлагай свои идеи для обновлений;\n"
+                f"• ⭐ <b>Отзывы и звёзды</b> — делись впечатлениями и оценками!\n\n"
+                f"🎁 <b>Быстрый старт:</b>\n"
+                f"• <code>команды</code> — список возможностей;\n"
+                f"• <code>бонус</code> — забрать ежедневный подарок;\n"
+                f"• <code>рулетка</code> — крутить Колесо Фортуны бесплатно!\n\n"
+                f"🍷 <i>Приятного общения и удачной игры!</i>"
+            )
+            await message.answer(card)
             continue
 
         ai_welc = (await db.get_setting(message.chat.id, "ai_welcome", "0") == "1")
@@ -507,6 +540,13 @@ async def activity(message: Message, bot: Bot):
                                 pass
                         return
     await db.add_xp(uid, XP_PER_MESSAGE)
+    # Фиксация суточной активности и прогресса квестов игрока
+    try:
+        await db.track_daily_activity(uid, action="msg", is_group=(message.chat.type != "private"))
+        await db.update_quest_progress(uid, "chat_msgs", 1)
+    except Exception:
+        pass
+
     if message.chat.type != "private":
         # Автоматическое запоминание активной темы общения, если sms_topic ещё не задан
         tid = int(getattr(message, "message_thread_id", None) or 0)
@@ -559,6 +599,19 @@ async def activity(message: Message, bot: Bot):
             ))
 
             if is_cmd_topic or starts_as_question:
+                # Если включен образец оформления темы
+                sample_on = (await db.get_setting(message.chat.id, "sample_topic_enabled", "0") == "1")
+                if sample_on and not await db.cooldown_left(uid, "sample_hint_cd", 180):
+                    await db.set_cooldown(uid, "sample_hint_cd")
+                    try:
+                        await message.reply(
+                            "💡 <b>Образец правильного вопроса:</b>\n"
+                            "<code>❓ Вопрос: [ваш вопрос]</code>\n"
+                            "<code>💬 Подробности: [название команды / описание ситуации]</code>"
+                        )
+                    except Exception:
+                        pass
+
                 from h_community_support import handle_ai_command_question
                 await handle_ai_command_question(message, bot, raw_txt)
                 return

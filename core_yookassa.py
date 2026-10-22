@@ -35,7 +35,7 @@ API_URL = "https://api.yookassa.ru/v3/payments"
 PRODUCTS = {
     "vip_30": {
         "title": "⭐️ VIP-статус (30 дней)",
-        "price_rub": 99.0,
+        "price_rub": 39.0,
         "price_stars": 25,
         "desc": "+50% к работе, Крит x3.0 по боссам, +50% к бонусу, 5 +реп в день, 1 щит от варна",
         "type": "vip",
@@ -44,7 +44,7 @@ PRODUCTS = {
     },
     "vipplus_30": {
         "title": "🌟 VIP+ Diamond (30 дней)",
-        "price_rub": 199.0,
+        "price_rub": 79.0,
         "price_stars": 50,
         "desc": "+150% к работе, МЕГА-крит x3.5, Безлимитный ИИ, VIP-темы, 10 +реп, Кейс каждую неделю",
         "type": "vip",
@@ -53,55 +53,15 @@ PRODUCTS = {
     },
     "ai_pass_30": {
         "title": "🧠 ИИ-Подписка (30 дней)",
-        "price_rub": 69.0,
+        "price_rub": 29.0,
         "price_stars": 15,
         "desc": "Безлимитный ИИ-Ассистент Мокси, свои квизы (+квиз [тема]), расшифровка ГС и Таро",
         "type": "ai_pass",
         "days": 30
     },
-    "coins_1m": {
-        "title": "🍬 1 000 000 монет (1kk)",
-        "price_rub": 49.0,
-        "price_stars": 10,
-        "desc": "1 000 000 игровых монет на баланс",
-        "type": "coins",
-        "amount": 1_000_000
-    },
-    "coins_3m": {
-        "title": "🎁 3 000 000 монет (3kk)",
-        "price_rub": 99.0,
-        "price_stars": 20,
-        "desc": "3 000 000 игровых монет на баланс",
-        "type": "coins",
-        "amount": 3_000_000
-    },
-    "coins_7m": {
-        "title": "💎 7 000 000 монет (7kk)",
-        "price_rub": 169.0,
-        "price_stars": 35,
-        "desc": "7 000 000 игровых монет на баланс",
-        "type": "coins",
-        "amount": 7_000_000
-    },
-    "coins_12m": {
-        "title": "👑 12 000 000 монет (12kk)",
-        "price_rub": 269.0,
-        "price_stars": 55,
-        "desc": "12 000 000 игровых монет на баланс",
-        "type": "coins",
-        "amount": 12_000_000
-    },
-    "coins_20m": {
-        "title": "🏆 20 000 000 монет (20kk)",
-        "price_rub": 399.0,
-        "price_stars": 80,
-        "desc": "20 000 000 игровых монет на баланс (максимальный пакет)",
-        "type": "coins",
-        "amount": 20_000_000
-    },
     "coins_50k": {
         "title": "🍬 50 000 монет",
-        "price_rub": 19.0,
+        "price_rub": 5.0,
         "price_stars": 5,
         "desc": "50 000 игровых монет на баланс",
         "type": "coins",
@@ -109,11 +69,51 @@ PRODUCTS = {
     },
     "coins_250k": {
         "title": "🎁 250 000 монет",
-        "price_rub": 29.0,
+        "price_rub": 10.0,
         "price_stars": 7,
         "desc": "250 000 игровых монет на баланс",
         "type": "coins",
         "amount": 250_000
+    },
+    "coins_1m": {
+        "title": "🍬 1 000 000 монет (1kk)",
+        "price_rub": 15.0,
+        "price_stars": 10,
+        "desc": "1 000 000 игровых монет на баланс",
+        "type": "coins",
+        "amount": 1_000_000
+    },
+    "coins_3m": {
+        "title": "🎁 3 000 000 монет (3kk)",
+        "price_rub": 35.0,
+        "price_stars": 20,
+        "desc": "3 000 000 игровых монет на баланс",
+        "type": "coins",
+        "amount": 3_000_000
+    },
+    "coins_7m": {
+        "title": "💎 7 000 000 монет (7kk)",
+        "price_rub": 69.0,
+        "price_stars": 35,
+        "desc": "7 000 000 игровых монет на баланс",
+        "type": "coins",
+        "amount": 7_000_000
+    },
+    "coins_12m": {
+        "title": "👑 12 000 000 монет (12kk)",
+        "price_rub": 99.0,
+        "price_stars": 55,
+        "desc": "12 000 000 игровых монет на баланс",
+        "type": "coins",
+        "amount": 12_000_000
+    },
+    "coins_20m": {
+        "title": "🏆 20 000 000 монет (20kk)",
+        "price_rub": 149.0,
+        "price_stars": 80,
+        "desc": "20 000 000 игровых монет на баланс (максимальный пакет)",
+        "type": "coins",
+        "amount": 20_000_000
     },
 }
 
@@ -319,22 +319,72 @@ async def fulfill_payment(bot: Bot, payment_id: str) -> bool:
         except Exception:
             pass
 
-    # Уведомляем создателя бота
-    import config
+    # Оповещаем владельцев и поздравляем игрока во всех беседах
     try:
-        if config.OWNER_ID and config.OWNER_ID != user_id:
-            await bot.send_message(
-                config.OWNER_ID,
-                f"💰 <b>[ЮKassa] Новая успешная оплата!</b>\n"
-                f"👤 Пользователь: <code>{user_id}</code>\n"
-                f"📦 Товар: <b>{prod['title']}</b>\n"
-                f"💵 Сумма: <b>{prod['price_rub']:.2f} ₽</b>\n"
-                f"🧾 Платёж: <code>{payment_id}</code>"
-            )
-    except Exception:
-        pass
+        await broadcast_purchase(
+            bot=bot,
+            user_id=user_id,
+            item_title=prod["title"],
+            pay_system="💳 ЮKassa (Рубли / СБП)",
+            amount_str=f"{prod['price_rub']:.2f} ₽"
+        )
+    except Exception as e:
+        log.warning("Ошибка broadcast_purchase в ЮKassa: %s", e)
 
     return True
+
+
+async def broadcast_purchase(bot: Bot, user_id: int, item_title: str, pay_system: str, amount_str: str) -> None:
+    """Оповещает все активные группы о покупке и отправляет персональное уведомление владельцам бота."""
+    import config
+    from utils import mention_id
+    u_row = await db.fetchone("SELECT first_name, username FROM users WHERE user_id=?", (user_id,))
+    u_name = u_row["first_name"] if u_row and u_row["first_name"] else "Игрок"
+    user_tag = mention_id(user_id, u_name)
+
+    # 1. Личное уведомление всем владельцам бота (Fanat & Simba)
+    owner_msg = (
+        "💰 👑 <b>[MOXXI SHOP] НОВАЯ ОПЛАТА!</b> 👑 💰\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"👤 <b>Покупатель:</b> {user_tag} (ID: <code>{user_id}</code>)\n"
+        f"📦 <b>Товар:</b> <b>{item_title}</b>\n"
+        f"💳 <b>Платёжная система:</b> <b>{pay_system}</b>\n"
+        f"💵 <b>Сумма:</b> <b>{amount_str}</b>\n"
+        f"⏰ <b>Время:</b> {time.strftime('%d.%m.%Y %H:%M:%S')}\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈"
+    )
+    for oid in getattr(config, "BOT_OWNERS", {config.OWNER_ID}):
+        try:
+            await bot.send_message(oid, owner_msg)
+        except Exception:
+            pass
+
+    # 2. Праздничное поздравление во все активные беседы с ботом
+    group_msg = (
+        "🎉 👑 <b>НОВАЯ ПОКУПКА В MOXXI!</b> 👑 🎉\n"
+        "✦ ══ • ⊰ 💖 🔮 🎰 🪙 🍷 👑 ⊱ • ══ ✦\n\n"
+        f"🌟 Игрок {user_tag} только что приобрёл(а):\n"
+        f"💎 <b>{item_title}</b>!\n\n"
+        f"💳 <b>Оплата:</b> {pay_system} ({amount_str})\n"
+        f"🚀 <i>Поздравляем с приобретением и благодарим за поддержку проекта!</i>\n\n"
+        f"🛍 <i>Приобрести VIP, ИИ и монеты:</i> <code>купить вип</code> <i>или кнопка «Магазин» в ЛС!</i>"
+    )
+
+    try:
+        chat_rows = await db.fetchall(
+            "SELECT DISTINCT chat_id FROM chats WHERE chat_id < 0 AND silent = 0 "
+            "UNION SELECT DISTINCT chat_id FROM ranks WHERE chat_id < 0 "
+            "UNION SELECT DISTINCT chat_id FROM settings WHERE chat_id < 0"
+        )
+        for r in chat_rows:
+            cid = r["chat_id"]
+            try:
+                await bot.send_message(cid, group_msg)
+                await asyncio.sleep(0.05)
+            except Exception:
+                continue
+    except Exception as e:
+        log.warning("broadcast_purchase error: %s", e)
 
 
 async def yookassa_poller(bot: Bot) -> None:

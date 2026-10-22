@@ -48,16 +48,20 @@ async def _require_staff(message: Message, min_rank: int = 1, silent: bool = Fal
     return False, rank
 
 
-def _owner_panel_kb(rank: int) -> InlineKeyboardMarkup:
+def _owner_panel_kb(rank: int, open_tickets: int = 0) -> InlineKeyboardMarkup:
     buttons = []
     # Ранг 1+: Тикеты техподдержки
-    buttons.append([InlineKeyboardButton(text="🆘 Тикеты поддержки", callback_data="op:tickets:0")])
+    ticket_btn_title = f"🆘 Помощь и Тикеты ({open_tickets})" if open_tickets > 0 else "🆘 Помощь и Тикеты"
+    buttons.append([InlineKeyboardButton(text=ticket_btn_title, callback_data="op:tickets:0")])
 
     # Ранг 2+: Модерация идей и Глобан
     if rank >= 2:
         buttons.append([
             InlineKeyboardButton(text="💡 Модерация идей", callback_data="op:ideas:0"),
             InlineKeyboardButton(text="🚫 Черный список игроков", callback_data="op:globan_list")
+        ])
+        buttons.append([
+            InlineKeyboardButton(text="📈 Активность бота сегодня", callback_data="op:daily_activity")
         ])
 
     # Ранг 3+: Управление чатами и Статистика
@@ -113,7 +117,7 @@ async def cmd_owner_panel(message: Message, bot: Bot, **kw):
         f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
         f"👇 <i>Выберите нужный раздел панели ниже:</i>"
     )
-    await message.reply(text, reply_markup=_owner_panel_kb(rank))
+    await message.reply(text, reply_markup=_owner_panel_kb(rank, stats['open_tickets']))
 
 
 @router.callback_query(F.data == "op:refresh")
@@ -139,10 +143,40 @@ async def cb_owner_panel_refresh(call: CallbackQuery):
         f"👇 <i>Выберите нужный раздел панели ниже:</i>"
     )
     try:
-        await call.message.edit_text(text, reply_markup=_owner_panel_kb(rank))
+        await call.message.edit_text(text, reply_markup=_owner_panel_kb(rank, stats['open_tickets']))
     except Exception:
         pass
     await call.answer("✅ Данные обновлены")
+
+
+@router.callback_query(F.data == "op:daily_activity")
+async def cb_owner_daily_activity(call: CallbackQuery):
+    rank = await db.get_bot_staff_rank(call.from_user.id)
+    if rank < 1:
+        return await call.answer("🔒 Нет доступа.", show_alert=True)
+
+    act = await db.get_daily_activity()
+    text = (
+        f"📈 ✨ <b>АКТИВНОСТЬ БОТА ЗА СЕГОДНЯ</b> ✨ 📈\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"📅 <b>Дата:</b> <code>{act['date']}</code>\n\n"
+        f"👥 <b>Уникальных пользователей сегодня:</b> <b>{act['unique_users']}</b> чел.\n"
+        f"🚀 <b>Запусков бота (/start) сегодня:</b> <b>{act['bot_starts']}</b>\n"
+        f"➕ <b>Добавлений в новые группы:</b> <b>{act['group_adds']}</b> чатов\n"
+        f"⚡️ <b>Выполнено команд сегодня:</b> <b>{act['commands_count']}</b>\n"
+        f"💬 <b>Обработано сообщений:</b> <b>{act['messages_count']}</b>\n\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"🌐 <b>Общая статистика проекта:</b>\n"
+        f"• Всего игроков в базе: <b>{act['total_users']}</b>\n"
+        f"• Всего бесед с ботом: <b>{act['total_chats']}</b>\n\n"
+        f"<i>Статистика обновляется автоматически в реальном времени!</i>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Обновить активность", callback_data="op:daily_activity")],
+        [InlineKeyboardButton(text="⬅️ В панель", callback_data="op:refresh")]
+    ])
+    await call.message.edit_text(text, reply_markup=kb)
+    await call.answer()
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -155,7 +189,7 @@ async def cb_tickets_list(call: CallbackQuery):
     if rank < 1:
         return await call.answer("🔒 Доступно только стаффу.", show_alert=True)
 
-    open_tickets = await db.get_open_tickets(limit=6)
+    open_tickets = await db.get_open_tickets(limit=10)
     if not open_tickets:
         text = (
             f"🆘 <b>ТИКЕТЫ ТЕХПОДДЕРЖКИ</b>\n\n"
@@ -171,10 +205,12 @@ async def cb_tickets_list(call: CallbackQuery):
     for t in open_tickets:
         t_id = t["id"]
         u_name = html.escape(t["user_name"] or "Игрок")
-        u_text = html.escape(t["text"][:70]) + ("..." if len(t["text"]) > 70 else "")
-        lines.append(f"• <b>Тикет #{t_id}</b> от <b>{u_name}</b> (ID <code>{t['user_id']}</code>):\n  «<i>{u_text}</i>»")
+        u_text = html.escape(t["text"][:75]) + ("..." if len(t["text"]) > 75 else "")
+        status_tag = " <i>(⚠️ Автоотклонён)</i>" if t.get("status") == "auto_rejected" else ""
+        lines.append(f"• <b>Тикет #{t_id}</b>{status_tag} от <b>{u_name}</b> (ID <code>{t['user_id']}</code>):\n  «<i>{u_text}</i>»")
         kb_rows.append([InlineKeyboardButton(text=f"✉️ Ответить на #{t_id}", callback_data=f"op:ans_hint:{t_id}")])
 
+    kb_rows.append([InlineKeyboardButton(text="🔄 Обновить список", callback_data="op:tickets:0")])
     kb_rows.append([InlineKeyboardButton(text="⬅️ В главное меню", callback_data="op:refresh")])
 
     text = (
@@ -182,9 +218,10 @@ async def cb_tickets_list(call: CallbackQuery):
         f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
         + "\n\n".join(lines) + "\n\n"
         f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-        f"💡 <b>Чтобы ответить пользователю, напишите в чат:</b>\n"
+        f"💡 <b>Чтобы ответить пользователю, отправьте:</b>\n"
         f"<code>+ответ [id] [текст вашего ответа]</code>\n"
-        f"<i>Пример: <code>+ответ {open_tickets[0]['id']} Здравствуйте! Баланс начислен.</code></i>"
+        f"<i>Пример: <code>+ответ {open_tickets[0]['id']} Здравствуйте! Всё проверили, баланс начислен.</code></i>\n\n"
+        f"🔒 <b>Чтобы закрыть тикет без ответа:</b> <code>закрыть тикет [id]</code>"
     )
     await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows))
     await call.answer()
@@ -197,8 +234,12 @@ async def cb_ans_hint(call: CallbackQuery):
     if not ticket:
         return await call.answer("Тикет не найден", show_alert=True)
     msg = (
-        f"Чтобы ответить на тикет #{t_id}, отправьте команду:\n\n"
-        f"<code>+ответ {t_id} Ваш ответ...</code>"
+        f"🎫 <b>Тикет #{t_id}</b> от {html.escape(ticket.get('user_name') or 'Игрок')} (<code>{ticket['user_id']}</code>)\n"
+        f"📝 <b>Вопрос:</b> «<i>{html.escape(ticket['text'])}</i>»\n\n"
+        f"✍️ <b>Чтобы ответить:</b>\n"
+        f"<code>+ответ {t_id} Ваш ответ...</code>\n\n"
+        f"🔒 <b>Чтобы закрыть:</b>\n"
+        f"<code>закрыть тикет {t_id}</code>"
     )
     await call.message.reply(msg)
     await call.answer()
@@ -458,11 +499,16 @@ async def cmd_show_bound_chats(message: Message, bot: Bot, **kw):
     ok, _ = await _require_staff(message, 1, silent=True)
     if not ok:
         return
-    ideas = await db.get_global_setting("global_ideas_chat", "Не привязана")
-    reviews = await db.get_global_setting("global_reviews_chat", "Не привязана")
-    chat = await db.get_global_setting("global_community_chat", "Не привязана")
-    supp = await db.get_global_setting("global_support_chat", "Не привязана")
-    cmds = await db.get_global_setting("global_commands_chat", "Не привязана")
+    ideas = await db.get_global_setting("global_ideas_chat", "") or "https://t.me/moxxi_ideas"
+    if ideas == "Не привязана": ideas = "https://t.me/moxxi_ideas"
+    reviews = await db.get_global_setting("global_reviews_chat", "") or "https://t.me/moxxi_reviews"
+    if reviews == "Не привязана": reviews = "https://t.me/moxxi_reviews"
+    chat = await db.get_global_setting("global_community_chat", "") or "https://t.me/moxxi_chat"
+    if chat == "Не привязана": chat = "https://t.me/moxxi_chat"
+    supp = await db.get_global_setting("global_support_chat", "") or "https://t.me/moxxi_support"
+    if supp == "Не привязана": supp = "https://t.me/moxxi_support"
+    cmds = await db.get_global_setting("global_commands_chat", "") or "https://t.me/moxxi_chat"
+    if cmds == "Не привязана": cmds = "https://t.me/moxxi_chat"
 
     text = (
         f"🔗 <b>ПРИВЯЗАННЫЕ ОФИЦИАЛЬНЫЕ ЧАТЫ MOXXI</b>\n"
@@ -479,11 +525,16 @@ async def cmd_show_bound_chats(message: Message, bot: Bot, **kw):
 
 @router.callback_query(F.data == "op:bound_chats")
 async def cb_bound_chats(call: CallbackQuery):
-    ideas = await db.get_global_setting("global_ideas_chat", "Не привязана")
-    reviews = await db.get_global_setting("global_reviews_chat", "Не привязана")
-    chat = await db.get_global_setting("global_community_chat", "Не привязана")
-    supp = await db.get_global_setting("global_support_chat", "Не привязана")
-    cmds = await db.get_global_setting("global_commands_chat", "Не привязана")
+    ideas = await db.get_global_setting("global_ideas_chat", "") or "https://t.me/moxxi_ideas"
+    if ideas == "Не привязана": ideas = "https://t.me/moxxi_ideas"
+    reviews = await db.get_global_setting("global_reviews_chat", "") or "https://t.me/moxxi_reviews"
+    if reviews == "Не привязана": reviews = "https://t.me/moxxi_reviews"
+    chat = await db.get_global_setting("global_community_chat", "") or "https://t.me/moxxi_chat"
+    if chat == "Не привязана": chat = "https://t.me/moxxi_chat"
+    supp = await db.get_global_setting("global_support_chat", "") or "https://t.me/moxxi_support"
+    if supp == "Не привязана": supp = "https://t.me/moxxi_support"
+    cmds = await db.get_global_setting("global_commands_chat", "") or "https://t.me/moxxi_chat"
+    if cmds == "Не привязана": cmds = "https://t.me/moxxi_chat"
     text = (
         f"🔗 <b>ПРИВЯЗАННЫЕ ОФИЦИАЛЬНЫЕ ГРУППЫ</b>\n"
         f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"

@@ -926,6 +926,37 @@ CREATE TABLE IF NOT EXISTS veteran_bonus_claims (
     last_claimed INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY(chat_id, user_id)
 );
+
+CREATE TABLE IF NOT EXISTS bot_daily_activity (
+    date    TEXT NOT NULL,
+    metric  TEXT NOT NULL,
+    val     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (date, metric)
+);
+
+CREATE TABLE IF NOT EXISTS daily_user_activity (
+    date    TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    PRIMARY KEY (date, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS daily_quests (
+    user_id    INTEGER NOT NULL,
+    quest_id   TEXT NOT NULL,
+    date       TEXT NOT NULL,
+    title      TEXT NOT NULL,
+    reward_coins INTEGER NOT NULL,
+    reward_xp  INTEGER NOT NULL,
+    progress   INTEGER NOT NULL DEFAULT 0,
+    target     INTEGER NOT NULL DEFAULT 1,
+    claimed    INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, quest_id, date)
+);
+
+CREATE TABLE IF NOT EXISTS daily_roulette_spins (
+    user_id   INTEGER PRIMARY KEY,
+    last_spin INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
@@ -1012,6 +1043,10 @@ async def _migrate() -> None:
             ("last_fed_ts", "INTEGER NOT NULL DEFAULT 0"),
             ("last_play_ts", "INTEGER NOT NULL DEFAULT 0"),
         ],
+        "bot_staff": [
+            ("warns", "INTEGER NOT NULL DEFAULT 0"),
+            ("muted_until", "INTEGER NOT NULL DEFAULT 0"),
+        ],
     }
     for table, cols in wanted.items():
         try:
@@ -1026,6 +1061,38 @@ async def _migrate() -> None:
                 except Exception:
                     pass
 
+    # Автоматическая инициализация официальных групп проекта Moxxi:
+    default_links = {
+        "global_community_chat": "https://t.me/moxxi_chat",
+        "global_reviews_chat": "https://t.me/moxxi_reviews",
+        "global_ideas_chat": "https://t.me/moxxi_ideas",
+        "global_support_chat": "https://t.me/moxxi_support",
+        "global_commands_chat": "https://t.me/moxxi_chat",
+    }
+    for k, v in default_links.items():
+        try:
+            row = await fetchone("SELECT value FROM settings WHERE chat_id=0 AND key=?", (k,))
+            if not row or not row["value"] or row["value"] in ("Не привязана", ""):
+                await execute(
+                    "INSERT INTO settings (chat_id, key, value) VALUES (0, ?, ?) "
+                    "ON CONFLICT(chat_id, key) DO UPDATE SET value=excluded.value",
+                    (k, v)
+                )
+        except Exception:
+            pass
+
+    # Автоматическое подтверждение статуса владельцев бота (Fanat & Simba) в таблице bot_staff:
+    for owner_id in (8036974481, 8412527198):
+        try:
+            await execute(
+                "INSERT INTO bot_staff (user_id, rank, title, granted_by, ts, warns) "
+                "VALUES (?, 4, 'Владелец', 0, ?, 0) "
+                "ON CONFLICT(user_id) DO UPDATE SET rank=4, title='Владелец'",
+                (owner_id, int(time.time()))
+            )
+        except Exception:
+            pass
+
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1038,6 +1105,21 @@ BOT_STAFF_TITLES = {
     3: "Администратор",
     4: "Владелец"
 }
+
+async def get_staff_warns(user_id: int) -> int:
+    row = await fetchone("SELECT warns FROM bot_staff WHERE user_id=?", (user_id,))
+    return int(row["warns"]) if row and row["warns"] is not None else 0
+
+async def add_staff_warn(user_id: int) -> int:
+    await execute("UPDATE bot_staff SET warns = COALESCE(warns, 0) + 1 WHERE user_id=?", (user_id,))
+    return await get_staff_warns(user_id)
+
+async def remove_staff_warn(user_id: int) -> int:
+    await execute("UPDATE bot_staff SET warns = MAX(0, COALESCE(warns, 0) - 1) WHERE user_id=?", (user_id,))
+    return await get_staff_warns(user_id)
+
+async def reset_staff_warns(user_id: int) -> None:
+    await execute("UPDATE bot_staff SET warns = 0 WHERE user_id=?", (user_id,))
 
 async def get_bot_staff_rank(user_id: int) -> int:
     """Возвращает ранг стаффа бота: 4 = Владелец, 3 = Админ, 2 = Модер, 1 = Хелпер, 0 = Обычный игрок."""
@@ -1065,11 +1147,210 @@ async def remove_bot_staff(user_id: int) -> bool:
 
 async def get_all_bot_staff() -> list[dict]:
     rows = await fetchall(
-        "SELECT s.user_id, s.rank, s.title, s.granted_by, s.ts, u.first_name, u.username, u.nick "
+        "SELECT s.user_id, s.rank, s.title, s.granted_by, s.ts, COALESCE(s.warns, 0) as warns, "
+        "COALESCE(s.muted_until, 0) as muted_until, u.first_name, u.username, u.nick "
         "FROM bot_staff s LEFT JOIN users u ON s.user_id = u.user_id "
         "ORDER BY s.rank DESC, s.ts ASC"
     )
     return [dict(r) for r in rows]
+
+async def staff_mute(user_id: int, duration_sec: int = 3600) -> int:
+    until = int(time.time()) + duration_sec
+    await execute("UPDATE bot_staff SET muted_until=? WHERE user_id=?", (until, user_id))
+    return until
+
+async def staff_unmute(user_id: int) -> bool:
+    await execute("UPDATE bot_staff SET muted_until=0 WHERE user_id=?", (user_id,))
+    return True
+
+async def is_staff_muted(user_id: int) -> tuple[bool, int]:
+    row = await fetchone("SELECT muted_until FROM bot_staff WHERE user_id=?", (user_id,))
+    if not row or not row["muted_until"]:
+        return False, 0
+    now = int(time.time())
+    if row["muted_until"] > now:
+        return True, int(row["muted_until"] - now)
+    return False, 0
+
+
+# ═══════════════════════════════════════════════════════════════
+# ДНЕВНАЯ СТАТИСТИКА И АКТИВНОСТЬ БОТА (VISITS, STARTS, GROUPS)
+# ═══════════════════════════════════════════════════════════════
+
+async def track_daily_activity(user_id: int, action: str = "msg", is_group: bool = False, is_start: bool = False) -> None:
+    """Фиксирует дневную активность пользователей и запусков бота."""
+    if not user_id:
+        return
+    today = time.strftime("%Y-%m-%d")
+    try:
+        # Уникальный посетитель сегодня
+        is_new_today = False
+        try:
+            await execute("INSERT INTO daily_user_activity (date, user_id) VALUES (?, ?)", (today, user_id))
+            is_new_today = True
+        except Exception:
+            pass
+
+        if is_new_today:
+            await execute(
+                "INSERT INTO bot_daily_activity (date, metric, val) VALUES (?, 'unique_users', 1) "
+                "ON CONFLICT(date, metric) DO UPDATE SET val = val + 1",
+                (today,)
+            )
+
+        if is_start:
+            await execute(
+                "INSERT INTO bot_daily_activity (date, metric, val) VALUES (?, 'bot_starts', 1) "
+                "ON CONFLICT(date, metric) DO UPDATE SET val = val + 1",
+                (today,)
+            )
+
+        if action == "cmd":
+            await execute(
+                "INSERT INTO bot_daily_activity (date, metric, val) VALUES (?, 'commands_count', 1) "
+                "ON CONFLICT(date, metric) DO UPDATE SET val = val + 1",
+                (today,)
+            )
+
+        await execute(
+            "INSERT INTO bot_daily_activity (date, metric, val) VALUES (?, 'messages_count', 1) "
+            "ON CONFLICT(date, metric) DO UPDATE SET val = val + 1",
+            (today,)
+        )
+    except Exception:
+        pass
+
+
+async def track_daily_group_add(chat_id: int) -> None:
+    """Фиксирует добавление бота в новую группу за сегодня."""
+    today = time.strftime("%Y-%m-%d")
+    try:
+        await execute(
+            "INSERT INTO bot_daily_activity (date, metric, val) VALUES (?, 'group_adds', 1) "
+            "ON CONFLICT(date, metric) DO UPDATE SET val = val + 1",
+            (today,)
+        )
+    except Exception:
+        pass
+
+
+async def get_daily_activity(target_date: str = None) -> dict:
+    """Возвращает сводку активности бота за сегодня или указанную дату."""
+    if not target_date:
+        target_date = time.strftime("%Y-%m-%d")
+
+    rows = await fetchall("SELECT metric, val FROM bot_daily_activity WHERE date=?", (target_date,))
+    stats_map = {r["metric"]: r["val"] for r in rows}
+
+    row_total_u = await fetchone("SELECT COUNT(*) as c FROM users")
+    row_total_c = await fetchone("SELECT COUNT(*) as c FROM chats WHERE chat_id < 0")
+
+    return {
+        "date": target_date,
+        "unique_users": stats_map.get("unique_users", 0),
+        "bot_starts": stats_map.get("bot_starts", 0),
+        "group_adds": stats_map.get("group_adds", 0),
+        "commands_count": stats_map.get("commands_count", 0),
+        "messages_count": stats_map.get("messages_count", 0),
+        "total_users": row_total_u["c"] if row_total_u else 0,
+        "total_chats": row_total_c["c"] if row_total_c else 0,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
+# ИГРОВЫЕ КВЕСТЫ И РУЛЕТКА УДАЧИ ДЛЯ ИГРОКОВ
+# ═══════════════════════════════════════════════════════════════
+
+DAILY_QUEST_TEMPLATES = [
+    {
+        "id": "chat_msgs",
+        "title": "💬 Общительный игрок: написать 25 сообщений",
+        "target": 25,
+        "coins": 10000,
+        "xp": 50,
+    },
+    {
+        "id": "play_duels",
+        "title": "⚔️ Дуэлянт: сыграть 3 дуэли с игроками",
+        "target": 3,
+        "coins": 15000,
+        "xp": 80,
+    },
+    {
+        "id": "catch_fish",
+        "title": "🎣 Заядлый рыбак: поймать 3 рыбы",
+        "target": 3,
+        "coins": 12000,
+        "xp": 60,
+    },
+]
+
+async def get_or_create_daily_quests(user_id: int) -> list[dict]:
+    today = time.strftime("%Y-%m-%d")
+    existing = await fetchall(
+        "SELECT * FROM daily_quests WHERE user_id=? AND date=?",
+        (user_id, today)
+    )
+    if not existing:
+        for tpl in DAILY_QUEST_TEMPLATES:
+            await execute(
+                "INSERT INTO daily_quests (user_id, quest_id, date, title, reward_coins, reward_xp, progress, target, claimed) "
+                "VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0)",
+                (user_id, tpl["id"], today, tpl["title"], tpl["coins"], tpl["xp"], tpl["target"])
+            )
+        existing = await fetchall(
+            "SELECT * FROM daily_quests WHERE user_id=? AND date=?",
+            (user_id, today)
+        )
+    return [dict(r) for r in existing]
+
+async def update_quest_progress(user_id: int, quest_id: str, inc: int = 1) -> None:
+    today = time.strftime("%Y-%m-%d")
+    try:
+        await execute(
+            "UPDATE daily_quests SET progress = MIN(target, progress + ?) "
+            "WHERE user_id=? AND quest_id=? AND date=? AND claimed=0",
+            (inc, user_id, quest_id, today)
+        )
+    except Exception:
+        pass
+
+async def claim_daily_quest(user_id: int, quest_id: str) -> dict | None:
+    today = time.strftime("%Y-%m-%d")
+    row = await fetchone(
+        "SELECT * FROM daily_quests WHERE user_id=? AND quest_id=? AND date=?",
+        (user_id, quest_id, today)
+    )
+    if not row or row["claimed"] or row["progress"] < row["target"]:
+        return None
+    await execute(
+        "UPDATE daily_quests SET claimed=1 WHERE user_id=? AND quest_id=? AND date=?",
+        (user_id, quest_id, today)
+    )
+    coins = row["reward_coins"]
+    xp = row["reward_xp"]
+    await add_balance(user_id, coins, "quest_reward", quest_id)
+    await add_xp(user_id, xp)
+    return {"coins": coins, "xp": xp, "title": row["title"]}
+
+async def check_roulette_cooldown(user_id: int) -> int:
+    """Возвращает оставшееся время кулдауна на прокрут рулетки в секундах (0 = доступно)."""
+    lvl, _, active = await get_vip_info(user_id)
+    cd_total = 21600 if (active and lvl >= 2) else (43200 if (active and lvl >= 1) else 86400)
+    row = await fetchone("SELECT last_spin FROM daily_roulette_spins WHERE user_id=?", (user_id,))
+    if not row:
+        return 0
+    now = int(time.time())
+    passed = now - row["last_spin"]
+    return max(0, cd_total - passed)
+
+async def record_roulette_spin(user_id: int) -> None:
+    now = int(time.time())
+    await execute(
+        "INSERT INTO daily_roulette_spins (user_id, last_spin) VALUES (?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET last_spin=excluded.last_spin",
+        (user_id, now)
+    )
 
 async def blacklist_chat(chat_id: int, reason: str = "", banned_by: int = 0) -> None:
     now = int(time.time())
@@ -2353,8 +2634,12 @@ async def get_support_ticket(ticket_id: int) -> dict | None:
     return dict(row) if row else None
 
 
-async def get_open_tickets(limit: int = 10) -> list[dict]:
-    rows = await fetchall("SELECT * FROM support_tickets WHERE status='open' ORDER BY created_at ASC LIMIT ?", (limit,))
+async def get_open_tickets(limit: int = 15) -> list[dict]:
+    rows = await fetchall(
+        "SELECT * FROM support_tickets WHERE status IN ('open', 'pending', 'auto_rejected') "
+        "ORDER BY created_at ASC LIMIT ?",
+        (limit,)
+    )
     return [dict(r) for r in rows]
 
 
@@ -2384,116 +2669,6 @@ async def close_support_ticket(ticket_id: int, closed_by: int = 0, closed_name: 
         (closed_by, closed_name, now, ticket_id)
     )
     return True
-
-
-
-# ═══════════════════════════════════════════════════════════════
-# СТАФФ БОТА, РАНГИ, ЧС ГРУПП, УПРАВЛЕНИЕ И ГЛОБАЛЬНЫЕ НАСТРОЙКИ
-# ═══════════════════════════════════════════════════════════════
-
-BOT_STAFF_TITLES = {
-    1: "Хелпер",
-    2: "Модератор",
-    3: "Администратор",
-    4: "Владелец"
-}
-
-async def get_bot_staff_rank(user_id: int) -> int:
-    """Возвращает ранг стаффа бота: 4 = Владелец, 3 = Админ, 2 = Модер, 1 = Хелпер, 0 = Обычный игрок."""
-    import config
-    if config.is_bot_owner(user_id):
-        return 4
-    row = await fetchone("SELECT rank FROM bot_staff WHERE user_id=?", (user_id,))
-    if row:
-        return int(row["rank"])
-    return 0
-
-async def set_bot_staff_rank(user_id: int, rank: int, title: str = "", granted_by: int = 0) -> None:
-    now = int(time.time())
-    if not title:
-        title = BOT_STAFF_TITLES.get(rank, "Сотрудник")
-    await execute(
-        "INSERT INTO bot_staff (user_id, rank, title, granted_by, ts) VALUES (?, ?, ?, ?, ?) "
-        "ON CONFLICT(user_id) DO UPDATE SET rank=excluded.rank, title=excluded.title, granted_by=excluded.granted_by, ts=excluded.ts",
-        (user_id, rank, title, granted_by, now)
-    )
-
-async def remove_bot_staff(user_id: int) -> bool:
-    await execute("DELETE FROM bot_staff WHERE user_id=?", (user_id,))
-    return True
-
-async def get_all_bot_staff() -> list[dict]:
-    rows = await fetchall(
-        "SELECT s.user_id, s.rank, s.title, s.granted_by, s.ts, u.first_name, u.username, u.nick "
-        "FROM bot_staff s LEFT JOIN users u ON s.user_id = u.user_id "
-        "ORDER BY s.rank DESC, s.ts ASC"
-    )
-    return [dict(r) for r in rows]
-
-async def blacklist_chat(chat_id: int, reason: str = "", banned_by: int = 0) -> None:
-    now = int(time.time())
-    await execute(
-        "INSERT INTO blacklisted_chats (chat_id, reason, banned_by, ts) VALUES (?, ?, ?, ?) "
-        "ON CONFLICT(chat_id) DO UPDATE SET reason=excluded.reason, banned_by=excluded.banned_by, ts=excluded.ts",
-        (chat_id, reason, banned_by, now)
-    )
-
-async def unblacklist_chat(chat_id: int) -> bool:
-    await execute("DELETE FROM blacklisted_chats WHERE chat_id=?", (chat_id,))
-    return True
-
-async def is_chat_blacklisted(chat_id: int) -> tuple[bool, str]:
-    row = await fetchone("SELECT reason FROM blacklisted_chats WHERE chat_id=?", (chat_id,))
-    if row:
-        return True, row["reason"] or "Нарушение правил сообщества (интим/18+, спам, коммерция)"
-    return False, ""
-
-async def get_blacklisted_chats() -> list[dict]:
-    rows = await fetchall("SELECT * FROM blacklisted_chats ORDER BY ts DESC")
-    return [dict(r) for r in rows]
-
-async def set_chat_disabled(chat_id: int, disabled: bool, by_id: int = 0) -> None:
-    if disabled:
-        now = int(time.time())
-        await execute(
-            "INSERT INTO disabled_chats (chat_id, disabled_by, ts) VALUES (?, ?, ?) "
-            "ON CONFLICT(chat_id) DO UPDATE SET disabled_by=excluded.disabled_by, ts=excluded.ts",
-            (chat_id, by_id, now)
-        )
-    else:
-        await execute("DELETE FROM disabled_chats WHERE chat_id=?", (chat_id,))
-
-async def is_chat_disabled(chat_id: int) -> bool:
-    row = await fetchone("SELECT 1 FROM disabled_chats WHERE chat_id=?", (chat_id,))
-    return bool(row)
-
-async def set_global_setting(key: str, value: str) -> None:
-    await execute(
-        "INSERT INTO settings (chat_id, key, value) VALUES (0, ?, ?) "
-        "ON CONFLICT(chat_id, key) DO UPDATE SET value=excluded.value",
-        (key, str(value))
-    )
-
-async def get_global_setting(key: str, default: str = "") -> str:
-    row = await fetchone("SELECT value FROM settings WHERE chat_id=0 AND key=?", (key,))
-    return str(row["value"]) if (row and row["value"] is not None) else default
-
-async def get_global_bot_stats() -> dict:
-    row_users = await fetchone("SELECT COUNT(*) as c, COALESCE(SUM(balance), 0) as s FROM users")
-    row_chats = await fetchone("SELECT COUNT(*) as c FROM chats")
-    row_tickets = await fetchone("SELECT COUNT(*) as c FROM support_tickets WHERE status='open'")
-    row_reviews = await fetchone("SELECT COUNT(*) as c FROM reviews")
-    row_sug = await fetchone("SELECT COUNT(*) as c FROM suggestions WHERE status='pending'")
-    row_bl = await fetchone("SELECT COUNT(*) as c FROM blacklisted_chats")
-    return {
-        "users_count": int(row_users["c"]) if row_users else 0,
-        "total_coins": int(row_users["s"]) if row_users else 0,
-        "chats_count": int(row_chats["c"]) if row_chats else 0,
-        "open_tickets": int(row_tickets["c"]) if row_tickets else 0,
-        "reviews_count": int(row_reviews["c"]) if row_reviews else 0,
-        "pending_ideas": int(row_sug["c"]) if row_sug else 0,
-        "blacklisted_chats": int(row_bl["c"]) if row_bl else 0,
-    }
 
 
 # ══════════════════ АНОНСЫ И ПЕРЕКЛИЧКИ С ИИ ══════════════════

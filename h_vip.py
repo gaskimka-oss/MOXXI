@@ -81,19 +81,22 @@ def shop_hub_keyboard() -> InlineKeyboardMarkup:
 
 def rub_shop_keyboard() -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text="⭐️ VIP (30 дн) — 99 ₽", callback_data="buy_rub:vip_30")],
-        [InlineKeyboardButton(text="🌟 VIP+ Diamond (30 дн) — 199 ₽", callback_data="buy_rub:vipplus_30")],
-        [InlineKeyboardButton(text="🧠 ИИ-Подписка (30 дн) — 69 ₽", callback_data="buy_rub:ai_pass_30")],
+        [InlineKeyboardButton(text="⭐️ VIP (30 дн) — 39 ₽ 🔥 (Выгоднее Stars!)", callback_data="buy_rub:vip_30")],
+        [InlineKeyboardButton(text="🌟 VIP+ Diamond (30 дн) — 79 ₽ 🔥", callback_data="buy_rub:vipplus_30")],
+        [InlineKeyboardButton(text="🧠 ИИ-Подписка (30 дн) — 29 ₽", callback_data="buy_rub:ai_pass_30")],
         [
-            InlineKeyboardButton(text="🍬 1kk — 49 ₽", callback_data="buy_rub:coins_1m"),
-            InlineKeyboardButton(text="🎁 3kk — 99 ₽", callback_data="buy_rub:coins_3m"),
+            InlineKeyboardButton(text="🍬 1kk — 15 ₽", callback_data="buy_rub:coins_1m"),
+            InlineKeyboardButton(text="🎁 3kk — 35 ₽", callback_data="buy_rub:coins_3m"),
         ],
         [
-            InlineKeyboardButton(text="💎 7kk — 169 ₽", callback_data="buy_rub:coins_7m"),
-            InlineKeyboardButton(text="👑 12kk — 269 ₽", callback_data="buy_rub:coins_12m"),
+            InlineKeyboardButton(text="💎 7kk — 69 ₽", callback_data="buy_rub:coins_7m"),
+            InlineKeyboardButton(text="👑 12kk — 99 ₽", callback_data="buy_rub:coins_12m"),
         ],
         [
-            InlineKeyboardButton(text="🏆 20 000 000 🪙 (20kk) — 399 ₽", callback_data="buy_rub:coins_20m"),
+            InlineKeyboardButton(text="🏆 20 000 000 🪙 (20kk) — 149 ₽", callback_data="buy_rub:coins_20m"),
+        ],
+        [
+            InlineKeyboardButton(text="⭐️ Переключить на Telegram Stars", callback_data="shop_tab:stars"),
         ],
         [InlineKeyboardButton(text="📖 Описание всех суперсил VIP и VIP+", callback_data="shop_compare")],
         [InlineKeyboardButton(text="⬅️ Назад в магазин", callback_data="buy_vip_menu")]
@@ -117,6 +120,9 @@ def stars_shop_keyboard() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="🏆 20 000 000 🪙 (20kk) — 80 ⭐️", callback_data="buy_stars:coins_20m"),
         ],
+        [
+            InlineKeyboardButton(text="💳 Переключить на Рубли ₽ (СБП/Карты -15%)", callback_data="shop_tab:rub"),
+        ],
         [InlineKeyboardButton(text="📖 Описание всех суперсил VIP и VIP+", callback_data="shop_compare")],
         [InlineKeyboardButton(text="⬅️ Назад в магазин", callback_data="buy_vip_menu")]
     ]
@@ -126,23 +132,23 @@ def stars_shop_keyboard() -> InlineKeyboardMarkup:
 def coins_pack_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="🍬 1 000 000 🪙 (49 ₽)", callback_data="buy_rub:coins_1m"),
+            InlineKeyboardButton(text="🍬 1 000 000 🪙 (15 ₽)", callback_data="buy_rub:coins_1m"),
             InlineKeyboardButton(text="10 ⭐️ Stars", callback_data="buy_stars:coins_1m"),
         ],
         [
-            InlineKeyboardButton(text="🎁 3 000 000 🪙 (99 ₽)", callback_data="buy_rub:coins_3m"),
+            InlineKeyboardButton(text="🎁 3 000 000 🪙 (35 ₽)", callback_data="buy_rub:coins_3m"),
             InlineKeyboardButton(text="20 ⭐️ Stars", callback_data="buy_stars:coins_3m"),
         ],
         [
-            InlineKeyboardButton(text="💎 7 000 000 🪙 (169 ₽)", callback_data="buy_rub:coins_7m"),
+            InlineKeyboardButton(text="💎 7 000 000 🪙 (69 ₽)", callback_data="buy_rub:coins_7m"),
             InlineKeyboardButton(text="35 ⭐️ Stars", callback_data="buy_stars:coins_7m"),
         ],
         [
-            InlineKeyboardButton(text="👑 12 000 000 🪙 (269 ₽)", callback_data="buy_rub:coins_12m"),
+            InlineKeyboardButton(text="👑 12 000 000 🪙 (99 ₽)", callback_data="buy_rub:coins_12m"),
             InlineKeyboardButton(text="55 ⭐️ Stars", callback_data="buy_stars:coins_12m"),
         ],
         [
-            InlineKeyboardButton(text="🏆 20 000 000 🪙 (399 ₽)", callback_data="buy_rub:coins_20m"),
+            InlineKeyboardButton(text="🏆 20 000 000 🪙 (149 ₽)", callback_data="buy_rub:coins_20m"),
             InlineKeyboardButton(text="80 ⭐️ Stars", callback_data="buy_stars:coins_20m"),
         ],
         [
@@ -169,12 +175,12 @@ def shop_compare_keyboard() -> InlineKeyboardMarkup:
 def shop_select_keyboard(lvl: int) -> InlineKeyboardMarkup:
     if lvl == 2:
         return InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Оплатить 199 ₽ через ЮKassa (СБП / Карты)", callback_data="buy_rub:vipplus_30")],
+            [InlineKeyboardButton(text="💳 Оплатить 79 ₽ через ЮKassa (СБП / Карты)", callback_data="buy_rub:vipplus_30")],
             [InlineKeyboardButton(text="⭐️ Оплатить 50 ⭐️ через Telegram Stars", callback_data="buy_stars:vipplus_30")],
             [InlineKeyboardButton(text="⬅️ Назад к сравнению", callback_data="shop_compare")]
         ])
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Оплатить 99 ₽ через ЮKassa (СБП / Карты)", callback_data="buy_rub:vip_30")],
+        [InlineKeyboardButton(text="💳 Оплатить 39 ₽ через ЮKassa (СБП / Карты)", callback_data="buy_rub:vip_30")],
         [InlineKeyboardButton(text="⭐️ Оплатить 25 ⭐️ через Telegram Stars", callback_data="buy_stars:vip_30")],
         [InlineKeyboardButton(text="⬅️ Назад к сравнению", callback_data="shop_compare")]
     ])

@@ -159,6 +159,10 @@ def back_kb(extra: list[list[InlineKeyboardButton]] | None = None) -> InlineKeyb
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, bot: Bot):
+    try:
+        await db.track_daily_activity(message.from_user.id, is_start=True)
+    except Exception:
+        pass
     u = await db.get_user(message.from_user.id)
     if not u["verified"]:
         return await send_captcha(message)
@@ -328,18 +332,66 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
 
     if what == "shop_menu":
         kb = back_kb([
-            [InlineKeyboardButton(text="⭐️ Магазин за Telegram Stars", callback_data="mm:stars_shop")]
+            [
+                InlineKeyboardButton(text="💳 Оплата в рублях (СБП / Карты РФ — ВЫГОДНЕЕ 🔥)", callback_data="shop_tab:rub")
+            ],
+            [
+                InlineKeyboardButton(text="⭐️ Оплата Telegram Stars", callback_data="shop_tab:stars")
+            ],
+            [
+                InlineKeyboardButton(text="🪙 Пакеты монет (Рубли & Stars)", callback_data="shop_tab:coins_pack")
+            ],
+            [
+                InlineKeyboardButton(text="📦 Игровой магазин (Оружие & Броня)", callback_data="mm:items_shop"),
+                InlineKeyboardButton(text="🎁 Кейсы и лутбоксы", callback_data="mm:cases_shop")
+            ]
         ])
         shop_info = (
             "🛍 ✨ <b>МАГАЗИН И КЕЙСЫ MOXXI</b> ✨ 🛍\n"
-            "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-            "В боте доступен большой выбор снаряжения за игровую валюту:\n\n"
-            "• <code>магазин</code> — покупка оружия, брони, аптечек и щитов от варна.\n"
-            "• <code>кейсы</code> — открытие 4 уровней кейсов (от Бронзового до Мифика)!\n"
-            "• <code>инвентарь</code> — просмотр всех ваших предметов.\n\n"
-            "Также доступна покупка монет и VIP за Telegram Stars ⭐️ кнопкой ниже:"
+            "✦ ══ • ⊰ 💖 🔮 🎰 🪙 🍷 👑 ⊱ • ══ ✦\n\n"
+            "Здесь вы можете выбрать удобный способ оплаты и снаряжение:\n\n"
+            "💳 <b>Оплата в рублях (ЮKassa / СБП / Карты РФ):</b>\n"
+            "🔥 <b>Скидка до 25%!</b> Рублями покупать выгоднее всего:\n"
+            "• ⭐️ <b>VIP (30 дн)</b> — <b>39 ₽</b>\n"
+            "• 🌟 <b>VIP+ Diamond (30 дн)</b> — <b>79 ₽</b>\n"
+            "• 🧠 <b>ИИ-Подписка (30 дн)</b> — <b>29 ₽</b>\n"
+            "• 🍬 <b>1 000 000 монет</b> — <b>15 ₽</b>\n"
+            "• 🏆 <b>20 000 000 монет</b> — <b>149 ₽</b>\n\n"
+            "⭐️ <b>Оплата Telegram Stars:</b>\n"
+            "Оплата звёздами прямо в приложении Telegram (VIP — 25 ⭐️, VIP+ — 50 ⭐️).\n\n"
+            "🎒 <b>Игровые команды:</b>\n"
+            "• <code>магазин</code> — оружие, броня, аптечки и щиты от варна;\n"
+            "• <code>кейсы</code> — открытие 4 уровней кейсов от Бронзового до Мифика;\n"
+            "• <code>инвентарь</code> — снаряжение и экипировка вашего бойца.\n\n"
+            "👇 <b>Выберите желаемый раздел в меню ниже:</b>"
         )
         await call.message.edit_text(shop_info, reply_markup=kb)
+        return await call.answer()
+
+    if what == "items_shop":
+        txt = (
+            "📦 <b>ИГРОВОЙ МАГАЗИН ПРЕДМЕТОВ</b>\n"
+            "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            "В боте доступно различное боевое снаряжение за внутриигровые монеты (🪙):\n\n"
+            "• <code>магазин</code> — полный список оружия, брони, аптечек и щитов;\n"
+            "• <code>купить [название/номер]</code> — приобрести предмет;\n"
+            "• <code>инвентарь</code> — надеть или использовать экипировку;\n"
+            "• <code>щит</code> — проверить статус вашей защиты от варна."
+        )
+        await call.message.edit_text(txt, reply_markup=back_kb([[InlineKeyboardButton(text="⬅️ Назад в магазин", callback_data="mm:shop_menu")]]))
+        return await call.answer()
+
+    if what == "cases_shop":
+        txt = (
+            "🎁 <b>КЕЙСЫ И ЛУТБОКСЫ MOXXI</b>\n"
+            "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            "Испытайте удачу и выбивайте редчайшие предметы, миллионы монет и VIP!\n\n"
+            "• <code>кейсы</code> — посмотреть список доступных кейсов и призы;\n"
+            "• <code>открыть кейс [1-4]</code> — открыть кейс;\n"
+            "• <code>рулетка</code> — крутить ежедневное Колесо Фортуны бесплатно!\n\n"
+            "💡 <i>Владельцы ранга VIP+ получают 1 Алмазный кейс каждую неделю бесплатно!</i>"
+        )
+        await call.message.edit_text(txt, reply_markup=back_kb([[InlineKeyboardButton(text="⬅️ Назад в магазин", callback_data="mm:shop_menu")]]))
         return await call.answer()
 
     if what == "stars_shop":
@@ -817,6 +869,19 @@ async def on_paid(message: Message, bot: Bot):
         await message.answer(
             f"✅ <b>Оплачено!</b>\n\n🧠 <b>ИИ-Подписка</b> активирована на <b>{days} дней</b>!\n"
             f"Вам доступен безлимитный ИИ-Ассистент Мокси и свои квизы.", reply_markup=await main_kb(uid, me.username))
+
+    # Праздничное оповещение во все чаты и личное уведомление владельцам
+    try:
+        from core_yookassa import broadcast_purchase
+        await broadcast_purchase(
+            bot=bot,
+            user_id=uid,
+            item_title=title,
+            pay_system="⭐️ Telegram Stars",
+            amount_str=f"{price} ⭐️"
+        )
+    except Exception:
+        pass
 
 
 
