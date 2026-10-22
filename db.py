@@ -2619,11 +2619,11 @@ async def get_suggestions(limit: int = 10, status: str | None = None) -> list[di
 
 
 # --- Служба техподдержки и тикетов -----------------------------------------
-async def create_support_ticket(user_id: int, user_name: str, text: str) -> int:
+async def create_support_ticket(user_id: int, user_name: str, text: str, status: str = "open") -> int:
     now = int(time.time())
     async with conn().execute(
-        "INSERT INTO support_tickets (user_id, user_name, text, status, created_at) VALUES (?, ?, ?, 'open', ?)",
-        (user_id, user_name, text, now)
+        "INSERT INTO support_tickets (user_id, user_name, text, status, created_at) VALUES (?, ?, ?, ?, ?)",
+        (user_id, user_name, text, status, now)
     ) as cur:
         await conn().commit()
         return int(cur.lastrowid)

@@ -81,7 +81,10 @@ def _owner_panel_kb(rank: int, open_tickets: int = 0) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="⛔ Черный список групп (ЧС)", callback_data="op:bl_chats")
         ])
 
-    buttons.append([InlineKeyboardButton(text="🔄 Обновить панель", callback_data="op:refresh")])
+    buttons.append([
+        InlineKeyboardButton(text="🔄 Обновить панель", callback_data="op:refresh"),
+        InlineKeyboardButton(text="⬅️ В главное меню", callback_data="mm:main")
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 

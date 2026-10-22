@@ -94,8 +94,19 @@ async def main_text(name: str | None, u: dict) -> str:
     inv_rows = await db.fetchall("SELECT count FROM user_inventory WHERE user_id=? AND count > 0", (uid,))
     inv_count = sum(r["count"] for r in inv_rows)
 
+    is_owner = config.is_bot_owner(uid)
+    staff_rank = 4 if is_owner else (await db.get_bot_staff_rank(uid))
     v_lvl, _, v_act = await db.get_vip_info(uid)
-    if v_act:
+
+    if staff_rank >= 4:
+        status_str = "👑 Владелец проекта"
+    elif staff_rank == 3:
+        status_str = "🥇 Администратор"
+    elif staff_rank == 2:
+        status_str = "🥈 Модератор"
+    elif staff_rank == 1:
+        status_str = "🥉 Хелпер"
+    elif v_act:
         status_str = "🌟 VIP+ Diamond" if v_lvl >= 2 else "⭐️ VIP"
     else:
         status_str = "🔹 Участник"
@@ -148,6 +159,14 @@ async def main_kb(uid: int = 0, bot_username: str = "moxxichat_bot") -> InlineKe
             InlineKeyboardButton(text="🆘 Написать в техподдержку", callback_data="mm:support")
         ]
     ]
+
+    is_owner = config.is_bot_owner(uid)
+    staff_rank = 4 if is_owner else (await db.get_bot_staff_rank(uid))
+    if staff_rank >= 1:
+        rows.insert(0, [
+            InlineKeyboardButton(text="👑 Админ-Панель (Управление)", callback_data="mm:admin_panel")
+        ])
+
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -312,6 +331,31 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
         u = await db.get_user(uid)
         await call.message.edit_text(await main_text(call.from_user.first_name, u),
                                      reply_markup=await main_kb(uid, me.username))
+        return await call.answer()
+
+    if what == "admin_panel":
+        rank = 4 if config.is_bot_owner(uid) else (await db.get_bot_staff_rank(uid))
+        if rank < 1:
+            return await call.answer("🔒 Доступ только для администрации бота!", show_alert=True)
+        from h_owner_panel import _owner_panel_kb, STAFF_RANKS_DESC
+        stats = await db.get_global_bot_stats()
+        rank_name = STAFF_RANKS_DESC.get(rank, f"Ранг {rank}")
+        text = (
+            f"👑 ✨ <b>ПАНЕЛЬ УПРАВЛЕНИЯ MOXXI BOT</b> ✨ 👑\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"👤 <b>Сотрудник:</b> {mention_id(uid, call.from_user.first_name)} (<code>{uid}</code>)\n"
+            f"🔰 <b>Ваш статус:</b> <b>{rank_name}</b>\n\n"
+            f"📊 <b>Сводка системы:</b>\n"
+            f"• Пользователей в базе: <b>{stats['users_count']}</b>\n"
+            f"• Подключенных чатов: <b>{stats['chats_count']}</b>\n"
+            f"• Открытых тикетов техподдержки: <b>{stats['open_tickets']} 🆘</b>\n"
+            f"• Идей на рассмотрении: <b>{stats['pending_ideas']} 💡</b>\n"
+            f"• Всего отзывов: <b>{stats['reviews_count']} ⭐</b>\n"
+            f"• Заблокированных групп (ЧС): <b>{stats['blacklisted_chats']} ⛔</b>\n\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"👇 <i>Выберите нужный раздел панели ниже:</i>"
+        )
+        await call.message.edit_text(text, reply_markup=_owner_panel_kb(rank, stats['open_tickets']))
         return await call.answer()
 
     if what == "boss":
@@ -667,40 +711,79 @@ async def msg_receive_support_ticket(message: Message, bot: Bot):
     # Включаем кулдаун на 30 минут (1800 секунд)
     await db.set_cooldown(uid, "support_ticket")
 
-    # Создаём тикет
+    from h_community_support import analyze_support_ticket, ticket_admin_kb
     name = message.from_user.first_name or "Пользователь"
-    ticket_id = await db.create_support_ticket(uid, name, txt)
 
-    # Уведомляем пользователя
-    await message.reply(
-        f"✅ <b>Ваше обращение принято! (Тикет #{ticket_id})</b>\n\n"
-        f"📝 <b>Причина / Описание:</b>\n«<i>{html.escape(txt)}</i>»\n\n"
-        f"⏳ <b>Выдан кулдаун: 30 минут</b> на повторные обращения (защита от спама).\n"
-        f"👨‍💻 Администрация рассмотрит ваш тикет в ближайшее время и пришлёт ответ прямо сюда в личные сообщения!\n"
-        f"🤖 <i>Если администрация не ответит в течение 6 часов, ИИ-Ассистент автоматически пришлет ответ.</i>",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="⬅️ В главное меню", callback_data="mm:main")
-        ]])
-    )
+    is_valid, reason = await analyze_support_ticket(txt)
+    ticket_status = "open" if is_valid else "auto_rejected"
+    ticket_id = await db.create_support_ticket(uid, name, txt, status=ticket_status)
 
-    # Уведомляем Администрацию бота (строго владельца / админов, без посторонних)
-    from h_community_support import ticket_admin_kb
-    admin_notify = (
-        f"🆘 🔔 <b>НОВЫЙ ТИКЕТ В ТЕХПОДДЕРЖКУ #{ticket_id}</b>\n"
-        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-        f"👤 <b>От:</b> {mention_id(uid, name)} (<code>{uid}</code>)\n"
-        f"📝 <b>Причина / Проблема:</b>\n«{html.escape(txt)}»\n\n"
-        f"💡 <b>Команды для ответа:</b>\n"
-        f"• Свой ответ: <code>+ответ {ticket_id} [текст вашего ответа]</code>\n"
-        f"• Быстрый шаблон: <code>автоответ тикет {ticket_id} [1-5]</code>\n"
-        f"• Закрыть тикет: <code>закрыть тикет {ticket_id}</code>"
-    )
-    recipients = {config.OWNER_ID}
+    if not is_valid:
+        # Автоматический отказ ИИ с разъяснением
+        await message.reply(
+            f"❌ 🤖 <b>Обращение отклонено ИИ (Тикет #{ticket_id})</b>\n\n"
+            f"📝 <b>Ваш текст:</b> «<i>{html.escape(txt)}</i>»\n"
+            f"⚠️ <b>Причина отказа ИИ:</b> {html.escape(reason)}\n\n"
+            f"💡 <i>Техподдержка принимает только вопросы по работе бота (оплата, звёзды, монеты, баги, команды или жалобы). Бытовой оффтоп и бессмысленные сообщения отклоняются автоматически.</i>\n\n"
+            f"👨‍💻 <b>Вторичная проверка:</b> Ваше обращение всё равно отправлено администрации. Если ИИ ошибся, администратор ответит вам лично!",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="⬅️ В главное меню", callback_data="mm:main")
+            ]])
+        )
+        admin_notify = (
+            f"🆘 🔔 <b>НОВЫЙ ТИКЕТ В ТЕХПОДДЕРЖКУ #{ticket_id}</b>\n"
+            f"⚠️ <b>СТАТУС: ❌ ОТКЛОНЁН ИИ</b>\n"
+            f"🤖 <b>Причина ИИ:</b> {html.escape(reason)}\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"👤 <b>От:</b> {mention_id(uid, name)} (<code>{uid}</code>)\n"
+            f"📝 <b>Причина / Проблема:</b>\n«{html.escape(txt)}»\n\n"
+            f"💡 <i>ИИ посчитал обращение бессмысленным и дал автоотказ. "
+            f"Если ИИ ошибся, вы можете ответить пользователю или закрыть тикет:</i>\n\n"
+            f"• Свой ответ: <code>+ответ {ticket_id} [текст вашего ответа]</code>\n"
+            f"• Быстрый шаблон: <code>автоответ тикет {ticket_id} [1-5]</code>\n"
+            f"• Закрыть тикет: <code>закрыть тикет {ticket_id}</code>"
+        )
+    else:
+        # Валидный тикет
+        await message.reply(
+            f"✅ <b>Ваше обращение принято! (Тикет #{ticket_id})</b>\n\n"
+            f"📝 <b>Причина / Описание:</b>\n«<i>{html.escape(txt)}</i>»\n\n"
+            f"⏳ <b>Выдан кулдаун: 30 минут</b> на повторные обращения (защита от спама).\n"
+            f"👨‍💻 Администрация рассмотрит ваш тикет в ближайшее время и пришлёт ответ прямо сюда в личные сообщения!\n"
+            f"🤖 <i>Если администрация не ответит в течение 6 часов, ИИ-Ассистент автоматически поможет решить вопрос.</i>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="⬅️ В главное меню", callback_data="mm:main")
+            ]])
+        )
+        admin_notify = (
+            f"🆘 🔔 <b>НОВЫЙ ТИКЕТ В ТЕХПОДДЕРЖКУ #{ticket_id}</b>\n"
+            f"✅ <b>СТАТУС: ПРИНЯТ (ПРОВЕРЕН ИИ)</b>\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"👤 <b>От:</b> {mention_id(uid, name)} (<code>{uid}</code>)\n"
+            f"📝 <b>Причина / Проблема:</b>\n«{html.escape(txt)}»\n\n"
+            f"💡 <b>Команды для ответа:</b>\n"
+            f"• Свой ответ: <code>+ответ {ticket_id} [текст вашего ответа]</code>\n"
+            f"• Быстрый шаблон: <code>автоответ тикет {ticket_id} [1-5]</code>\n"
+            f"• Закрыть тикет: <code>закрыть тикет {ticket_id}</code>"
+        )
+
+    # Уведомляем владельцев бота и поддержку
+    recipients = set(getattr(config, "BOT_OWNERS", {config.OWNER_ID}))
+    try:
+        staff_rows = await db.get_all_bot_staff()
+        for sm in staff_rows:
+            if sm.get("rank", 0) >= 1:
+                recipients.add(sm["user_id"])
+    except Exception:
+        pass
+
     supp_chat = await db.get_global_setting("global_support_chat", "")
+    supp_topic = await db.get_global_setting("global_support_chat_topic", "")
     if supp_chat:
         try:
             target_cid = int(supp_chat) if (supp_chat.startswith("-") or supp_chat.isdigit()) else supp_chat
-            recipients.add(target_cid)
+            tid = int(supp_topic) if supp_topic and supp_topic.isdigit() else None
+            await bot.send_message(target_cid, admin_notify, reply_markup=ticket_admin_kb(ticket_id), message_thread_id=tid)
         except Exception:
             pass
 

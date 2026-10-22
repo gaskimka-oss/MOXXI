@@ -17,6 +17,9 @@ import re
 import urllib.request
 import urllib.error
 
+from dotenv import load_dotenv
+load_dotenv()
+
 log = logging.getLogger("moxxibot.ai")
 
 # ── Загрузка ключей и конфигурации ──────────────────────────────────────────
@@ -166,6 +169,9 @@ def _call_gemini_sync(key: str, system: str, user: str, max_tokens: int, tempera
                 except Exception:
                     pass
 
+            if e.code in (401, 403):
+                # Ключ невалиден или отозван — не перебираем другие модели на этом ключе
+                return None
             if e.code in (404, 429, 503):
                 continue
             log.warning("Gemini model %s HTTP %s: %s", m, e.code, str(e)[:120])
