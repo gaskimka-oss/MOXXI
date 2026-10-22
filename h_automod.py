@@ -126,11 +126,39 @@ async def handle(message: Message, bot: Bot) -> bool:
             asyncio.create_task(_autodel_msg(notice, 7))
             return True
 
-    if not await is_enabled(message.chat.id):
+    tid = message.message_thread_id or 0
+    chat_on = await is_enabled(message.chat.id)
+    topic_on = (await db.get_setting(message.chat.id, f"topic_automod_{tid}", "0") == "1")
+    if not (chat_on or topic_on):
         return False
 
-    use_ai = await db.get_setting(message.chat.id, "automod_ai", "1") == "1"
-    strict = await db.get_setting(message.chat.id, "automod_strict", "0") == "1"
+    # 2. Проверка тяжелейших оскорблений родных (мать, мамка и т.д.) — немедленный кик / бан!
+    from h_community_support import detect_staff_abuse
+    is_abuse, abuse_reason = detect_staff_abuse(text)
+    if is_abuse and "родных" in abuse_reason.lower():
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        uid = message.from_user.id
+        try:
+            until_ban = datetime.now(timezone.utc) + timedelta(days=1)
+            await bot.ban_chat_member(message.chat.id, uid, until_date=until_ban)
+        except Exception:
+            pass
+        await log_punish(message.chat.id, uid, "ban", f"ИИ-автомодерация: {abuse_reason}", 86400, 0)
+        notice = await message.answer(
+            f"⛔️ 🤖 <b>ИИ-МОДЕРАЦИЯ: КИК / БАН</b>\n\n"
+            f"👤 {mention(message.from_user)} был <b>исключён из чата (Бан 24ч)</b>!\n"
+            f"📝 <b>Причина:</b> Оскорбление родных / недопустимое поведение\n"
+            f"📜 <i>Соблюдайте правила чата (команда <code>правила</code>)!</i>"
+        )
+        import asyncio
+        asyncio.create_task(_autodel_msg(notice, 15))
+        return True
+
+    use_ai = (await db.get_setting(message.chat.id, "automod_ai", "1") == "1") or topic_on
+    strict = (await db.get_setting(message.chat.id, "automod_strict", "1") == "1") or topic_on
     addressed = bool(message.reply_to_message and message.reply_to_message.from_user
                      and message.reply_to_message.from_user.id != uid_self(message))
     ai_ctx = ""
@@ -145,103 +173,135 @@ async def handle(message: Message, bot: Bot) -> bool:
     level, reason, source = await toxicity.check(
         text, use_ai=use_ai, addressed=addressed, punish_soft_mat=strict,
         context=ai_ctx)
+
+    if is_abuse and level < 2:
+        level = 2
+        reason = abuse_reason or "нецензурная брань"
+
     if level < 2:
         return False
 
     uid = message.from_user.id
-    secs = await get_mute_time(message.chat.id, level)
-
-    if await _delete_flag(message.chat.id):
-        try:
-            await message.delete()
-        except Exception:
-            pass
-
-    full_reason = f"автомодерация: {reason}"
-    pid = await log_punish(message.chat.id, uid, "mute" if secs else "warn",
-                           full_reason, secs, 0)
-
-    if secs:
-        until = datetime.now(timezone.utc) + timedelta(seconds=secs)
-        try:
-            await bot.restrict_chat_member(message.chat.id, uid, MUTE_OFF,
-                                           until_date=until)
-        except Exception as e:
-            note = ("<i>(это админ Telegram — мут не применён)</i>"
-                    if "administrator" in str(e).lower() else
-                    "<i>(не хватило прав на мут)</i>")
-            try:
-                await message.answer(
-                    f"🤖 <b>Автомодерация</b>\n"
-                    f"👤 {mention(message.from_user)}\n"
-                    f"📝 {html.escape(reason)}\n{note}")
-            except Exception:
-                pass
-            return True
-        await db.execute(
-            "INSERT INTO mutes (chat_id,user_id,reason,by_id,until,ts) "
-            "VALUES (?,?,?,?,?,?) ON CONFLICT(chat_id,user_id) DO UPDATE SET "
-            "reason=excluded.reason, until=excluded.until",
-            (message.chat.id, uid, full_reason, 0, int(time.time()) + secs,
-             int(time.time())))
-    else:
-        await db.execute(
-            "INSERT INTO warns (chat_id,user_id,admin_id,reason,ts) VALUES (?,?,?,?,?)",
-            (message.chat.id, uid, 0, full_reason, int(time.time())))
-
-    ctx = await modlog.build_context(message.chat.id, uid, text)
-    await modlog.write(message.chat.id, pid, uid,
-                       message.from_user.first_name or str(uid),
-                       0, "автомодерация",
-                       "mute" if secs else "warn", reason, secs,
-                       "автомодерация", ctx, bot=bot)
-
-    icon = "🔇" if secs else "⚠️"
-    action = f"мут на <b>{human_period(secs)}</b>" if secs else "<b>предупреждение</b>"
     try:
-        sent = await message.answer(
-            f"🤖 <b>Автомодерация</b>\n\n"
-            f"👤 {mention(message.from_user)}\n"
-            f"📝 Причина: <b>{html.escape(reason)}</b>\n"
-            f"{icon} Наказание: {action}\n"
-            f"🔍 Обнаружено: {source}\n"
-            f"<code>#{pid}</code>")
-        modlog.schedule_autodelete(bot, sent)
+        await message.delete()
     except Exception:
         pass
+
+    # Фиксируем варн в базе данных
+    await db.execute(
+        "INSERT INTO warns (chat_id, user_id, admin_id, reason, ts) VALUES (?,?,?,?,?)",
+        (message.chat.id, uid, 0, f"ИИ: {reason}", int(time.time()))
+    )
+    row = await db.fetchone("SELECT COUNT(*) c FROM warns WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
+    warn_cnt = int(row["c"]) if row else 1
+
+    import asyncio
+    # Если набрано 3 или более варнов — автоматический БАН / КИК из чата!
+    if warn_cnt >= 3:
+        try:
+            until_ban = datetime.now(timezone.utc) + timedelta(days=1)
+            await bot.ban_chat_member(message.chat.id, uid, until_date=until_ban)
+        except Exception:
+            pass
+        await db.execute("DELETE FROM warns WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
+        await log_punish(message.chat.id, uid, "ban", f"ИИ: лимит 3/3 варнов ({reason})", 86400, 0)
+        notice = await message.answer(
+            f"🚫 🤖 <b>ИИ-МОДЕРАЦИЯ: ИСКЛЮЧЕНИЕ / БАН</b>\n\n"
+            f"👤 {mention(message.from_user)} превысил лимит предупреждений: <b>[ 🟥 🟥 🟥 ] (3/3)</b>!\n"
+            f"⚡️ <b>Применено:</b> Исключение из чата (Бан на 24 часа).\n"
+            f"📝 <b>Последнее нарушение:</b> {html.escape(reason)}\n"
+            f"📜 <i>Соблюдайте правила чата (команда <code>правила</code>)!</i>"
+        )
+        asyncio.create_task(_autodel_msg(notice, 20))
+        return True
+
+    # Иначе — выдаём Мут на 1 час + Предупреждение (Варн)
+    secs = await get_mute_time(message.chat.id, level)
+    if secs < 1800:
+        secs = 3600
+    until = datetime.now(timezone.utc) + timedelta(seconds=secs)
+    try:
+        await bot.restrict_chat_member(message.chat.id, uid, MUTE_OFF, until_date=until)
+    except Exception:
+        pass
+    await db.execute(
+        "INSERT INTO mutes (chat_id, user_id, reason, by_id, until, ts) "
+        "VALUES (?,?,?,?,?,?) ON CONFLICT(chat_id, user_id) DO UPDATE SET "
+        "reason=excluded.reason, until=excluded.until",
+        (message.chat.id, uid, f"ИИ: {reason}", 0, int(time.time()) + secs, int(time.time()))
+    )
+    await log_punish(message.chat.id, uid, "mute", f"ИИ: {reason}", secs, 0)
+
+    bar = " ".join("🟥" if i < warn_cnt else "⬜️" for i in range(3))
+    notice = await message.answer(
+        f"🛡 🤖 <b>ИИ-АВТОМОДЕРАЦИЯ MOXXI</b>\n\n"
+        f"👤 {mention(message.from_user)}\n"
+        f"⚠️ <b>Нарушение:</b> {html.escape(reason)}\n"
+        f"⚡️ <b>Наказание:</b> 🔇 Мут на <b>{human_period(secs)}</b> + Предупреждение <b>[ {bar} ] ({warn_cnt}/3)</b>\n"
+        f"🗑 <i>Сообщение удалено. При получении 3 варнов — автоматический бан!</i>"
+    )
+    asyncio.create_task(_autodel_msg(notice, 15))
     return True
 
 
 # ═══════════════ НАСТРОЙКА ═══════════════
-@router.message(Cmd("автомут", "автомодерация", "антимат", section=S, rank=4,
-                    usage="автомут вкл|выкл",
-                    desc="🤖 Автомут за оскорбления и мат"))
+@router.message(Cmd("+автоправила", "-автоправила", "+автомут", "-автомут", "+ии модерация", "-ии модерация",
+                    "+автомод", "-автомод", "автоправила", "автомут", "автомодерация", "антимат",
+                    section=S, rank=0, group_only=False,
+                    usage="+автоправила / +автомут [вкл|выкл]",
+                    desc="🤖 ИИ-Автомодерация и автоправила темы (мут, варн, бан, кик)"))
 async def cmd_automod(message: Message, bot: Bot, args: str = "", **kw):
-    if not await require(message, bot, 4):
+    import config
+    uid = message.from_user.id if message.from_user else 0
+    if not config.is_bot_owner(uid) and not await require(message, bot, 3):
         return
+
+    raw_cmd = (message.text or "").strip().lower()
     a = (args or "").strip().lower()
     cid = message.chat.id
+    tid = message.message_thread_id or 0
 
-    if a in {"вкл", "on", "да", "включить"}:
-        await db.set_setting(cid, "automod", "1")
-        t2 = await get_mute_time(cid, 2)
-        import core_ai as ai
-        brain = (f"🧠 ИИ-надзор: <b>включён</b> ({ai.provider()})"
-                 if ai.available() else
-                 "🧠 ИИ-надзор: <b>выключен</b> — работает словарь\n"
-                 "<i>Включить: добавьте AI_API_KEY на хостинге</i>")
-        return await message.reply(
-            f"🤖 <b>Автомодерация включена</b>\n\n"
-            f"За оскорбления и мат — мут на <b>{human_period(t2)}</b>\n"
-            f"Сообщение нарушителя удаляется\n"
-            f"Модерация (ранг 1+) не проверяется\n\n"
-            f"{brain}\n\n"
-            f"<i>Настройки: </i><code>автомут время 2 часа</code> · "
-            f"<code>автомут тест текст</code>")
+    is_turn_off = (
+        raw_cmd.startswith(("-автоправила", "-автомут", "-ии модерация", "-автомод")) or
+        a in {"выкл", "off", "нет", "выключить", "0"}
+    )
+    is_turn_on = (
+        raw_cmd.startswith(("+автоправила", "+автомут", "+ии модерация", "+автомод")) or
+        a in {"вкл", "on", "да", "включить", "1"} or
+        (not a and raw_cmd.startswith("+"))
+    )
 
-    if a in {"выкл", "off", "нет", "выключить"}:
+    if is_turn_off:
+        await db.set_setting(cid, f"topic_automod_{tid}", "0")
         await db.set_setting(cid, "automod", "0")
-        return await message.reply("🤖 Автомодерация <b>выключена</b>.")
+        loc_str = f"в ветке #{tid}" if tid else "в этом чате"
+        return await message.reply(f"🤖 <b>ИИ-Автомодерация и автоправила выключены</b> {loc_str}.")
+
+    if is_turn_on or a in {"", "инфо"}:
+        await db.set_setting(cid, "automod", "1")
+        await db.set_setting(cid, "automod_ai", "1")
+        await db.set_setting(cid, "automod_strict", "1")
+        await db.set_setting(cid, f"topic_automod_{tid}", "1")
+        await db.set_setting(cid, "topic_automod_thread_id", str(tid))
+
+        import core_ai as ai
+        brain = (f"🟢 <b>ИИ-надзор активен:</b> {ai.provider()}"
+                 if ai.available() else
+                 "⚪️ <b>ИИ-надзор:</b> работает встроенный словарь + фильтры")
+
+        loc_str = f"темы общения (ветка #{tid})" if tid else "этого чата"
+        return await message.reply(
+            f"🛡 ✨ <b>ИИ-АВТОМОДЕРАЦИЯ И АВТОПРАВИЛА ВКЛЮЧЕНЫ!</b> ✨ 🛡\n"
+            f"✦ ════════ • ⊰ 💖 🔮 ⚖️ 🤖 🍷 👑 ⊱ • ════════ ✦\n\n"
+            f"📍 <b>Область действия:</b> {loc_str}\n"
+            f"{brain}\n\n"
+            f"⚡️ <b>Автоматическая лестница наказаний ИИ:</b>\n"
+            f"• 🔇 <b>Мат / Оскорбления / Токсичность:</b> Удаление сообщения + Мут 1 час + Предупреждение;\n"
+            f"• ⛔️ <b>Оскорбление родных / Скам / 18+:</b> Немедленный Кик / Бан на 24 часа;\n"
+            f"• 🚫 <b>Накопление 3 варнов:</b> Автоматический Бан и исключение из беседы;\n"
+            f"• 🛡 Модераторы (ранг 1+) защищены от ложных срабатываний.\n\n"
+            f"🔒 <i>Выключить автомодерацию: <code>-автоправила</code> или <code>-автомут</code></i>"
+        )
 
     # автомут время 2 часа
     if a.startswith("время"):

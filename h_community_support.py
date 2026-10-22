@@ -1385,31 +1385,251 @@ async def cb_staff_action(call: CallbackQuery, bot: Bot):
 
 
 # ═══════════════════════════════════════════════════════════════
-# 8. ОБРАЗЕЦ ОФОРМЛЕНИЯ ТЕМЫ КОМАНД (+ОБРАЗЕЦ ТЕМЫ / -ОБРАЗЕЦ ТЕМЫ)
+# 8. ПРАВИЛА СООБЩЕСТВА И ЧАТА ОБЩЕНИЯ
 # ═══════════════════════════════════════════════════════════════
 
-@router.message(Cmd("+образец темы", "образец темы вкл", "образец темы", section=S_COMMUNITY, rank=0, group_only=False,
-                    usage="+образец темы", desc="Включить образец оформления для темы команд (только Владелец)"))
+COMMUNITY_RULES_TEXT = (
+    "💜 ✨ <b>ПРАВИЛА СООБЩЕСТВА MOXXI | ЧАТ ОБЩЕНИЯ</b> ✨ 💜\n"
+    "✦ ════════ • ⊰ 💖 🔮 🎰 🏢 ⚔️ 🪙 👑 ⊱ • ════════ ✦\n\n"
+    "Добро пожаловать в официальный чат <b>MOXXI Community</b>!\n"
+    "Для комфортного, дружелюбного и безопасного отдыха в чате действуют правила, обязательные для всех участников:\n\n"
+    "📜 <b>1. КУЛЬТУРА ОБЩЕНИЯ И УВАЖЕНИЕ:</b>\n"
+    "• 1.1. Общайтесь вежливо. Запрещены травля, буллинг, прямые адресные оскорбления, токсичность и провокация конфликтов;\n"
+    "• 1.2. Категорически запрещены любые формы оскорбления или неуважительного упоминания родных и близких;\n"
+    "• 1.3. Запрещён деанон (разглашение личных данных, фото, номеров телефонов без согласия человека).\n\n"
+    "🚫 <b>2. ЗАПРЕЩЁННЫЙ КОНТЕНТ:</b>\n"
+    "• 2.1. Запрещён спам, флуд, рейды, капс-сообщения и бессмысленные простыни текста;\n"
+    "• 2.2. Запрещена любая реклама (сторонние каналы, боты, реферальные ссылки, коммерция);\n"
+    "• 2.3. Запрещены материалы 18+ (NSFW, порнография, интим), шок-контент, жестокость;\n"
+    "• 2.4. Запрещены любые политические, межнациональные и религиозные дискуссии или разжигание розни;\n"
+    "• 2.5. Запрещён скам, вымогательство, продажа виртуальных ценностей за реальные деньги вне бота.\n\n"
+    "📑 <b>3. ТЕМАТИЧЕСКИЕ ВЕТКИ (ТОПИКИ):</b>\n"
+    "• 💬 <b>Ветка «Общение»:</b> для свободного диалога и знакомств (команды ботов сводите к минимуму);\n"
+    "• 🤖 <b>Ветка «Команды & ИИ»:</b> для вызова команд, игр, казино и вопросов к ИИ-ассистенту;\n"
+    "• 💡 <b>Ветка «Идеи»:</b> строго для предложений через команду <code>идея [текст]</code>;\n"
+    "• ⭐ <b>Ветка «Отзывы»:</b> строго для публикации отзывов через команду <code>отзыв [текст]</code>.\n\n"
+    "🎰 <b>4. ИГРОВОЙ ЭТИКЕТ:</b>\n"
+    "• 4.1. Запрещён багоюз, использование стороннего софта, автокликеров и дюпов;\n"
+    "• 4.2. Запрещён намеренный слив дуэлей и нечестные махинации с балансом монет;\n"
+    "• 4.3. О найденных ошибках сообщайте в техподдержку: <code>поддержка [описание]</code>. За полезные багрепорты полагается щедрая награда!\n\n"
+    "⚖️ <b>5. ЛЕСТНИЦА НАКАЗАНИЙ (ИИ-МОДЕРАЦИЯ И СТАФФ):</b>\n"
+    "• ⚠️ <b>1-е нарушение:</b> Удаление сообщения + Предупреждение (Варн);\n"
+    "• 🔇 <b>2-е нарушение:</b> Мут от 30 минут до 2 часов (за мат/оскорбления);\n"
+    "• ⛔️ <b>3-е нарушение (3 варна):</b> Кик из чата или Бан на 24 часа;\n"
+    "• 🚫 <b>Грубейшие нарушения</b> (скам, деанон, 18+, реклама, оскорбление родных): Немедленный Бан/Кик.\n\n"
+    "✦ ══════════════════════════════════ ✦\n"
+    "<i>Администрация и умный ИИ-помощник Moxxi следят за порядком круглосуточно. Соблюдайте правила и приятного отдыха!</i>"
+)
+
+
+@router.message(Cmd("правила", "правила общения", "правила чата", "правила сообщества", "rules",
+                    section=S_COMMUNITY, rank=0, group_only=False,
+                    usage="правила", desc="Правила сообщества и чата общения MOXXI"))
+async def cmd_rules(message: Message, bot: Bot, **kw):
+    comm_chat = await db.get_global_setting("global_community_chat", "")
+    chat_u = getattr(message.chat, "username", "") or ""
+    is_comm = (message.chat.type == "private") or (chat_u.lower() == "moxxi_chat") or (comm_chat and str(message.chat.id) == comm_chat)
+
+    if message.chat.type != "private" and not is_comm:
+        custom_rules = await db.get_setting(message.chat.id, "rules_text") or await db.get_setting(message.chat.id, "rules")
+        if custom_rules:
+            from h_chatset import render_rules_card, get_rules_topic
+            frame_on = (await db.get_setting(message.chat.id, "rules_card_frame", "1") == "1")
+            rtopic = await get_rules_topic(message.chat.id)
+            is_forum = bool(getattr(message.chat, "is_forum", False))
+            title = message.chat.title or "Беседа"
+            if frame_on:
+                card, kb_custom = render_rules_card(title, custom_rules, is_forum=is_forum, chat_id=message.chat.id, rules_topic=rtopic)
+                return await message.reply(card, reply_markup=kb_custom, disable_web_page_preview=True)
+            else:
+                return await message.reply(custom_rules, disable_web_page_preview=True)
+
+    me = await bot.me()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🤖 Задать вопрос ИИ", switch_inline_query_current_chat="ии какие правила?"),
+            InlineKeyboardButton(text="🆘 Техподдержка", url=f"https://t.me/{me.username}?start=support")
+        ],
+        [
+            InlineKeyboardButton(text="📖 Меню & Команды", url=f"https://t.me/{me.username}?start=cmds")
+        ]
+    ])
+    await message.reply(COMMUNITY_RULES_TEXT, reply_markup=kb)
+
+
+@router.callback_query(F.data == "chat_rules_btn")
+async def cb_chat_rules(call: CallbackQuery):
+    await call.message.reply(COMMUNITY_RULES_TEXT)
+    await call.answer()
+
+
+@router.message(Cmd("+тест приветствие", "приветствие общение", section=S_COMMUNITY, rank=0, group_only=False,
+                    desc="Посмотреть приветствие чата общения (только Владелец)"))
+async def cmd_test_welcome(message: Message, bot: Bot, **kw):
+    uid = message.from_user.id if message.from_user else 0
+    if not config.is_bot_owner(uid):
+        return
+    me = await bot.me()
+    comm_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🎁 Забрать бонус", url=f"https://t.me/{me.username}?start=bonus"),
+            InlineKeyboardButton(text="🤖 Задать вопрос ИИ", switch_inline_query_current_chat="ии как начать игру?")
+        ],
+        [
+            InlineKeyboardButton(text="📜 Правила сообщества", callback_data="chat_rules_btn"),
+            InlineKeyboardButton(text="📖 Меню бота", url=f"https://t.me/{me.username}?start=menu")
+        ]
+    ])
+    card = (
+        f"💜 ✨ <b>ДОБРО ПОЖАЛОВАТЬ В MOXXI COMMUNITY!</b> ✨ 💜\n"
+        f"✦ ════════ • ⊰ 💖 🔮 🎰 🏢 ⚔️ 🪙 👑 ⊱ • ════════ ✦\n\n"
+        f"👋 Приветствуем тебя в нашем официальном чате, {mention_id(uid, message.from_user.first_name)}!\n"
+        f"Ты попал в эпицентр азарта, клановых войн, экономики и умного ИИ!\n\n"
+        f"🔮 <b>Навигация по темам сообщества:</b>\n"
+        f"• 💬 <b>Общение</b> — знакомства, флуд, поиск союзников и кланов;\n"
+        f"• 🤖 <b>Команды & ИИ</b> — тесты команд и ответы ИИ-помощника;\n"
+        f"• 💡 <b>Идеи & Фидбек</b> — ваши предложения для обновлений;\n"
+        f"• ⭐ <b>Отзывы & Звёзды</b> — честные отзывы игроков о покупках.\n\n"
+        f"🎁 <b>Быстрый старт для новичка:</b>\n"
+        f"• <code>бонус</code> — забрать ежедневный куш (до 30 000 🪙);\n"
+        f"• <code>рулетка</code> — крутить Колесо Фортуны раз в день бесплатно;\n"
+        f"• <code>квесты</code> — 3 ежедневных задания за щедрую награду;\n"
+        f"• <code>меню</code> — открыть интерактивное главное меню.\n\n"
+        f"🤖 <b>Нужна помощь?</b> Просто напиши <code>ии [твой вопрос]</code> в ветке команд или ответь на сообщение бота!\n"
+        f"✦ ══════════════════════════════════ ✦\n"
+        f"🍷 <i>Желаем приятного отдыха, верных друзей и лёгких побед!</i>"
+    )
+    await message.reply(card, reply_markup=comm_kb)
+
+
+# ═══════════════════════════════════════════════════════════════
+# 9. ОБРАЗЕЦ ОФОРМЛЕНИЯ ТЕМЫ КОМАНД И ОБРАЩЕНИЯ К ИИ (+ОБРАЗЕЦ ИИ)
+# ═══════════════════════════════════════════════════════════════
+
+_last_sample_msgs: dict[tuple[int, int], int] = {}
+
+AI_COMMANDS_SAMPLE_TEXT = """🤖 ✨ <b>ОБРАЗЕЦ ОБРАЩЕНИЯ К ИИ И КОМАНД БОТА</b> ✨ 🤖
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+👋 Привет, {user_mention}! Чтобы бот или умный ИИ-помощник сразу вас понял, используйте правильный формат:
+
+🧠 <b>1. Как обратиться к ИИ-помощнику MOXXI:</b>
+Начните фразу со слова <code>ии</code>, <code>бот</code> или <code>moxxi</code>:
+• <code>ии как работают бизнесы и сбор дохода?</code>
+• <code>ии как создать свой клан и пригласить друзей?</code>
+• <code>ии какие шансы на победу в казино и рулетке?</code>
+• <code>ии объясни правила сообщества и дуэлей</code>
+<i>💡 Также можно просто ответить (Reply) на любое сообщение бота своим вопросом!</i>
+
+⚙️ <b>2. Как вводить основные команды:</b>
+• <code>меню</code> — интерактивное меню бота со всеми разделами;
+• <code>баланс</code> — проверить баланс монет и состояние банка;
+• <code>бонус</code> — забрать ежедневную бесплатную награду;
+• <code>рулетка</code> — крутить Колесо Фортуны раз в день;
+• <code>квесты</code> — список ежедневных заданий с призами;
+• <code>казик [ставка]</code> — сыграть в казино (например: <code>казик 1000</code>);
+• <code>поддержка [вопрос]</code> — отправить тикет администраторам.
+
+┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+🎯 <i>Отправьте вопрос к ИИ или нужную команду прямо сейчас!</i>"""
+
+
+async def check_and_send_commands_sample(message: Message, bot: Bot) -> bool:
+    """Проверяет сообщение в теме команд и при необходимости отправляет образец."""
+    if message.chat.type == "private":
+        return False
+    if not message.from_user or message.from_user.is_bot:
+        return False
+
+    tid = message.message_thread_id or 0
+    cid = message.chat.id
+    uid = message.from_user.id
+
+    # Владельца не триггерим
+    if config.is_bot_owner(uid):
+        return False
+
+    # Проверяем, включен ли автообразец для этой темы или чата
+    is_topic_on = (await db.get_setting(cid, f"ai_sample_topic_{tid}", "0") == "1")
+    is_general_on = (await db.get_setting(cid, "sample_topic_enabled", "0") == "1")
+    target_topic = await db.get_setting(cid, "sample_commands_topic", "0")
+    if not (is_topic_on or (is_general_on and (target_topic == "0" or target_topic == str(tid)))):
+        return False
+
+    text = (message.text or message.caption or "").strip()
+    low = text.lower()
+
+    # Если игрок уже обратился к ИИ или вызвал команду, не мешаем ему
+    if low.startswith(("ии ", "ии,", "бот ", "moxxi ", "мокси ", "+", "/", "!", ".")):
+        return False
+    common_cmds = {"меню", "menu", "баланс", "бонус", "рулетка", "квесты", "дейлики", "топ", "профиль", "помощь", "хелп", "help", "инвентарь", "рынок", "бизнесы", "собрать", "казик", "дуэль", "поддержка"}
+    if any(low.startswith(c) for c in common_cmds):
+        return False
+
+    # Кулдаун 45 секунд на одного пользователя
+    cd_key = f"cmd_sample_{tid}"
+    if await db.cooldown_left(uid, cd_key, 45) > 0:
+        return False
+    await db.set_cooldown(uid, cd_key)
+
+    # Удаляем предыдущий образец в этой теме, если остался
+    prev_id = _last_sample_msgs.get((cid, tid))
+    if prev_id:
+        try:
+            await bot.delete_message(cid, prev_id)
+        except Exception:
+            pass
+
+    card = AI_COMMANDS_SAMPLE_TEXT.format(user_mention=mention_id(uid, message.from_user.first_name))
+    me = await bot.me()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🤖 Задать вопрос ИИ", switch_inline_query_current_chat="ии как играть?"),
+            InlineKeyboardButton(text="📖 Меню команд", url=f"https://t.me/{me.username}?start=cmds")
+        ]
+    ])
+    try:
+        sent = await message.reply(card, reply_markup=kb)
+        _last_sample_msgs[(cid, tid)] = sent.message_id
+        return True
+    except Exception:
+        return False
+
+
+@router.message(Cmd("+образец ии", "+автообразец", "+образец команд", "+образец темы", "образец ии",
+                    section=S_COMMUNITY, rank=0, group_only=False,
+                    usage="+образец ии", desc="Включить автообразец обращения к ИИ и команд для темы (только Владелец)"))
 async def cmd_sample_topic_on(message: Message, bot: Bot, **kw):
     uid = message.from_user.id if message.from_user else 0
     if not config.is_bot_owner(uid):
-        return  # Тихий пропуск для обычных игроков!
+        return  # Тихий пропуск для обычных игроков и модераторов групп!
+
+    tid = message.message_thread_id or 0
+    await db.set_setting(message.chat.id, f"ai_sample_topic_{tid}", "1")
     await db.set_setting(message.chat.id, "sample_topic_enabled", "1")
+    await db.set_setting(message.chat.id, "sample_commands_topic", str(tid))
+
+    topic_str = f"в ветке #{tid}" if tid else "в этом чате"
     await message.reply(
-        "✅ <b>Образец оформления темы успешно включён!</b>\n\n"
-        "Теперь при активности в теме бот будет подсказывать игрокам образец правильного вопроса:\n"
-        "<code>❓ Вопрос: [ваш вопрос]</code>\n"
-        "<code>💬 Описание: [подробности]</code>"
+        f"✅ <b>Автообразец обращений к ИИ и команд успешно включён {topic_str}!</b>\n\n"
+        f"🤖 Теперь при активности игроков бот будет отправлять наглядный образец:\n"
+        f"• Как правильно обращаться к ИИ-помощнику (<code>ии [вопрос]</code>);\n"
+        f"• Как вводить ключевые игровые команды бота.\n\n"
+        f"🔒 <i>Выключить: <code>-образец ии</code></i>"
     )
 
 
-@router.message(Cmd("-образец темы", "образец темы выкл", section=S_COMMUNITY, rank=0, group_only=False,
-                    usage="-образец темы", desc="Выключить образец оформления для темы команд (только Владелец)"))
+@router.message(Cmd("-образец ии", "-автообразец", "-образец команд", "-образец темы",
+                    section=S_COMMUNITY, rank=0, group_only=False,
+                    usage="-образец ии", desc="Выключить автообразец обращения к ИИ и команд (только Владелец)"))
 async def cmd_sample_topic_off(message: Message, bot: Bot, **kw):
     uid = message.from_user.id if message.from_user else 0
     if not config.is_bot_owner(uid):
         return  # Тихий пропуск для обычных игроков!
+
+    tid = message.message_thread_id or 0
+    await db.set_setting(message.chat.id, f"ai_sample_topic_{tid}", "0")
     await db.set_setting(message.chat.id, "sample_topic_enabled", "0")
-    await message.reply("✅ <b>Образец оформления темы выключен.</b>")
+    await message.reply("✅ <b>Автообразец для темы команд выключен.</b>")
+
 
 

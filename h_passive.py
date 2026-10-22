@@ -167,21 +167,34 @@ async def on_new_members(message: Message, bot: Bot):
         if is_official:
             card = (
                 f"💜 ✨ <b>ДОБРО ПОЖАЛОВАТЬ В MOXXI COMMUNITY!</b> ✨ 💜\n"
-                f"✦ ══ • ⊰ 💖 🔮 🎰 🏢 ⚔️ 🪙 🍷 👑 ⊱ • ══ ✦\n\n"
-                f"👋 Рады приветствовать тебя, {mention(u)}!\n"
-                f"Ты в официальном сообществе и чате проекта <b>MOXXI</b>.\n\n"
-                f"🌟 <b>Темы и разделы для тебя:</b>\n"
-                f"• 💬 <b>Общение</b> — знакомься с игроками и находи союзников;\n"
-                f"• ❓ <b>Вопросы по командам</b> — ИИ Moxxi ответит на любой вопрос;\n"
-                f"• 💡 <b>Идеи и предложения</b> — предлагай свои идеи для обновлений;\n"
-                f"• ⭐ <b>Отзывы и звёзды</b> — делись впечатлениями и оценками!\n\n"
-                f"🎁 <b>Быстрый старт:</b>\n"
-                f"• <code>команды</code> — список возможностей;\n"
-                f"• <code>бонус</code> — забрать ежедневный подарок;\n"
-                f"• <code>рулетка</code> — крутить Колесо Фортуны бесплатно!\n\n"
-                f"🍷 <i>Приятного общения и удачной игры!</i>"
+                f"✦ ════════ • ⊰ 💖 🔮 🎰 🏢 ⚔️ 🪙 👑 ⊱ • ════════ ✦\n\n"
+                f"👋 Приветствуем тебя в нашем официальном чате, {mention(u)}!\n"
+                f"Ты попал в эпицентр азарта, клановых войн, экономики и умного ИИ!\n\n"
+                f"🔮 <b>Навигация по темам сообщества:</b>\n"
+                f"• 💬 <b>Общение</b> — знакомства, флуд, поиск союзников и кланов;\n"
+                f"• 🤖 <b>Команды & ИИ</b> — тесты команд и ответы ИИ-помощника;\n"
+                f"• 💡 <b>Идеи & Фидбек</b> — ваши предложения для обновлений;\n"
+                f"• ⭐ <b>Отзывы & Звёзды</b> — честные отзывы игроков о покупках.\n\n"
+                f"🎁 <b>Быстрый старт для новичка:</b>\n"
+                f"• <code>бонус</code> — забрать ежедневный куш (до 30 000 🪙);\n"
+                f"• <code>рулетка</code> — крутить Колесо Фортуны раз в день бесплатно;\n"
+                f"• <code>квесты</code> — 3 ежедневных задания за щедрую награду;\n"
+                f"• <code>меню</code> — открыть интерактивное главное меню.\n\n"
+                f"🤖 <b>Нужна помощь?</b> Просто напиши <code>ии [твой вопрос]</code> в ветке команд или ответь на сообщение бота!\n"
+                f"✦ ══════════════════════════════════ ✦\n"
+                f"🍷 <i>Желаем приятного отдыха, верных друзей и лёгких побед!</i>"
             )
-            await message.answer(card)
+            comm_kb = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="🎁 Забрать бонус", url=f"https://t.me/{me.username}?start=bonus"),
+                    InlineKeyboardButton(text="🤖 Задать вопрос ИИ", switch_inline_query_current_chat="ии как начать игру?")
+                ],
+                [
+                    InlineKeyboardButton(text="📜 Правила сообщества", callback_data="chat_rules_btn"),
+                    InlineKeyboardButton(text="📖 Меню бота", url=f"https://t.me/{me.username}?start=menu")
+                ]
+            ])
+            await message.answer(card, reply_markup=comm_kb)
             continue
 
         ai_welc = (await db.get_setting(message.chat.id, "ai_welcome", "0") == "1")
@@ -430,6 +443,14 @@ async def activity(message: Message, bot: Bot):
         from h_automod import handle as _automod
         if await _automod(message, bot):
             return
+    except Exception:
+        pass
+
+    # --- автообразец для темы команд (ИИ + команды) ---
+    try:
+        from h_community_support import check_and_send_commands_sample
+        if await check_and_send_commands_sample(message, bot):
+            pass
     except Exception:
         pass
 
