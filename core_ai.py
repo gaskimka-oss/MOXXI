@@ -37,7 +37,7 @@ def _is_gemini_key(k: str) -> bool:
 def _guess_provider_and_model(k: str) -> tuple[str, str, str]:
     """Возвращает (тип_провайдера, url, default_model)."""
     if _is_gemini_key(k):
-        return ("gemini", "https://generativelanguage.googleapis.com/v1beta", "gemini-3-flash-preview")
+        return ("gemini", "https://generativelanguage.googleapis.com/v1beta", "gemini-flash-lite-latest")
     if k.startswith("sk-or-"):
         return ("openai_compat", "https://openrouter.ai/api/v1/chat/completions", "google/gemma-4-31b-it:free")
     if k.startswith("gsk_"):
@@ -48,7 +48,7 @@ def _guess_provider_and_model(k: str) -> tuple[str, str, str]:
         return ("openai_compat", "https://api.deepseek.com/v1/chat/completions", "deepseek-chat")
     return ("gemini" if _is_gemini_key(k) else "openai_compat",
             "https://generativelanguage.googleapis.com/v1beta" if _is_gemini_key(k) else "https://api.openai.com/v1/chat/completions",
-            "gemini-3-flash-preview" if _is_gemini_key(k) else "gpt-4o-mini")
+            "gemini-flash-lite-latest" if _is_gemini_key(k) else "gpt-4o-mini")
 
 
 _K_SAMPLE = KEYS[0] if KEYS else ""
@@ -57,9 +57,9 @@ _PROV_TYPE, _URL_GUESS, _MODEL_GUESS = _guess_provider_and_model(_K_SAMPLE)
 PROVIDER_TYPE = os.getenv("AI_PROVIDER_TYPE") or _PROV_TYPE
 URL = (os.getenv("AI_API_URL") or _URL_GUESS).strip()
 MODEL = (os.getenv("AI_MODEL") or _MODEL_GUESS).strip()
-TIMEOUT = int(os.getenv("AI_TIMEOUT", "15") or 15)
-_bad_models = {"gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.5-flash"}
-_g_models = ["gemini-flash-lite-latest", "gemini-3-flash-preview", "gemini-flash-latest", MODEL if MODEL and MODEL not in _bad_models else ""]
+TIMEOUT = int(os.getenv("AI_TIMEOUT", "10") or 10)
+_bad_models = {"gemini-1.5-flash", "gemini-2.0-flash"}
+_g_models = ["gemini-flash-lite-latest", "gemini-2.5-flash-lite", "gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3-flash-preview", MODEL if MODEL and MODEL not in _bad_models else ""]
 GEMINI_MODELS = list(dict.fromkeys(m for m in _g_models if m))
 
 
