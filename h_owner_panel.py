@@ -366,48 +366,84 @@ async def cb_staff_list(call: CallbackQuery):
 # 4. ПРИВЯЗКА ОФИЦИАЛЬНЫХ ГРУПП (ТОЛЬКО ВЛАДЕЛЕЦ)
 # ═══════════════════════════════════════════════════════════════
 
-@router.message(Cmd("+чат идей", "+чат отзывов", "+чат общения", "+чат поддержки",
+@router.message(Cmd("+чат идей", "+чат идеи", "+чат отзывов", "+чат отзывы",
+                    "+чат общения", "+чат общение", "+чат поддержки", "+чат поддержка",
+                    "+чат команды", "+чат команд",
+                    "чат идей", "чат идеи", "чат отзывов", "чат отзывы",
+                    "чат общения", "чат общение", "чат поддержки", "чат поддержка",
+                    "чат команды", "чат команд",
+                    "привязать чат", "+привязать чат",
                     section=S_OWNER, rank=0, group_only=False,
-                    usage="+чат идей [chat_id или ссылка]",
-                    desc="Привязать официальную группу (только Владелец)"))
+                    usage="+чат отзывов [chat_id или ссылка]",
+                    desc="Привязать официальную группу (Владелец и Администрация)"))
 async def cmd_bind_official_chat(message: Message, bot: Bot, args: str = "", **kw):
-    ok, _ = await _require_staff(message, 4)
+    ok, _ = await _require_staff(message, 3)
     if not ok:
         return
 
-    cmd_word = (message.text or "").strip().split()[0].lower()
+    full_txt = (message.text or "").strip().lower()
     target_val = (args or "").strip()
 
     # Если аргумент не указан, но команда вызвана внутри чата — привязываем текущий чат!
     if not target_val and message.chat.type in {"group", "supergroup"}:
         target_val = str(message.chat.id)
 
+    # Если в args было указано название чата: например «привязать чат отзывы»
+    parts = target_val.split(maxsplit=1)
+    if parts and any(k in parts[0].lower() for k in ["иде", "отзыв", "общен", "поддерж", "команд"]):
+        full_txt += " " + parts[0].lower()
+        target_val = parts[1].strip() if len(parts) > 1 else str(message.chat.id)
+
     if not target_val:
-        return await message.reply("Формат: <code>+чат [идей|отзывов|общения|поддержки] [chat_id или @username]</code>")
+        return await message.reply(
+            "📌 <b>Формат привязки официальных групп:</b>\n\n"
+            "• <code>+чат отзывов</code> (прямо в группе отзывов)\n"
+            "• <code>+чат отзывов @username_или_ссылка</code>\n"
+            "• <code>+чат идей</code> (в группе предложений)\n"
+            "• <code>+чат общения</code> (в главном чате)\n"
+            "• <code>+чат поддержки</code> (в чате саппорта)\n"
+            "• <code>+чат команды</code> (в чате вопросов по командам)\n\n"
+            "💡 <i>Посмотреть текущие привязки: <code>привязанные чаты</code></i>"
+        )
 
     key_map = {
-        "идей": ("global_ideas_chat", "💡 Группа идей и предложений"),
-        "отзывов": ("global_reviews_chat", "⭐ Группа отзывов и оценок"),
-        "общения": ("global_community_chat", "💬 Официальный чат общения"),
-        "поддержки": ("global_support_chat", "🆘 Группа службы техподдержки")
+        "иде": ("global_ideas_chat", "💡 Группа идей и предложений"),
+        "отзыв": ("global_reviews_chat", "⭐ Группа отзывов и оценок"),
+        "общен": ("global_community_chat", "💬 Официальный чат общения"),
+        "поддерж": ("global_support_chat", "🆘 Группа службы техподдержки"),
+        "команд": ("global_commands_chat", "🤖 Группа/Тема команд и вопросов")
     }
 
     matched_key = None
     matched_title = ""
     for k, (db_k, t) in key_map.items():
-        if k in cmd_word:
+        if k in full_txt:
             matched_key = db_k
             matched_title = t
             break
 
     if not matched_key:
-        return await message.reply("❌ Неизвестная группа. Доступны: <code>+чат идей</code>, <code>+чат отзывов</code>, <code>+чат общения</code>, <code>+чат поддержки</code>.")
+        return await message.reply(
+            "❌ Неизвестная группа. Доступны:\n"
+            "• <code>+чат отзывов</code>\n"
+            "• <code>+чат идей</code>\n"
+            "• <code>+чат общения</code>\n"
+            "• <code>+чат поддержки</code>\n"
+            "• <code>+чат команды</code>"
+        )
 
     await db.set_global_setting(matched_key, target_val)
+
+    # Если команда отправлена в теме форума — также запоминаем ID темы!
+    tid = getattr(message, "message_thread_id", None)
+    if tid and tid > 1:
+        await db.set_global_setting(matched_key + "_topic", str(tid))
+
+    topic_note = f"\n🧵 <b>ID топика форума:</b> <code>{tid}</code>" if (tid and tid > 1) else ""
     await message.reply(
         f"✅ <b>Группа успешно привязана!</b>\n\n"
         f"🏷 <b>Категория:</b> {matched_title}\n"
-        f"🔗 <b>Значение:</b> <code>{html.escape(target_val)}</code>\n\n"
+        f"🔗 <b>Значение:</b> <code>{html.escape(target_val)}</code>{topic_note}\n\n"
         f"<i>Теперь все уведомления и ссылки в боте автоматически используют эту группу!</i>"
     )
 

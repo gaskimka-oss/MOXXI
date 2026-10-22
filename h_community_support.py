@@ -92,15 +92,18 @@ async def cmd_reviews(message: Message, bot: Bot, args: str = "", **kw):
         stats = await db.get_review_stats()
         # Отправка в привязанную группу отзывов, если задана
         rev_chat = await db.get_global_setting("global_reviews_chat", "")
+        rev_topic = await db.get_global_setting("global_reviews_chat_topic", "")
         if rev_chat:
             try:
                 target_cid = int(rev_chat) if (rev_chat.startswith("-") or rev_chat.isdigit()) else rev_chat
+                tid = int(rev_topic) if rev_topic and rev_topic.isdigit() else None
                 await bot.send_message(
                     target_cid,
                     f"⭐ ✨ <b>НОВЫЙ ОТЗЫВ #{rev_id}</b> ✨ ⭐\n"
                     f"👤 <b>Автор:</b> {mention_id(uid, name)}\n"
                     f"⭐ <b>Оценка:</b> ⭐⭐⭐⭐⭐ (5/5)\n"
-                    f"💬 <b>Текст:</b> «<i>{html.escape(txt)}</i>»"
+                    f"💬 <b>Текст:</b> «<i>{html.escape(txt)}</i>»",
+                    message_thread_id=tid
                 )
             except Exception:
                 pass
@@ -213,10 +216,12 @@ async def cmd_suggestions(message: Message, bot: Bot, args: str = "", **kw):
         )
         # Отправка в привязанную группу идей, если задана
         sug_chat = await db.get_global_setting("global_ideas_chat", "")
+        sug_topic = await db.get_global_setting("global_ideas_chat_topic", "")
         if sug_chat:
             try:
                 target_cid = int(sug_chat) if (sug_chat.startswith("-") or sug_chat.isdigit()) else sug_chat
-                await bot.send_message(target_cid, card, reply_markup=_sug_kb(sug_id, 0, 0))
+                tid = int(sug_topic) if sug_topic and sug_topic.isdigit() else None
+                await bot.send_message(target_cid, card, reply_markup=_sug_kb(sug_id, 0, 0), message_thread_id=tid)
             except Exception:
                 pass
         await message.reply(card, reply_markup=_sug_kb(sug_id, 0, 0))
@@ -409,10 +414,12 @@ async def cmd_support(message: Message, bot: Bot, args: str = "", **kw):
     )
     recipients = {config.OWNER_ID}
     supp_chat = await db.get_global_setting("global_support_chat", "")
+    supp_topic = await db.get_global_setting("global_support_chat_topic", "")
     if supp_chat:
         try:
             target_cid = int(supp_chat) if (supp_chat.startswith("-") or supp_chat.isdigit()) else supp_chat
-            recipients.add(target_cid)
+            tid = int(supp_topic) if supp_topic and supp_topic.isdigit() else None
+            await bot.send_message(target_cid, admin_notify, reply_markup=ticket_admin_kb(ticket_id), message_thread_id=tid)
         except Exception:
             pass
 
