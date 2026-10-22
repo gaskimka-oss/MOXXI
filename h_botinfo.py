@@ -413,14 +413,43 @@ async def announce_update_on_startup(bot: Bot) -> None:
         await asyncio.sleep(0.15)
 
 
+async def is_service_or_silent_chat(chat_id: int, bot: Bot | None = None) -> bool:
+    """Проверяет, является ли чат сервисным каналом (Идеи, Отзывы, Поддержка) или чатом с выключенными оповещениями."""
+    # 1. Проверка в таблице chats
+    row = await db.fetchone("SELECT silent FROM chats WHERE chat_id=?", (chat_id,))
+    if row and row["silent"] == 1:
+        return True
+
+    # 2. Проверка персональных настроек чата
+    if await db.get_setting(chat_id, "bot_broadcasts", "1") == "0":
+        return True
+
+    # 3. Проверка сервисных групп по ID или ссылкам
+    service_keys = [
+        "global_ideas_chat_id", "global_reviews_chat_id", "global_support_chat_id",
+        "global_ideas_chat", "global_reviews_chat", "global_support_chat"
+    ]
+    cid_str = str(chat_id)
+    for k in service_keys:
+        val = await db.get_global_setting(k, "")
+        if val and (val == cid_str or val.lstrip("-") == cid_str.lstrip("-")):
+            return True
+
+    # 4. Проверка известных постоянных ID групп идей и отзывов
+    if chat_id in {-1004292137436, -1004373090684}:
+        return True
+
+    return False
+
+
 async def broadcast_notice(bot: Bot, text: str) -> int:
-    """Рассылает сообщение во все подключённые чаты в тему СМС / общения (или в основной чат)."""
+    """Рассылает сообщение в активные чаты, строго исключая сервисные каналы (Идеи, Отзывы, Поддержка) и чаты с silent=1."""
     target_ids = set()
     from core_seed import MAIN_CHAT
     from h_chatset import get_sms_topic
     target_ids.add(MAIN_CHAT)
     try:
-        rows = await db.fetchall("SELECT chat_id FROM chats WHERE chat_id < 0")
+        rows = await db.fetchall("SELECT chat_id FROM chats WHERE chat_id < 0 AND silent=0")
         for r in rows:
             target_ids.add(r["chat_id"])
     except Exception:
@@ -434,6 +463,10 @@ async def broadcast_notice(bot: Bot, text: str) -> int:
 
     sent = 0
     for cid in target_ids:
+        # Проверяем, не сервисный ли это чат и не отключены ли авто-оповещения
+        if await is_service_or_silent_chat(cid, bot):
+            continue
+
         tid = await get_sms_topic(cid)
         done = False
         if tid:
@@ -516,6 +549,61 @@ async def auto_restart_worker(bot: Bot) -> None:
             break
         except Exception as e:
             log.warning("auto_restart_worker error: %s", e)
+
+
+@router.message(Cmd("-сообщения бота", "-оповещения", "-рассылка", "-боссы", "тихий чат вкл",
+                    section=S, rank=0, group_only=False,
+                    usage="-сообщения бота", desc="Выключить все автоматические сообщения бота в группе (только Владелец)"))
+async def cmd_mute_bot_messages(message: Message, bot: Bot, **kw):
+    import config
+    uid = message.from_user.id if message.from_user else 0
+    if not config.is_bot_owner(uid):
+        return  # Тихий пропуск для игроков и модераторов групп
+
+    cid = message.chat.id
+    await db.set_setting(cid, "bot_broadcasts", "0")
+    await db.set_setting(cid, "boss_spawns", "0")
+    await db.execute(
+        "INSERT INTO chats (chat_id, title, added_at, silent) VALUES (?, ?, 0, 1) "
+        "ON CONFLICT(chat_id) DO UPDATE SET silent=1",
+        (cid, message.chat.title or "Чат")
+    )
+
+    await message.reply(
+        "🔇 <b>Все автоматические оповещения бота в этой группе выключены!</b>\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        "В этот чат больше <b>НЕ</b> будут приходить:\n"
+        "• ⏳ Оповещения о плановом перезапуске и техработах;\n"
+        "• 🐲 Рейды боссов и напоминания о боссах;\n"
+        "• 📢 Глобальные рассылки и авто-новости.\n\n"
+        "Чат переведён в сервисный тихий режим.\n"
+        "🔄 <i>Включить обратно: <code>+сообщения бота</code></i>"
+    )
+
+
+@router.message(Cmd("+сообщения бота", "+оповещения", "+рассылка", "+боссы", "тихий чат выкл",
+                    section=S, rank=0, group_only=False,
+                    usage="+сообщения бота", desc="Включить автоматические сообщения бота в группе (только Владелец)"))
+async def cmd_unmute_bot_messages(message: Message, bot: Bot, **kw):
+    import config
+    uid = message.from_user.id if message.from_user else 0
+    if not config.is_bot_owner(uid):
+        return  # Тихий пропуск
+
+    cid = message.chat.id
+    await db.set_setting(cid, "bot_broadcasts", "1")
+    await db.set_setting(cid, "boss_spawns", "1")
+    await db.execute(
+        "INSERT INTO chats (chat_id, title, added_at, silent) VALUES (?, ?, 0, 0) "
+        "ON CONFLICT(chat_id) DO UPDATE SET silent=0",
+        (cid, message.chat.title or "Чат")
+    )
+
+    await message.reply(
+        "🔔 <b>Автоматические оповещения бота в этой группе включены!</b>\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        "Чат снова будет получать важные обновления и оповещения бота."
+    )
 
 
 @router.message(Cmd("перезагрузка", "рестарт", "ребут", "техработы", "техраб", "выключение",

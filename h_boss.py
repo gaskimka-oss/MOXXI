@@ -749,24 +749,22 @@ async def boss_schedule_worker(bot: Bot):
                 chats = await db.fetchall("SELECT chat_id FROM chats WHERE silent=0")
                 for c in chats:
                     cid = c["chat_id"]
+
+                    # Проверяем сервисные группы и персональное отключение боссов
+                    from h_botinfo import is_service_or_silent_chat
+                    if await is_service_or_silent_chat(cid, bot):
+                        continue
+                    if await db.get_setting(cid, "boss_spawns", "1") == "0":
+                        continue
+
                     btopic = await get_boss_topic(cid)
+                    # Если тема не привязана — не спамим в чат напоминаниями
+                    if not btopic:
+                        continue
 
                     # Проверяем лимит
                     spawns = await _get_daily_spawns(cid)
                     if spawns < MAX_DAILY_BOSSES:
-                        # Если тема не привязана — отправляем напоминание привязать тему
-                        if not btopic:
-                            try:
-                                await bot.send_message(
-                                    cid,
-                                    f"⚠️ <b>[Рейды Боссов] Настало время появления Босса ({now.hour:02d}:00 МСК)!</b>\n\n"
-                                    f"Чтобы боссы появлялись в чате по расписанию (08:00, 12:00, 16:00, 20:00), пожалуйста, привяжите тему для битв:\n"
-                                    f"👉 Перейдите в нужную ветку и напишите: <code>+тема босс</code>"
-                                )
-                            except Exception:
-                                pass
-                            continue
-
                         # Проверяем, нет ли уже активного
                         act = await db.fetchone("SELECT * FROM chat_boss WHERE chat_id=? AND active=1", (cid,))
                         if not act or act["current_hp"] <= 0:
