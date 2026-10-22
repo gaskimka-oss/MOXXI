@@ -941,13 +941,18 @@ async def cmd_ask_ai_helper(message: Message, bot: Bot, args: str = "", **kw):
 
 @router.message(Cmd("тема команды", "тема команд", "тема помощь", "тема вопросов",
                     "+тема команды", "+тема команд", "+тема помощь", "+тема вопросов",
-                    section=S_COMMUNITY, rank=3, group_only=True,
+                    section=S_COMMUNITY, rank=0, group_only=False,
                     usage="тема команды [номер|ссылка]",
                     desc="Привязать ветку чата для вопросов по командам с ИИ-ответами"))
 async def cmd_bind_commands_topic(message: Message, bot: Bot, args: str = "", **kw):
-    from core_ranks import require
-    if not await require(message, bot, 3):
-        return
+    uid = message.from_user.id if message.from_user else 0
+    staff_rank = await db.get_bot_staff_rank(uid)
+    is_bot_owner_or_admin = config.is_bot_owner(uid) or uid in config.ADMINS or staff_rank >= 3
+    if not is_bot_owner_or_admin:
+        return  # Молча игнорируем! Обычные игроки, модераторы и создатели групп не имеют доступа, сообщение остаётся обычным текстом в чате.
+
+    if message.chat.type == "private":
+        return await message.reply("⚠️ Команда привязки темы работает только в группах с включенными темами (форум).")
 
     if not getattr(message.chat, "is_forum", False):
         return await message.reply(
@@ -958,6 +963,8 @@ async def cmd_bind_commands_topic(message: Message, bot: Bot, args: str = "", **
     a = (args or "").strip()
     if a.lower() in {"сброс", "убрать", "выкл", "off", "del"}:
         await db.set_setting(message.chat.id, "commands_topic", "0")
+        await db.set_global_setting("global_commands_chat_topic", "0")
+        await db.set_global_setting("global_commands_topic", "0")
         return await message.reply("✅ <b>Привязка темы команд снята.</b>\nИИ-консультант доступен по команде: <code>вопрос [текст]</code>.")
 
     import re
@@ -977,27 +984,36 @@ async def cmd_bind_commands_topic(message: Message, bot: Bot, args: str = "", **
             f"📌 <b>Тема для вопросов по командам и ИИ-помощи</b>\n\n"
             f"Текущая тема: <b>{cur_txt}</b>\n\n"
             f"👉 <b>Как установить:</b>\n"
-            f"• Перейдите в нужную ветку форума (напр. «❓ Вопросы по командам») и напишите: <code>тема команды</code>\n"
+            f"• Перейдите в нужную ветку форума (напр. «❓ Вопросы по командам») и напишите: <code>тема команды</code> или <code>+тема команды</code>\n"
             f"• Или укажите ссылку: <code>тема команды https://t.me/c/12345/678</code>\n\n"
-            f"❌ Отвязать: <code>тема команды сброс</code>"
+            f"❌ Отвязать: <code>тема команды сброс</code> или <code>-тема команды</code>"
         )
 
     await db.set_setting(message.chat.id, "commands_topic", str(tid))
+    await db.set_global_setting("global_commands_chat", str(message.chat.id))
+    await db.set_global_setting("global_commands_chat_topic", str(tid))
+    await db.set_global_setting("global_commands_topic", str(tid))
     await message.reply(
         f"✅ <b>Тема для вопросов по командам успешно установлена!</b>\n\n"
-        f"📌 ID ветки: <code>{tid}</code>\n\n"
+        f"📌 ID ветки: <code>{tid}</code>\n"
+        f"👑 <i>Установлено Администрацией бота.</i>\n\n"
         f"Теперь любой участник может написать свой вопрос прямо в эту ветку (например: «как сделать отн?», «как грабить?», «как завести ребенка?»), "
         f"и ИИ Moxxi сразу ответит с таймером и подробной инструкцией!"
     )
 
 
 @router.message(Cmd("-тема команды", "-тема команд", "-тема помощь", "-тема вопросов",
-                    "выкл тема команды", section=S_COMMUNITY, rank=3, group_only=True,
+                    "выкл тема команды", section=S_COMMUNITY, rank=0, group_only=False,
                     usage="-тема команды", desc="Отвязать тему вопросов по командам"))
 async def cmd_unbind_commands_topic(message: Message, bot: Bot, **kw):
-    from core_ranks import require
-    if not await require(message, bot, 3):
-        return
+    uid = message.from_user.id if message.from_user else 0
+    staff_rank = await db.get_bot_staff_rank(uid)
+    is_bot_owner_or_admin = config.is_bot_owner(uid) or uid in config.ADMINS or staff_rank >= 3
+    if not is_bot_owner_or_admin:
+        return  # Молча игнорируем!
+
     await db.set_setting(message.chat.id, "commands_topic", "0")
+    await db.set_global_setting("global_commands_chat_topic", "0")
+    await db.set_global_setting("global_commands_topic", "0")
     await message.reply("✅ <b>Привязка темы команд снята.</b>")
 

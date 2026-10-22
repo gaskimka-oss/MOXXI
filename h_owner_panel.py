@@ -38,12 +38,13 @@ STAFF_RANKS_DESC = {
 }
 
 
-async def _require_staff(message: Message, min_rank: int = 1) -> tuple[bool, int]:
+async def _require_staff(message: Message, min_rank: int = 1, silent: bool = False) -> tuple[bool, int]:
     uid = message.from_user.id if message.from_user else 0
     rank = await db.get_bot_staff_rank(uid)
     if rank >= min_rank:
         return True, rank
-    await message.reply(f"🔒 <b>Доступ ограничен!</b>\nТребуется ранг персонала: <b>{STAFF_RANKS_DESC.get(min_rank, 'Администрация')}</b> (у вас: {rank}).")
+    if not silent:
+        await message.reply(f"🔒 <b>Доступ ограничен!</b>\nТребуется ранг персонала: <b>{STAFF_RANKS_DESC.get(min_rank, 'Администрация')}</b> (у вас: {rank}).")
     return False, rank
 
 
@@ -377,7 +378,7 @@ async def cb_staff_list(call: CallbackQuery):
                     usage="+чат отзывов [chat_id или ссылка]",
                     desc="Привязать официальную группу (Владелец и Администрация)"))
 async def cmd_bind_official_chat(message: Message, bot: Bot, args: str = "", **kw):
-    ok, _ = await _require_staff(message, 3)
+    ok, _ = await _require_staff(message, 3, silent=True)
     if not ok:
         return
 
@@ -438,6 +439,8 @@ async def cmd_bind_official_chat(message: Message, bot: Bot, args: str = "", **k
     tid = getattr(message, "message_thread_id", None)
     if tid and tid > 1:
         await db.set_global_setting(matched_key + "_topic", str(tid))
+        if matched_key == "global_commands_chat":
+            await db.set_global_setting("global_commands_topic", str(tid))
 
     topic_note = f"\n🧵 <b>ID топика форума:</b> <code>{tid}</code>" if (tid and tid > 1) else ""
     await message.reply(
@@ -452,13 +455,14 @@ async def cmd_bind_official_chat(message: Message, bot: Bot, args: str = "", **k
                     section=S_OWNER, rank=0, group_only=False,
                     desc="Показать привязанные официальные чаты"))
 async def cmd_show_bound_chats(message: Message, bot: Bot, **kw):
-    ok, _ = await _require_staff(message, 1)
+    ok, _ = await _require_staff(message, 1, silent=True)
     if not ok:
         return
     ideas = await db.get_global_setting("global_ideas_chat", "Не привязана")
     reviews = await db.get_global_setting("global_reviews_chat", "Не привязана")
     chat = await db.get_global_setting("global_community_chat", "Не привязана")
     supp = await db.get_global_setting("global_support_chat", "Не привязана")
+    cmds = await db.get_global_setting("global_commands_chat", "Не привязана")
 
     text = (
         f"🔗 <b>ПРИВЯЗАННЫЕ ОФИЦИАЛЬНЫЕ ЧАТЫ MOXXI</b>\n"
@@ -466,7 +470,8 @@ async def cmd_show_bound_chats(message: Message, bot: Bot, **kw):
         f"💡 <b>Идеи и предложения:</b> <code>{ideas}</code>\n"
         f"⭐ <b>Отзывы о боте:</b> <code>{reviews}</code>\n"
         f"💬 <b>Главный чат общения:</b> <code>{chat}</code>\n"
-        f"🆘 <b>Техподдержка:</b> <code>{supp}</code>\n\n"
+        f"🆘 <b>Техподдержка:</b> <code>{supp}</code>\n"
+        f"🤖 <b>Тема команд/ИИ:</b> <code>{cmds}</code>\n\n"
         f"👑 <i>Изменить привязку может владелец командами <code>+чат [тип] [значение]</code>.</i>"
     )
     await message.reply(text)
@@ -478,18 +483,21 @@ async def cb_bound_chats(call: CallbackQuery):
     reviews = await db.get_global_setting("global_reviews_chat", "Не привязана")
     chat = await db.get_global_setting("global_community_chat", "Не привязана")
     supp = await db.get_global_setting("global_support_chat", "Не привязана")
+    cmds = await db.get_global_setting("global_commands_chat", "Не привязана")
     text = (
         f"🔗 <b>ПРИВЯЗАННЫЕ ОФИЦИАЛЬНЫЕ ГРУППЫ</b>\n"
         f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
         f"💡 <b>Идеи:</b> <code>{ideas}</code>\n"
         f"⭐ <b>Отзывы:</b> <code>{reviews}</code>\n"
         f"💬 <b>Общение:</b> <code>{chat}</code>\n"
-        f"🆘 <b>Саппорт:</b> <code>{supp}</code>\n\n"
+        f"🆘 <b>Саппорт:</b> <code>{supp}</code>\n"
+        f"🤖 <b>Команды:</b> <code>{cmds}</code>\n\n"
         f"💡 Для привязки используйте команды:\n"
         f"• <code>+чат идей [id/ссылка]</code>\n"
         f"• <code>+чат отзывов [id/ссылка]</code>\n"
         f"• <code>+чат общения [id/ссылка]</code>\n"
-        f"• <code>+чат поддержки [id/ссылка]</code>"
+        f"• <code>+чат поддержки [id/ссылка]</code>\n"
+        f"• <code>+чат команды [id/ссылка]</code>"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="op:refresh")]])
     await call.message.edit_text(text, reply_markup=kb)

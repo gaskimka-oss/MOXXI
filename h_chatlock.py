@@ -96,12 +96,14 @@ async def _schedule_text(chat_id: int) -> str:
 
 
 # ---------------- +ЧАТ ----------------
-@router.message(Cmd("+чат", "+ чат", "открыть чат", "чат открыть", "тишина выкл", "размок", section=S, rank=2,
+@router.message(Cmd("+чат", "+ чат", "открыть чат", "чат открыть", "тишина выкл", "размок", section=S, rank=2, group_only=True,
                     usage="+чат [время]", desc="Открыть чат или задать авто-открытие"))
 async def cmd_open(message: Message, bot: Bot, args: str = "", **kw):
+    a = (args or "").strip().lower()
+    if any(k in a for k in ("общен", "отзыв", "иде", "поддерж", "команд")):
+        return
     if not await require(message, bot, 2):
         return
-    a = (args or "").strip().lower()
 
     if a in {"авто выкл", "авто off", "выкл авто", "автовыкл"}:
         await db.execute("UPDATE chat_schedule SET open_at=NULL WHERE chat_id=?",
@@ -129,13 +131,14 @@ async def cmd_open(message: Message, bot: Bot, args: str = "", **kw):
 
 
 # ---------------- −ЧАТ ----------------
-@router.message(Cmd("-чат", "- чат", "закрыть чат", "чат закрыть", "чат замок", "тишина", "тишина вкл", "замок", section=S, rank=2,
+@router.message(Cmd("-чат", "- чат", "закрыть чат", "чат закрыть", "чат замок", "тишина", "тишина вкл", "замок", section=S, rank=2, group_only=True,
                     usage="-чат [время]", desc="Закрыть чат или задать авто-закрытие"))
 async def cmd_close(message: Message, bot: Bot, args: str = "", **kw):
+    a = (args or "").strip().lower()
+    if any(k in a for k in ("общен", "отзыв", "иде", "поддерж", "команд")):
+        return
     if not await require(message, bot, 2):
         return
-    a = (args or "").strip().lower()
-
     if a in {"авто выкл", "авто off", "выкл авто", "автовыкл"}:
         await db.execute("UPDATE chat_schedule SET close_at=NULL WHERE chat_id=?",
                          (message.chat.id,))
@@ -161,7 +164,7 @@ async def cmd_close(message: Message, bot: Bot, args: str = "", **kw):
                         "<i>Задать авто-закрытие: </i><code>-чат 23:00</code>")
 
 
-@router.message(Cmd("расписание чата", "расписание", "авточат", section=S, rank=2,
+@router.message(Cmd("расписание чата", "расписание", "авточат", section=S, rank=2, group_only=True,
                     usage="расписание чата", desc="Показать расписание открытия/закрытия"))
 async def cmd_schedule(message: Message, bot: Bot, **kw):
     if not await require(message, bot, 2):

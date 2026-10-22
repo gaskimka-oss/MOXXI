@@ -541,6 +541,8 @@ async def activity(message: Message, bot: Bot):
             tid = getattr(message, "message_thread_id", None) or 0
             global_c_chat = await db.get_global_setting("global_commands_chat", "")
             global_c_topic = await db.get_global_setting("global_commands_topic", "")
+            if not global_c_topic:
+                global_c_topic = await db.get_global_setting("global_commands_chat_topic", "")
 
             is_cmd_topic = False
             if cmd_t != "0" and str(tid) == cmd_t:
