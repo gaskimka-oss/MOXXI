@@ -29,7 +29,7 @@ log = logging.getLogger("moxxibot.community")
 router = Router(name="community_support")
 S_COMMUNITY = 35  # Раздел Сообщества и Поддержки
 
-OFFICIAL_CHAT_URL = "https://t.me/moxxi_clan_chat"
+OFFICIAL_CHAT_URL = "https://t.me/moxxi_chat"
 OFFICIAL_REVIEWS_URL = "https://t.me/moxxi_reviews"
 OFFICIAL_IDEAS_URL = "https://t.me/moxxi_ideas"
 
