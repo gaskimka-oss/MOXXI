@@ -399,6 +399,12 @@ async def cmd_ai_chat(message: Message, bot: Bot, args: str = "", **kw):
             disable_web_page_preview=True
         )
 
+    # 2. Вопросы о погоде обрабатываются мгновенно точными данными метеостанций
+    import core_weather
+    if core_weather.is_weather_query(user_text):
+        weather_ans = await core_weather.get_live_weather(user_text)
+        return await message.reply(weather_ans, disable_web_page_preview=True)
+
     uid = message.from_user.id
     until, has_pass = await db.get_ai_pass_info(uid)
     v_lvl, _, v_act = await db.get_vip_info(uid)

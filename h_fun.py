@@ -290,11 +290,12 @@ async def cmd_joke(message: Message, **kw):
     await message.reply(f"😄 {random.choice(jokes)}")
 
 
-@router.message(Cmd("погода", section=S_FUN, usage="погода {город}", desc="Шуточный прогноз"))
+@router.message(Cmd("погода", "weather", "прогноз", "температура", "градусник", section=S_FUN, usage="погода {город}", desc="🌤 Точный прогноз и реальная погода в любом городе"))
 async def cmd_weather(message: Message, args: str = "", **kw):
-    city = html.escape(args) if args else "у тебя дома"
-    w = random.choice(["☀️ солнечно", "🌧 дождь", "❄️ снег", "⛅️ облачно", "🌪 ураган ирисок"])
-    await message.reply(f"🌍 Погода в «{city}»: {w}, {random.randint(-20, 35)}°C")
+    import core_weather
+    city = (args or "").strip() or "углегорск"
+    ans = await core_weather.get_live_weather(city)
+    await message.reply(ans, disable_web_page_preview=True)
 
 
 # ---------- 15. Дуэли ----------

@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot, F, Router
-from aiogram.types import ChatPermissions, Message
+from aiogram.types import ChatPermissions, Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 import db
 import core_modlog as modlog
@@ -47,6 +47,86 @@ async def get_mute_time(chat_id: int, level: int) -> int:
 
 async def _delete_flag(chat_id: int) -> bool:
     return await db.get_setting(chat_id, "automod_delete", "1") == "1"
+
+
+async def get_automod_settings(cid: int, tid: int = 0) -> dict:
+    """Возвращает актуальный статус разрешённых наказаний ИИ для чата/темы."""
+    allow_warn = (await db.get_setting(cid, "automod_allow_warn", "1") == "1")
+    allow_mute = (await db.get_setting(cid, "automod_allow_mute", "1") == "1")
+    allow_kick = (await db.get_setting(cid, "automod_allow_kick", "0") == "1")
+    allow_ban = (await db.get_setting(cid, "automod_allow_ban", "0") == "1")
+
+    chat_on = await is_enabled(cid)
+    topic_on = (await db.get_setting(cid, f"topic_automod_{tid}", "0") == "1") if tid else False
+    is_active = chat_on or topic_on
+
+    return {
+        "allow_warn": allow_warn,
+        "allow_mute": allow_mute,
+        "allow_kick": allow_kick,
+        "allow_ban": allow_ban,
+        "is_active": is_active,
+        "chat_on": chat_on,
+        "topic_on": topic_on,
+    }
+
+
+def build_automod_keyboard(cid: int, tid: int, s: dict) -> InlineKeyboardMarkup:
+    """Создаёт интерактивную клавиатуру с переключателями (зеленый/красный)."""
+    w_btn = "🟢 Варн" if s["allow_warn"] else "🔴 Варн"
+    m_btn = "🟢 Мут" if s["allow_mute"] else "🔴 Мут"
+    k_btn = "🟢 Кик" if s["allow_kick"] else "🔴 Кик"
+    b_btn = "🟢 Бан" if s["allow_ban"] else "🔴 Бан"
+    mod_btn = "🟢 Автомод: Вкл" if s["is_active"] else "🔴 Автомод: Выкл"
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=w_btn, callback_data=f"am_t:{cid}:warn:{tid}"),
+            InlineKeyboardButton(text=m_btn, callback_data=f"am_t:{cid}:mute:{tid}")
+        ],
+        [
+            InlineKeyboardButton(text=k_btn, callback_data=f"am_t:{cid}:kick:{tid}"),
+            InlineKeyboardButton(text=b_btn, callback_data=f"am_t:{cid}:ban:{tid}")
+        ],
+        [
+            InlineKeyboardButton(text=mod_btn, callback_data=f"am_t:{cid}:status:{tid}")
+        ],
+        [
+            InlineKeyboardButton(text="📜 Правила беседы", callback_data="chat_rules_btn"),
+            InlineKeyboardButton(text="🔄 Обновить", callback_data=f"am_t:{cid}:refresh:{tid}")
+        ]
+    ])
+    return kb
+
+
+def render_automod_menu(cid: int, tid: int, s: dict) -> str:
+    """Генерирует красивое меню настроек ИИ-автомодерации."""
+    loc = f"ветка #{tid}" if tid else "весь чат"
+    w_str = "🟢 <b>Разрешён</b> (выдача предупреждений)" if s["allow_warn"] else "🔴 <b>Запрещён</b>"
+    m_str = "🟢 <b>Разрешён</b> (блокировка чата нарушителям)" if s["allow_mute"] else "🔴 <b>Запрещён</b>"
+    k_str = "🟢 <b>Разрешён</b> (исключение из чата)" if s["allow_kick"] else "🔴 <b>Запрещён</b> (пока чат растёт)"
+    b_str = "🟢 <b>Разрешён</b> (полная блокировка)" if s["allow_ban"] else "🔴 <b>Запрещён</b> (вместо бана выдаётся мут/варн)"
+    stat_str = "🟢 <b>АКТИВЕН</b>" if s["is_active"] else "🔴 <b>ОТКЛЮЧЁН</b>"
+
+    return (
+        f"🛡 ✨ <b>НАСТРОЙКА ИИ-АВТОМОДЕРАЦИИ И САНКЦИЙ</b> ✨ 🛡\n"
+        f"✦ ════════ • ⊰ 💖 🔮 ⚖️ 🤖 🍷 👑 ⊱ • ════════ ✦\n\n"
+        f"📍 <b>Область действия:</b> {loc}\n"
+        f"📊 <b>Статус надзора:</b> {stat_str}\n\n"
+        f"⚙️ <b>Разрешённые наказания для ИИ:</b>\n"
+        f"• ⚠️ <b>Варны:</b> {w_str}\n"
+        f"• 🔇 <b>Муты:</b> {m_str}\n"
+        f"• 👢 <b>Кики:</b> {k_str}\n"
+        f"• ⛔️ <b>Баны:</b> {b_str}\n\n"
+        f"💡 <i>Нажимайте на кнопки с индикаторами, чтобы переключать санкции:</i>\n"
+        f"• 🟢 <b>Зелёный</b> — разрешено применять.\n"
+        f"• 🔴 <b>Красный</b> — строго запрещено боту (будет заменено на разрешённое наказание).\n\n"
+        f"⚡️ <i>Быстрые текстовые команды:</i>\n"
+        f"• <code>+автоправила бан вкл</code> / <code>выкл</code>\n"
+        f"• <code>+автоправила мут вкл</code> / <code>выкл</code>\n"
+        f"• <code>+автоправила кик вкл</code> / <code>выкл</code>\n"
+        f"• <code>+автоправила варн вкл</code> / <code>выкл</code>"
+    )
 
 
 async def _autodel_msg(msg, delay: int = 5):
@@ -132,7 +212,7 @@ async def handle(message: Message, bot: Bot) -> bool:
     if not (chat_on or topic_on):
         return False
 
-    # 2. Проверка тяжелейших оскорблений родных (мать, мамка и т.д.) — немедленный кик / бан!
+    # 2. Проверка тяжелейших оскорблений родных (мать, мамка и т.д.)
     from h_community_support import detect_staff_abuse
     is_abuse, abuse_reason = detect_staff_abuse(text)
     if is_abuse and "родных" in abuse_reason.lower():
@@ -141,16 +221,68 @@ async def handle(message: Message, bot: Bot) -> bool:
         except Exception:
             pass
         uid = message.from_user.id
-        try:
-            until_ban = datetime.now(timezone.utc) + timedelta(days=1)
-            await bot.ban_chat_member(message.chat.id, uid, until_date=until_ban)
-        except Exception:
-            pass
-        await log_punish(message.chat.id, uid, "ban", f"ИИ-автомодерация: {abuse_reason}", 86400, 0)
+        s = await get_automod_settings(message.chat.id, tid)
+
+        # Строгая проверка разрешенных наказаний!
+        if s["allow_ban"]:
+            try:
+                until_ban = datetime.now(timezone.utc) + timedelta(days=1)
+                await bot.ban_chat_member(message.chat.id, uid, until_date=until_ban)
+            except Exception:
+                pass
+            await log_punish(message.chat.id, uid, "ban", f"ИИ: {abuse_reason}", 86400, 0)
+            punish_title = "ИСКЛЮЧЕНИЕ / БАН (24ч)"
+            punish_desc = "⚡️ <b>Применено:</b> Исключение из чата (Бан на 24 часа)"
+        elif s["allow_kick"]:
+            try:
+                await bot.ban_chat_member(message.chat.id, uid)
+                await bot.unban_chat_member(message.chat.id, uid)
+            except Exception:
+                pass
+            await log_punish(message.chat.id, uid, "kick", f"ИИ: {abuse_reason}", 0, 0)
+            punish_title = "КИК ИЗ ЧАТА"
+            punish_desc = "⚡️ <b>Применено:</b> Исключение из чата (Кик)"
+        elif s["allow_mute"]:
+            secs = 86400  # 24 часа мута
+            until = datetime.now(timezone.utc) + timedelta(seconds=secs)
+            try:
+                await bot.restrict_chat_member(message.chat.id, uid, MUTE_OFF, until_date=until)
+            except Exception:
+                pass
+            await db.execute(
+                "INSERT INTO mutes (chat_id, user_id, reason, by_id, until, ts) "
+                "VALUES (?,?,?,?,?,?) ON CONFLICT(chat_id, user_id) DO UPDATE SET "
+                "reason=excluded.reason, until=excluded.until",
+                (message.chat.id, uid, f"ИИ: {abuse_reason}", 0, int(time.time()) + secs, int(time.time()))
+            )
+            if s["allow_warn"]:
+                await db.execute(
+                    "INSERT INTO warns (chat_id, user_id, admin_id, reason, ts) VALUES (?,?,?,?,?)",
+                    (message.chat.id, uid, 0, f"ИИ: {abuse_reason}", int(time.time()))
+                )
+                await db.execute(
+                    "INSERT INTO warns (chat_id, user_id, admin_id, reason, ts) VALUES (?,?,?,?,?)",
+                    (message.chat.id, uid, 0, f"ИИ: {abuse_reason} (повтор)", int(time.time()))
+                )
+            await log_punish(message.chat.id, uid, "mute", f"ИИ: {abuse_reason}", secs, 0)
+            punish_title = "МУТ НА 24 ЧАСА + ВАРНЫ"
+            punish_desc = "⚡️ <b>Применено:</b> 🔇 Мут на 24 часа (бан отключён в настройках чата)"
+        elif s["allow_warn"]:
+            await db.execute(
+                "INSERT INTO warns (chat_id, user_id, admin_id, reason, ts) VALUES (?,?,?,?,?)",
+                (message.chat.id, uid, 0, f"ИИ: {abuse_reason}", int(time.time()))
+            )
+            punish_title = "ПРЕДУПРЕЖДЕНИЕ (ВАРН)"
+            punish_desc = "⚡️ <b>Применено:</b> ⚠️ Предупреждение (Варн)"
+        else:
+            punish_title = "УДАЛЕНИЕ СООБЩЕНИЯ"
+            punish_desc = "⚡️ <b>Применено:</b> 🗑 Сообщение удалено"
+
         notice = await message.answer(
-            f"⛔️ 🤖 <b>ИИ-МОДЕРАЦИЯ: КИК / БАН</b>\n\n"
-            f"👤 {mention(message.from_user)} был <b>исключён из чата (Бан 24ч)</b>!\n"
+            f"🛡 🤖 <b>ИИ-МОДЕРАЦИЯ: {punish_title}</b>\n\n"
+            f"👤 {mention(message.from_user)}\n"
             f"📝 <b>Причина:</b> Оскорбление родных / недопустимое поведение\n"
+            f"{punish_desc}\n"
             f"📜 <i>Соблюдайте правила чата (команда <code>правила</code>)!</i>"
         )
         import asyncio
@@ -187,58 +319,98 @@ async def handle(message: Message, bot: Bot) -> bool:
     except Exception:
         pass
 
-    # Фиксируем варн в базе данных
-    await db.execute(
-        "INSERT INTO warns (chat_id, user_id, admin_id, reason, ts) VALUES (?,?,?,?,?)",
-        (message.chat.id, uid, 0, f"ИИ: {reason}", int(time.time()))
-    )
+    s = await get_automod_settings(message.chat.id, tid)
+
+    # Фиксируем варн в базе данных (если варны разрешены)
+    if s["allow_warn"]:
+        await db.execute(
+            "INSERT INTO warns (chat_id, user_id, admin_id, reason, ts) VALUES (?,?,?,?,?)",
+            (message.chat.id, uid, 0, f"ИИ: {reason}", int(time.time()))
+        )
     row = await db.fetchone("SELECT COUNT(*) c FROM warns WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
     warn_cnt = int(row["c"]) if row else 1
 
     import asyncio
-    # Если набрано 3 или более варнов — автоматический БАН / КИК из чата!
+    # Если набрано 3 или более варнов:
     if warn_cnt >= 3:
-        try:
-            until_ban = datetime.now(timezone.utc) + timedelta(days=1)
-            await bot.ban_chat_member(message.chat.id, uid, until_date=until_ban)
-        except Exception:
-            pass
-        await db.execute("DELETE FROM warns WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
-        await log_punish(message.chat.id, uid, "ban", f"ИИ: лимит 3/3 варнов ({reason})", 86400, 0)
+        if s["allow_ban"]:
+            try:
+                until_ban = datetime.now(timezone.utc) + timedelta(days=1)
+                await bot.ban_chat_member(message.chat.id, uid, until_date=until_ban)
+            except Exception:
+                pass
+            await db.execute("DELETE FROM warns WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
+            await log_punish(message.chat.id, uid, "ban", f"ИИ: лимит 3/3 варнов ({reason})", 86400, 0)
+            act_str = "⛔️ Исключение из чата (Бан на 24 часа)"
+        elif s["allow_kick"]:
+            try:
+                await bot.ban_chat_member(message.chat.id, uid)
+                await bot.unban_chat_member(message.chat.id, uid)
+            except Exception:
+                pass
+            await db.execute("DELETE FROM warns WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
+            await log_punish(message.chat.id, uid, "kick", f"ИИ: лимит 3/3 варнов ({reason})", 0, 0)
+            act_str = "👢 Исключение из чата (Кик)"
+        elif s["allow_mute"]:
+            secs = 86400  # Максимальный мут на 24 часа
+            until = datetime.now(timezone.utc) + timedelta(seconds=secs)
+            try:
+                await bot.restrict_chat_member(message.chat.id, uid, MUTE_OFF, until_date=until)
+            except Exception:
+                pass
+            await db.execute("DELETE FROM warns WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
+            await db.execute("INSERT INTO warns (chat_id, user_id, admin_id, reason, ts) VALUES (?,?,?,?,?)",
+                             (message.chat.id, uid, 0, f"ИИ: остаточный варн после лимита", int(time.time())))
+            await log_punish(message.chat.id, uid, "mute", f"ИИ: лимит варнов ({reason})", secs, 0)
+            act_str = "🔇 Максимальный мут на 24 часа (Бан отключён в настройках чата)"
+        else:
+            act_str = "🗑 Превышен лимит нарушений (сообщение удалено)"
+
         notice = await message.answer(
-            f"🚫 🤖 <b>ИИ-МОДЕРАЦИЯ: ИСКЛЮЧЕНИЕ / БАН</b>\n\n"
+            f"🚫 🤖 <b>ИИ-МОДЕРАЦИЯ: ЛИМИТ НАРУШЕНИЙ</b>\n\n"
             f"👤 {mention(message.from_user)} превысил лимит предупреждений: <b>[ 🟥 🟥 🟥 ] (3/3)</b>!\n"
-            f"⚡️ <b>Применено:</b> Исключение из чата (Бан на 24 часа).\n"
+            f"⚡️ <b>Применено:</b> {act_str}\n"
             f"📝 <b>Последнее нарушение:</b> {html.escape(reason)}\n"
             f"📜 <i>Соблюдайте правила чата (команда <code>правила</code>)!</i>"
         )
         asyncio.create_task(_autodel_msg(notice, 20))
         return True
 
-    # Иначе — выдаём Мут на 1 час + Предупреждение (Варн)
+    # Иначе — если мут разрешён:
     secs = await get_mute_time(message.chat.id, level)
     if secs < 1800:
         secs = 3600
-    until = datetime.now(timezone.utc) + timedelta(seconds=secs)
-    try:
-        await bot.restrict_chat_member(message.chat.id, uid, MUTE_OFF, until_date=until)
-    except Exception:
-        pass
-    await db.execute(
-        "INSERT INTO mutes (chat_id, user_id, reason, by_id, until, ts) "
-        "VALUES (?,?,?,?,?,?) ON CONFLICT(chat_id, user_id) DO UPDATE SET "
-        "reason=excluded.reason, until=excluded.until",
-        (message.chat.id, uid, f"ИИ: {reason}", 0, int(time.time()) + secs, int(time.time()))
-    )
-    await log_punish(message.chat.id, uid, "mute", f"ИИ: {reason}", secs, 0)
+
+    if s["allow_mute"]:
+        until = datetime.now(timezone.utc) + timedelta(seconds=secs)
+        try:
+            await bot.restrict_chat_member(message.chat.id, uid, MUTE_OFF, until_date=until)
+        except Exception:
+            pass
+        await db.execute(
+            "INSERT INTO mutes (chat_id, user_id, reason, by_id, until, ts) "
+            "VALUES (?,?,?,?,?,?) ON CONFLICT(chat_id, user_id) DO UPDATE SET "
+            "reason=excluded.reason, until=excluded.until",
+            (message.chat.id, uid, f"ИИ: {reason}", 0, int(time.time()) + secs, int(time.time()))
+        )
+        await log_punish(message.chat.id, uid, "mute", f"ИИ: {reason}", secs, 0)
 
     bar = " ".join("🟥" if i < warn_cnt else "⬜️" for i in range(3))
+    punish_parts = []
+    if s["allow_mute"]:
+        punish_parts.append(f"🔇 Мут на <b>{human_period(secs)}</b>")
+    if s["allow_warn"]:
+        punish_parts.append(f"Предупреждение <b>[ {bar} ] ({warn_cnt}/3)</b>")
+    if not punish_parts:
+        punish_parts.append("🗑 Удаление сообщения")
+    punish_line = " + ".join(punish_parts)
+
     notice = await message.answer(
         f"🛡 🤖 <b>ИИ-АВТОМОДЕРАЦИЯ MOXXI</b>\n\n"
         f"👤 {mention(message.from_user)}\n"
         f"⚠️ <b>Нарушение:</b> {html.escape(reason)}\n"
-        f"⚡️ <b>Наказание:</b> 🔇 Мут на <b>{human_period(secs)}</b> + Предупреждение <b>[ {bar} ] ({warn_cnt}/3)</b>\n"
-        f"🗑 <i>Сообщение удалено. При получении 3 варнов — автоматический бан!</i>"
+        f"⚡️ <b>Наказание:</b> {punish_line}\n"
+        f"🗑 <i>Сообщение удалено. Соблюдайте правила чата!</i>"
     )
     asyncio.create_task(_autodel_msg(notice, 15))
     return True
@@ -261,6 +433,42 @@ async def cmd_automod(message: Message, bot: Bot, args: str = "", **kw):
     cid = message.chat.id
     tid = message.message_thread_id or 0
 
+    words = a.split()
+    first_w = words[0] if words else ""
+    second_w = words[1] if len(words) > 1 else ""
+
+    # Переключение конкретных видов наказаний (бан, мут, кик, варн)
+    # Команды: "+автоправила бан вкл", "+автоправила бан выкл", "-автоправила бан", etc.
+    if first_w in {"бан", "ban", "мут", "mute", "кик", "kick", "варн", "warn"}:
+        target_field = {
+            "бан": "automod_allow_ban", "ban": "automod_allow_ban",
+            "мут": "automod_allow_mute", "mute": "automod_allow_mute",
+            "кик": "automod_allow_kick", "kick": "automod_allow_kick",
+            "варн": "automod_allow_warn", "warn": "automod_allow_warn",
+        }[first_w]
+
+        target_title = {
+            "automod_allow_ban": "Баны ⛔️",
+            "automod_allow_mute": "Муты 🔇",
+            "automod_allow_kick": "Кики 👢",
+            "automod_allow_warn": "Варны ⚠️",
+        }[target_field]
+
+        is_off = raw_cmd.startswith("-") or second_w in {"выкл", "off", "нет", "0", "выключить", "запретить"}
+        new_val = "0" if is_off else "1"
+        await db.set_setting(cid, target_field, new_val)
+        state_str = "🟢 <b>ВКЛЮЧЕНЫ</b> (бот может применять)" if new_val == "1" else "🔴 <b>ОТКЛЮЧЕНЫ</b> (бот не будет применять)"
+
+        s_cur = await get_automod_settings(cid, tid)
+        kb = build_automod_keyboard(cid, tid, s_cur)
+        txt = render_automod_menu(cid, tid, s_cur)
+        return await message.reply(
+            f"⚙️ <b>Настройка санкций ИИ обновлена!</b>\n\n"
+            f"• <b>{target_title}:</b> {state_str}\n\n"
+            f"📌 <i>Все параметры синхронизированы в меню ниже:</i>",
+            reply_markup=kb
+        )
+
     is_turn_off = (
         raw_cmd.startswith(("-автоправила", "-автомут", "-ии модерация", "-автомод")) or
         a in {"выкл", "off", "нет", "выключить", "0"}
@@ -271,37 +479,25 @@ async def cmd_automod(message: Message, bot: Bot, args: str = "", **kw):
         (not a and raw_cmd.startswith("+"))
     )
 
-    if is_turn_off:
+    if is_turn_off and not words:
         await db.set_setting(cid, f"topic_automod_{tid}", "0")
         await db.set_setting(cid, "automod", "0")
         loc_str = f"в ветке #{tid}" if tid else "в этом чате"
-        return await message.reply(f"🤖 <b>ИИ-Автомодерация и автоправила выключены</b> {loc_str}.")
+        s_cur = await get_automod_settings(cid, tid)
+        kb = build_automod_keyboard(cid, tid, s_cur)
+        return await message.reply(f"🤖 <b>ИИ-Автомодерация и автоправила выключены</b> {loc_str}.", reply_markup=kb)
 
-    if is_turn_on or a in {"", "инфо"}:
+    if is_turn_on or a in {"", "инфо", "меню", "настройки", "панель"}:
         await db.set_setting(cid, "automod", "1")
         await db.set_setting(cid, "automod_ai", "1")
         await db.set_setting(cid, "automod_strict", "1")
         await db.set_setting(cid, f"topic_automod_{tid}", "1")
         await db.set_setting(cid, "topic_automod_thread_id", str(tid))
 
-        import core_ai as ai
-        brain = (f"🟢 <b>ИИ-надзор активен:</b> {ai.provider()}"
-                 if ai.available() else
-                 "⚪️ <b>ИИ-надзор:</b> работает встроенный словарь + фильтры")
-
-        loc_str = f"темы общения (ветка #{tid})" if tid else "этого чата"
-        return await message.reply(
-            f"🛡 ✨ <b>ИИ-АВТОМОДЕРАЦИЯ И АВТОПРАВИЛА ВКЛЮЧЕНЫ!</b> ✨ 🛡\n"
-            f"✦ ════════ • ⊰ 💖 🔮 ⚖️ 🤖 🍷 👑 ⊱ • ════════ ✦\n\n"
-            f"📍 <b>Область действия:</b> {loc_str}\n"
-            f"{brain}\n\n"
-            f"⚡️ <b>Автоматическая лестница наказаний ИИ:</b>\n"
-            f"• 🔇 <b>Мат / Оскорбления / Токсичность:</b> Удаление сообщения + Мут 1 час + Предупреждение;\n"
-            f"• ⛔️ <b>Оскорбление родных / Скам / 18+:</b> Немедленный Кик / Бан на 24 часа;\n"
-            f"• 🚫 <b>Накопление 3 варнов:</b> Автоматический Бан и исключение из беседы;\n"
-            f"• 🛡 Модераторы (ранг 1+) защищены от ложных срабатываний.\n\n"
-            f"🔒 <i>Выключить автомодерацию: <code>-автоправила</code> или <code>-автомут</code></i>"
-        )
+        s_cur = await get_automod_settings(cid, tid)
+        kb = build_automod_keyboard(cid, tid, s_cur)
+        txt = render_automod_menu(cid, tid, s_cur)
+        return await message.reply(txt, reply_markup=kb)
 
     # автомут время 2 часа
     if a.startswith("время"):
@@ -650,3 +846,62 @@ async def cmd_clear_filters(message: Message, bot: Bot, **kw):
         return
     await db.clear_filtered_words(message.chat.id)
     await message.reply("🧹 Чёрный список слов чата полностью очищен.")
+
+
+# ═══════════════ CALLBACK ПЕРЕКЛЮЧЕНИЯ САНКЦИЙ ═══════════════
+@router.callback_query(F.data.startswith("am_t:"))
+async def cb_automod_toggle(call: CallbackQuery, bot: Bot):
+    parts = call.data.split(":")
+    if len(parts) < 4:
+        return await call.answer("Неверные параметры", show_alert=True)
+    cid = int(parts[1])
+    action = parts[2]
+    tid = int(parts[3])
+
+    import config
+    uid = call.from_user.id
+    if not config.is_bot_owner(uid):
+        try:
+            member = await bot.get_chat_member(cid, uid)
+            if member.status not in ("creator", "administrator"):
+                return await call.answer("❌ Настройки доступны только администраторам (3+ ранг)!", show_alert=True)
+        except Exception:
+            return await call.answer("❌ Ошибка проверки прав", show_alert=True)
+
+    s = await get_automod_settings(cid, tid)
+    alert_text = ""
+
+    if action == "warn":
+        new_val = "0" if s["allow_warn"] else "1"
+        await db.set_setting(cid, "automod_allow_warn", new_val)
+        alert_text = "✅ Варны включены!" if new_val == "1" else "❌ Варны отключены!"
+    elif action == "mute":
+        new_val = "0" if s["allow_mute"] else "1"
+        await db.set_setting(cid, "automod_allow_mute", new_val)
+        alert_text = "✅ Муты включены!" if new_val == "1" else "❌ Муты отключены!"
+    elif action == "kick":
+        new_val = "0" if s["allow_kick"] else "1"
+        await db.set_setting(cid, "automod_allow_kick", new_val)
+        alert_text = "✅ Кики включены!" if new_val == "1" else "❌ Кики отключены!"
+    elif action == "ban":
+        new_val = "0" if s["allow_ban"] else "1"
+        await db.set_setting(cid, "automod_allow_ban", new_val)
+        alert_text = "✅ Баны включены!" if new_val == "1" else "❌ Баны отключены (бот выдаёт мут/варны)!"
+    elif action == "status":
+        new_val = "0" if s["is_active"] else "1"
+        await db.set_setting(cid, "automod", new_val)
+        if tid:
+            await db.set_setting(cid, f"topic_automod_{tid}", new_val)
+        alert_text = "✅ Автомодерация включена!" if new_val == "1" else "❌ Автомодерация отключена!"
+    elif action == "refresh":
+        alert_text = "🔄 Настройки обновлены!"
+
+    s_updated = await get_automod_settings(cid, tid)
+    new_text = render_automod_menu(cid, tid, s_updated)
+    new_kb = build_automod_keyboard(cid, tid, s_updated)
+
+    try:
+        await call.message.edit_text(new_text, reply_markup=new_kb)
+    except Exception:
+        pass
+    await call.answer(alert_text, show_alert=False)
