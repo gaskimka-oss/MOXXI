@@ -352,7 +352,17 @@ CREATE TABLE IF NOT EXISTS relationship_children (
     name TEXT NOT NULL,
     gender TEXT NOT NULL,
     born_at INTEGER NOT NULL,
-    care_last_ts INTEGER NOT NULL DEFAULT 0
+    care_last_ts INTEGER NOT NULL DEFAULT 0,
+    satiety INTEGER NOT NULL DEFAULT 80,
+    happiness INTEGER NOT NULL DEFAULT 80,
+    health INTEGER NOT NULL DEFAULT 100,
+    growth_stage INTEGER NOT NULL DEFAULT 1,
+    xp INTEGER NOT NULL DEFAULT 0,
+    toys_count INTEGER NOT NULL DEFAULT 0,
+    clothes_count INTEGER NOT NULL DEFAULT 0,
+    food_count INTEGER NOT NULL DEFAULT 0,
+    last_fed_ts INTEGER NOT NULL DEFAULT 0,
+    last_play_ts INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS relationship_bank (
@@ -990,6 +1000,18 @@ async def _migrate() -> None:
                      ("real_name", "TEXT"), ("country", "TEXT"), ("tz", "TEXT"),
                      ("family", "TEXT"), ("nick2", "TEXT"),
                      ("filled", "INTEGER NOT NULL DEFAULT 0"), ("filled_ts", "INTEGER")],
+        "relationship_children": [
+            ("satiety", "INTEGER NOT NULL DEFAULT 80"),
+            ("happiness", "INTEGER NOT NULL DEFAULT 80"),
+            ("health", "INTEGER NOT NULL DEFAULT 100"),
+            ("growth_stage", "INTEGER NOT NULL DEFAULT 1"),
+            ("xp", "INTEGER NOT NULL DEFAULT 0"),
+            ("toys_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("clothes_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("food_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("last_fed_ts", "INTEGER NOT NULL DEFAULT 0"),
+            ("last_play_ts", "INTEGER NOT NULL DEFAULT 0"),
+        ],
     }
     for table, cols in wanted.items():
         try:
@@ -1731,6 +1753,22 @@ async def add_rel_child(rel_id: int, name: str, gender: str) -> None:
     await execute(
         "INSERT INTO relationship_children (rel_id, name, gender, born_at, care_last_ts) "
         "VALUES (?,?,?,?,?)", (rel_id, name, gender, int(time.time()), int(time.time())))
+
+
+async def get_child_by_id(child_id: int) -> Optional[dict]:
+    return await fetchone("SELECT * FROM relationship_children WHERE id=?", (child_id,))
+
+
+async def update_child_stats(child_id: int, satiety: int, happiness: int, health: int,
+                             growth_stage: int, xp: int, toys_count: int,
+                             clothes_count: int, food_count: int) -> None:
+    await execute(
+        "UPDATE relationship_children SET satiety=?, happiness=?, health=?, "
+        "growth_stage=?, xp=?, toys_count=?, clothes_count=?, food_count=?, care_last_ts=? "
+        "WHERE id=?",
+        (satiety, happiness, health, growth_stage, xp, toys_count, clothes_count, food_count,
+         int(time.time()), child_id)
+    )
 
 
 async def get_all_relationships() -> list[dict]:

@@ -533,7 +533,35 @@ async def activity(message: Message, bot: Bot):
         await db.add_balance(uid, MSG_REWARD)
         await db.set_cooldown(uid, "msg_reward")
 
-    text = (message.text or message.caption or "").lower()
+    raw_txt = (message.text or message.caption or "").strip()
+    # ── ИИ-Автоответчик в теме команд и по вопросам новичков ────────────────
+    if message.chat.type != "private" and raw_txt and not (message.from_user and message.from_user.is_bot):
+        if not raw_txt.startswith(("/", "!", ".")):
+            cmd_t = await db.get_setting(message.chat.id, "commands_topic", "0")
+            tid = getattr(message, "message_thread_id", None) or 0
+            global_c_chat = await db.get_global_setting("global_commands_chat", "")
+            global_c_topic = await db.get_global_setting("global_commands_topic", "")
+
+            is_cmd_topic = False
+            if cmd_t != "0" and str(tid) == cmd_t:
+                is_cmd_topic = True
+            elif global_c_chat and str(message.chat.id) == global_c_chat:
+                if not global_c_topic or str(tid) == global_c_topic:
+                    is_cmd_topic = True
+
+            low_text = raw_txt.lower()
+            starts_as_question = any(low_text.startswith(p) for p in (
+                "как сделать ", "как работает ", "как грабить", "как завести ", "как играть ",
+                "как заработать ", "как поднять ", "как купить ", "как создать ", "как перевести ",
+                "как настроить ", "как получить ", "что делает команда ", "подскажите как "
+            ))
+
+            if is_cmd_topic or starts_as_question:
+                from h_community_support import handle_ai_command_question
+                await handle_ai_command_question(message, bot, raw_txt)
+                return
+
+    text = raw_txt.lower()
     if message.chat.type != "private" and text:
         rows = await db.fetchall("SELECT pattern, answer FROM triggers WHERE chat_id=?",
                                  (message.chat.id,))

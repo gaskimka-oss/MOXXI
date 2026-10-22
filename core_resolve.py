@@ -24,14 +24,32 @@ def real_reply(message: Message):
     r = getattr(message, "reply_to_message", None)
     if r is None:
         return None
-    # служебное сообщение о создании темы — это не ответ
-    if getattr(r, "forum_topic_created", None) is not None:
+    # Служебные сообщения любого типа — это не ответ человеку
+    if (getattr(r, "forum_topic_created", None) is not None
+            or getattr(r, "forum_topic_edited", None) is not None
+            or getattr(r, "forum_topic_closed", None) is not None
+            or getattr(r, "forum_topic_reopened", None) is not None
+            or getattr(r, "general_forum_topic_hidden", None) is not None
+            or getattr(r, "general_forum_topic_unhidden", None) is not None
+            or getattr(r, "pinned_message", None) is not None
+            or getattr(r, "new_chat_members", None)
+            or getattr(r, "left_chat_member", None)
+            or getattr(r, "group_chat_created", None)
+            or getattr(r, "supergroup_chat_created", None)):
         return None
-    # первое сообщение темы: его id совпадает с id ветки
+    # Сообщения с ID <= 1 — псевдо-ответы на корень группы / General топик
+    if getattr(r, "message_id", 0) <= 1:
+        return None
+    # Первое сообщение темы: его id совпадает с id ветки
     tid = getattr(message, "message_thread_id", None)
     if tid and getattr(r, "message_id", None) == tid:
         return None
+    if getattr(r, "is_topic_message", False) and getattr(r, "message_id", None) == (tid or 1):
+        return None
     if not r.from_user:
+        return None
+    # Системные аккаунты Telegram (777000 - Telegram Service, 1087968824 - GroupAnonymousBot)
+    if getattr(r.from_user, "id", 0) in {777000, 1087968824}:
         return None
     return r
 

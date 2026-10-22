@@ -50,6 +50,7 @@ import h_adminpanel as adminpanel
 import h_tournament as tournament
 import core_clan_sync as clan_sync
 import h_relations as relations
+import h_children as children
 import h_vip as vip
 import h_nightmode as nightmode
 import h_ai_features as ai_features
@@ -410,6 +411,7 @@ async def main() -> None:
     dp.include_router(fun.router)
     dp.include_router(social_fun.router)
     dp.include_router(relations.router)
+    dp.include_router(children.router)
     dp.include_router(vip.router)
     dp.include_router(modules.router)
     dp.include_router(grams.router)

@@ -124,11 +124,11 @@ async def _do_action(message: Message, bot: Bot, args: str, action: str, **kw):
     uid, name, _ = await resolve_target(message, args, bot)
     emoji, verb = ACTIONS[action]
     if not uid:
-        if had_prefix or not in_group:
-            return await message.reply(
-                f"{emoji} Кого {action}? Ответьте реплаем или укажите @ника.\n"
-                f"Пример: <code>{action} @user</code>")
-        return
+        return await message.reply(
+            f"{emoji} <b>Кого {action}?</b>\n\n"
+            f"• Ответьте на сообщение участника в чате\n"
+            f"• Либо укажите @юзер: <code>{action} @ник</code>\n\n"
+            f"💡 <i>Список всех действий: <code>рп</code></i>")
     if uid == message.from_user.id:
         return await message.reply(f"{emoji} Самого себя? Ну ладно 😄")
     me = await bot.me()

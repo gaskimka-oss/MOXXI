@@ -1186,34 +1186,7 @@ async def cmd_buy_property(message: Message, bot: Bot, args: str = "", **kw):
         f"💖 Получено <b>+{price // 20} любви</b> за крупное приобретение!")
 
 
-@router.message(Cmd("отн ребенок", "завести ребенка", section=S_REL,
-                    usage="отн ребенок {имя}", desc="Завести совместного ребенка"))
-async def cmd_have_child(message: Message, bot: Bot, args: str = "", **kw):
-    me_id = message.from_user.id
-    rel = await db.get_relationship(me_id)
-    if not rel:
-        return await message.reply("❌ У вас нет отношений.")
-
-    if rel["level"] < 3:
-        return await message.reply("🔒 Завести ребёнка можно только с <b>3 уровня отношений</b>!")
-
-    child_name = (args or "").strip()
-    if not child_name:
-        return await message.reply("Укажите имя ребенка: <code>отн ребенок Максим</code>")
-
-    gender = random.choice(["👦 Мальчик", "👧 Девочка"])
-    await db.add_rel_child(rel["id"], child_name[:32], gender)
-    await db.add_rel_xp(rel["id"], 150)
-
-    other_id = get_other_id(rel, me_id)
-    partner = await db.get_user(other_id)
-    pname = partner["first_name"] or str(other_id)
-
-    await message.reply(
-        f"🍼 <b>В семье пополнение!</b> 🍼\n\n"
-        f"У {mention(message.from_user)} и {mention_id(other_id, pname)} родился {gender} "
-        f"по имени <b>{html.escape(child_name)}</b>!\n"
-        f"💖 +150 очков любви к отношениям!")
+# Обработчики детей вынесены в специализированный модуль h_children.py
 
 
 # ================== ОБРАБОТЧИКИ INLINE UI ==================
@@ -1277,20 +1250,28 @@ async def cb_rel_ui(call: CallbackQuery, bot: Bot):
         return await call.answer()
 
     elif action == "kids":
+        from h_children import format_child_card, child_main_keyboard
         kids = await db.get_rel_children(rel_id)
         if not kids:
             text = ("👶 <b>Дети пары</b>\n\n"
                     "У вашей пары пока нет детей.\n"
                     "С 3-го уровня отношений вы можете завести ребенка командой:\n"
-                    "<code>отн ребенок [Имя]</code>")
+                    "• <code>отн ребенок мальчик [Имя]</code>\n"
+                    "• <code>отн ребенок девочка [Имя]</code>\n"
+                    "Или просто укажите имя: <code>отн ребенок [Имя]</code>")
+            await call.message.edit_text(text, reply_markup=back_kb)
+            return await call.answer()
         else:
-            lines = ["👶 <b>Дети вашей семьи:</b>\n"]
-            for k in kids:
-                days = max(1, int((time.time() - k["born_at"]) // 86400))
-                lines.append(f"• {k['gender']} <b>{k['name']}</b> — возраст: {days} дн.")
-            text = "\n".join(lines)
-        await call.message.edit_text(text, reply_markup=back_kb)
-        return await call.answer()
+            u1 = await db.get_user(rel["user1_id"])
+            u2 = await db.get_user(rel["user2_id"])
+            n1 = u1["first_name"] or str(rel["user1_id"])
+            n2 = u2["first_name"] or str(rel["user2_id"])
+            parent_names = f"{mention_id(rel['user1_id'], n1)} & {mention_id(rel['user2_id'], n2)}"
+            child = kids[0]
+            text = format_child_card(child, parent_names)
+            kb = child_main_keyboard(child["id"], rel_id, 0, len(kids))
+            await call.message.edit_text(text, reply_markup=kb)
+            return await call.answer()
 
     elif action == "bank":
         bank_bal = await db.get_rel_bank(rel_id)
