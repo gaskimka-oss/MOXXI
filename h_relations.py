@@ -1295,6 +1295,8 @@ async def cb_rel_ui(call: CallbackQuery, bot: Bot):
         await call.message.edit_text("\n".join(lines), reply_markup=back_kb)
         return await call.answer()
 
+    await call.answer()
+
 
 # ================== СВАДЕБНЫЕ ПОДАРКИ, БЫСТРЫЕ ДЕЙСТВИЯ И СЕМЕЙНЫЙ БАНК ==================
 

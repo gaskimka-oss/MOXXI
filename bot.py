@@ -469,18 +469,27 @@ async def main() -> None:
 
     loop = asyncio.get_running_loop()
     import signal
+    stopping_event = asyncio.Event()
+
+    def _on_stop():
+        stopping_event.set()
+        asyncio.create_task(dp.stop_polling())
+
     for sig in (signal.SIGTERM, signal.SIGINT):
         try:
-            loop.add_signal_handler(sig, lambda: asyncio.create_task(dp.stop_polling()))
+            loop.add_signal_handler(sig, _on_stop)
         except (NotImplementedError, AttributeError):
             pass
 
     try:
-        while True:
+        while not stopping_event.is_set():
             try:
                 await bot.delete_webhook(drop_pending_updates=True)
                 await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
-                break
+                if stopping_event.is_set():
+                    break
+                log.warning("start_polling завершился без сигнала остановки. Автоматический перезапуск сессии через 3с...")
+                await asyncio.sleep(3)
             except asyncio.CancelledError:
                 log.info("Получен сигнал остановки — завершаюсь.")
                 break

@@ -329,3 +329,5 @@ async def cb_market_handler(call: CallbackQuery, bot: Bot):
         kb_rows.append([InlineKeyboardButton(text="⬅️ Назад в рынок", callback_data="mkt:page:0")])
         await call.message.edit_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows))
         return await call.answer()
+
+    await call.answer()

@@ -502,54 +502,41 @@ async def broadcast_restart(bot: Bot, reason: str = "Перезагрузка") 
 
 
 async def auto_restart_worker(bot: Bot) -> None:
-    """Фоновый воркер: оповещает за 30 минут и автоматически перезагружает бота каждые 12 часов (в 00:00 и 12:00 МСК)."""
-    restart_hours = {0, 12}
-    warn_hours = {23, 11}
-    last_restarted_hour = -1
-    last_warned_hour = -1
+    """Фоновый воркер: плановое фоновое обслуживание каждые 12 часов (в 00:00 и 12:00 МСК).
+    Выполняет оптимизацию SQLite, сборку мусора и бэкап базы данных без отключения бота."""
+    maintenance_hours = {0, 12}
+    last_done_hour = -1
 
     while True:
         try:
             await asyncio.sleep(25)
             now = datetime.now(timezone(timedelta(hours=3)))  # МСК
 
-            # 1. Оповещение за 30 минут до перезагрузки (в 23:30 и 11:30 МСК)
-            if now.hour in warn_hours and now.minute == 30 and now.hour != last_warned_hour:
-                if time.time() - START_TS >= 300:
-                    last_warned_hour = now.hour
-                    target_restart_time = "00:00" if now.hour == 23 else "12:00"
-                    log.info("📢 Отправка оповещения о перезагрузке за 30 минут (до %s МСК)...", target_restart_time)
-                    warn_text = (
-                        "⏳ ✨ <b>СКОРО ПЛАНОВЫЙ ПЕРЕЗАПУСК БОТА</b> ✨ ⏳\n"
-                        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-                        f"⚠️ Внимание! Через <b>30 минут</b> (в <b>{target_restart_time} МСК</b>) бот будет кратковременно перезагружен для планового технического обслуживания.\n"
-                        "⏱ <b>Время техработ:</b> ~1–2 минуты.\n"
-                        "📌 <i>Все балансы, статистика, рейды и ранги сохраняются в безопасности!</i>\n\n"
-                        "🔔 Пожалуйста, завершите важные дуэли, игры и операции заранее!"
-                    )
-                    await broadcast_notice(bot, warn_text)
-
-            # 2. Непосредственная перезагрузка в 00:00 и 12:00 МСК
-            if now.hour in restart_hours and now.minute == 0 and now.hour != last_restarted_hour:
-                # Проверяем, что бот проработал хотя бы 5 минут, чтобы избежать перезапуска сразу при старте
+            if now.hour in maintenance_hours and now.minute == 0 and now.hour != last_done_hour:
                 if time.time() - START_TS < 300:
                     continue
-                last_restarted_hour = now.hour
-                log.info("⏰ Плановая перезагрузка каждые 12 часов (%02d:00 МСК)...", now.hour)
-                await broadcast_restart(bot, reason=f"Авто-перезагрузка 12ч ({now.hour:02d}:00 МСК)")
-                log.info("Оповещения отправлены, бэкап сохранен. Завершение процесса для перезапуска...")
-                await asyncio.sleep(1.0)
-                import subprocess
+                last_done_hour = now.hour
+                log.info("⏰ Плановое фоновое обслуживание (12ч, %02d:00 МСК)...", now.hour)
+                import gc
+                gc.collect()
+
                 try:
-                    subprocess.Popen([sys.executable] + sys.argv)
-                except Exception:
-                    pass
-                sys.exit(0)
+                    await db.execute("PRAGMA optimize")
+                    await db.execute("PRAGMA wal_checkpoint(PASSIVE)")
+                except Exception as e:
+                    log.warning("PRAGMA optimize error: %s", e)
+
+                import core_backup
+                try:
+                    await core_backup.save(bot, note=f"Плановый бэкап ({now.hour:02d}:00 МСК)")
+                except Exception as e:
+                    log.warning("Плановый бэкап error: %s", e)
+
+                log.info("✅ Плановое фоновое обслуживание успешно завершено без перезапуска бота.")
         except asyncio.CancelledError:
             break
         except Exception as e:
             log.warning("auto_restart_worker error: %s", e)
-
 
 @router.message(Cmd("-сообщения бота", "-оповещения", "-рассылка", "-боссы", "тихий чат вкл",
                     section=S, rank=0, group_only=False,
@@ -619,15 +606,21 @@ async def cmd_restart_bot(message: Message, bot: Bot, **kw):
     sent = await broadcast_restart(bot, reason="Ручная перезагрузка владельцем")
     await m.edit_text(f"✅ Оповещение о перезагрузке отправлено в <b>{sent}</b> чат(ов)!\n💾 Резервная копия сохранена.\nБот уходит на перезагрузку...")
     
-    def _do_restart():
-        import subprocess
+    async def _do_restart_async():
+        await asyncio.sleep(2.0)
         try:
-            subprocess.Popen([sys.executable] + sys.argv)
+            await bot.session.close()
         except Exception:
             pass
+        if not os.getenv("CONTAINER") and not os.getenv("DOCKER"):
+            try:
+                import subprocess
+                subprocess.Popen([sys.executable] + sys.argv)
+            except Exception:
+                pass
         sys.exit(0)
 
-    asyncio.get_event_loop().call_later(2.0, _do_restart)
+    asyncio.create_task(_do_restart_async())
 
 
 

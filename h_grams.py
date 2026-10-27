@@ -884,14 +884,15 @@ def _render_biz_menu(uid: int, user_biz: dict[str, dict], prof: dict, page: int 
             accumulated_profit += profit
             owned_lines.append(f"• {info['emoji']} <b>{info['name']}:</b> {cnt} шт. (доход: +{cnt*info['income_per_min']:,} 🪙/мин)")
 
-    # 30 основных предприятий
-    main_biz = [(k, v) for k, v in BUSINESS_TYPES.items() if "id" in v and 1 <= v["id"] <= 30]
-    main_biz.sort(key=lambda x: x[1]["id"])
-    total_pages = 3
+    # Все предприятия каталога
+    main_biz = [(k, v) for k, v in BUSINESS_TYPES.items() if "id" in v]
+    main_biz.sort(key=lambda x: (x[1]["id"], x[1].get("req_lvl", 0), x[0]))
+    per_page = 10
+    total_pages = max(1, (len(main_biz) + per_page - 1) // per_page)
     page = max(1, min(total_pages, page))
 
-    start_idx = (page - 1) * 10
-    end_idx = start_idx + 10
+    start_idx = (page - 1) * per_page
+    end_idx = start_idx + per_page
     page_biz = main_biz[start_idx:end_idx]
 
     market_lines = []

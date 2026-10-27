@@ -614,7 +614,8 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
                 f"🛡 <i>Защита от спама: не чаще одного обращения в 30 минут. "
                 f"Администрация уже получила вашу предыдущую заявку и скоро ответит!</i>"
             )
-            return await call.message.edit_text(txt, reply_markup=back_kb())
+            await call.message.edit_text(txt, reply_markup=back_kb())
+            return await call.answer("⏳ Кулдаун техподдержки", show_alert=False)
 
         txt = (
             f"🆘 ✨ <b>СЛУЖБА ТЕХПОДДЕРЖКИ MOXXI</b> ✨ 🆘\n"
