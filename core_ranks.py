@@ -45,9 +45,9 @@ async def set_rank(chat_id: int, user_id: int, rank: int, by: int = 0) -> None:
             await db.execute("DELETE FROM staff WHERE chat_id=? AND user_id=?", (chat_id, user_id))
     else:
         if username:
-            await db.execute("UPDATE staff SET rank=?, ts=? WHERE chat_id=? AND (user_id=? OR lower(username)=lower(?)) AND rank > ?", (rank, now, chat_id, user_id, username, rank))
+            await db.execute("UPDATE staff SET rank=?, ts=? WHERE chat_id=? AND (user_id=? OR lower(username)=lower(?))", (rank, now, chat_id, user_id, username))
         else:
-            await db.execute("UPDATE staff SET rank=?, ts=? WHERE chat_id=? AND user_id=? AND rank > ?", (rank, now, chat_id, user_id, rank))
+            await db.execute("UPDATE staff SET rank=?, ts=? WHERE chat_id=? AND user_id=?", (rank, now, chat_id, user_id))
 
         await db.execute(
             "INSERT INTO ranks (chat_id, user_id, rank, granted_by, ts) VALUES (?,?,?,?,?) "
@@ -68,8 +68,12 @@ async def effective_rank(message: Message, bot: Bot) -> int:
     uid = message.from_user.id
 
     import config
+    # Создатели и главные владельцы бота всегда имеют высший ранг везде
+    if config.is_bot_owner(uid):
+        return MAX_RANK
+
     if message.chat.type == "private":
-        return MAX_RANK if config.is_bot_owner(uid) else 0
+        return 0
 
     # 1. Сначала проверяем ранг, явно назначенный в чате (таблица ranks):
     r = await get_rank(message.chat.id, uid)

@@ -940,7 +940,13 @@ def _render_biz_menu(uid: int, user_biz: dict[str, dict], prof: dict, page: int 
         InlineKeyboardButton(text=f"📄 Стр. {page}/{total_pages}", callback_data=f"biz:refresh:{page}"),
         InlineKeyboardButton(text="Вперёд ▶️", callback_data=f"biz:page:{next_p}"),
     ])
-    rows.append([InlineKeyboardButton(text="🔄 Обновить рынок", callback_data=f"biz:refresh:{page}")])
+    rows.append([
+        InlineKeyboardButton(text="🏢 Мои бизнесы", callback_data=f"biz:my:{page}"),
+        InlineKeyboardButton(text="🔄 Обновить рынок", callback_data=f"biz:refresh:{page}")
+    ])
+    rows.append([
+        InlineKeyboardButton(text="🔙 Вернуться в меню", callback_data="biz:home")
+    ])
 
     return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -1165,19 +1171,67 @@ async def cmd_sell_business(message: Message, args: str = "", **kw):
 @router.callback_query(F.data.startswith("biz:"))
 async def cb_businesses(call: CallbackQuery):
     uid = call.from_user.id
-    action = call.data.split(":")[1]
+    parts = call.data.split(":")
+    action = parts[1] if len(parts) > 1 else "menu"
 
-    if action in ("menu", "refresh"):
+    if action in ("page", "menu", "refresh"):
+        page = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 1
         user_biz = await db.get_user_businesses(uid)
         prof = await db.get_game_profile(uid)
-        text, kb = _render_biz_menu(uid, user_biz, prof)
+        text, kb = _render_biz_menu(uid, user_biz, prof, page=page)
         try:
             await call.message.edit_text(text, reply_markup=kb)
         except Exception:
             pass
-        return await call.answer("Рынок обновлён")
+        return await call.answer(f"📄 Страница {page}" if action == "page" else "🔄 Рынок обновлён")
+
+    if action in ("home", "back_menu"):
+        try:
+            if call.message.chat.type == "private":
+                from h_start import main_kb, main_text
+                u = await db.get_user(uid)
+                await call.message.edit_text(await main_text(call.from_user.first_name, u),
+                                             reply_markup=await main_kb(uid))
+            else:
+                from h_helpmenu import _menu_kb, _menu_text
+                await call.message.edit_text(_menu_text(), reply_markup=_menu_kb(0))
+        except Exception:
+            pass
+        return await call.answer()
+
+    if action == "my":
+        page = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 1
+        user_biz = await db.get_user_businesses(uid)
+        tot_inc = 0
+        owned_lines = []
+        for k, info in BUSINESS_TYPES.items():
+            cnt = user_biz.get(k, {}).get("count", 0)
+            if cnt > 0:
+                tot_inc += cnt * info["income_per_min"]
+                owned_lines.append(f"• {info['emoji']} <b>{info['name']}:</b> {cnt} шт. (<code>+{cnt*info['income_per_min']:,} 🪙/мин</code>)")
+
+        owned_txt = "\n".join(owned_lines) if owned_lines else "<i>У вас пока нет купленных предприятий.</i>"
+        txt = (
+            f"🏢 <b>МОИ ПРЕДПРИЯТИЯ И НЕДВИЖИМОСТЬ</b>\n\n"
+            f"👤 <b>Владелец:</b> {mention_id(uid, call.from_user.first_name)}\n"
+            f"💵 <b>Суммарный доход:</b> <b>+{tot_inc:,} 🪙/мин</b>\n\n"
+            f"{owned_txt}\n\n"
+            f"💡 <i>Собрать прибыль:</i> <code>собрать</code>\n"
+            f"💡 <i>Купить новые:</i> в каталоге предприятий"
+        )
+        my_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💰 Собрать прибыль", callback_data=f"biz:collect:{page}")],
+            [InlineKeyboardButton(text="◀️ Назад в каталог", callback_data=f"biz:page:{page}")],
+            [InlineKeyboardButton(text="🔙 Вернуться в меню", callback_data="biz:home")]
+        ])
+        try:
+            await call.message.edit_text(txt, reply_markup=my_kb)
+        except Exception:
+            pass
+        return await call.answer("Мои бизнесы")
 
     if action == "collect":
+        page = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 1
         user_biz = await db.get_user_businesses(uid)
         if not user_biz:
             return await call.answer("У вас нет предприятий!", show_alert=True)
@@ -1188,17 +1242,19 @@ async def cb_businesses(call: CallbackQuery):
             if k in BUSINESS_TYPES and data["count"] > 0:
                 mins = min(24 * 60, max(0, int((now - data.get("last_collect", now)) // 60)))
                 if mins > 0:
-                    total += mins * data["count"] * BUSINESS_TYPES[k]["income_per_min"]
+                    biz_lvl = await db.get_business_level(uid, k)
+                    multiplier = 1.0 + 0.05 * (biz_lvl - 1)
+                    total += int(mins * data["count"] * BUSINESS_TYPES[k]["income_per_min"] * multiplier)
                     keys.append(k)
         if total <= 0:
             return await call.answer("⏳ Прибыль ещё не накопилась (начисляется каждую минуту).", show_alert=True)
         await db.update_business_collect_time(uid, keys)
         await db.add_coins(uid, total, "biz_income")
-        await call.answer(f"💰 Собрано: +{total:,} 🌑!", show_alert=True)
-        # Обновляем меню
+        await call.answer(f"💰 Собрано: +{total:,} 🪙!", show_alert=True)
+        # Обновляем меню с сохранением страницы
         user_biz = await db.get_user_businesses(uid)
         prof = await db.get_game_profile(uid)
-        text, kb = _render_biz_menu(uid, user_biz, prof)
+        text, kb = _render_biz_menu(uid, user_biz, prof, page=page)
         try:
             await call.message.edit_text(text, reply_markup=kb)
         except Exception:
@@ -1206,10 +1262,11 @@ async def cb_businesses(call: CallbackQuery):
         return
 
     if action == "buy":
-        biz_key = call.data.split(":")[2]
+        biz_key = parts[2] if len(parts) > 2 else ""
+        page = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 1
         info = BUSINESS_TYPES.get(biz_key)
         if not info:
-            return await call.answer("Ошибка")
+            return await call.answer("Предприятие не найдено")
         prof = await db.get_game_profile(uid)
         if prof["level"] < info["req_lvl"]:
             return await call.answer(f"🔒 Требуется {info['req_lvl']} LVL!", show_alert=True)
@@ -1219,21 +1276,24 @@ async def cb_businesses(call: CallbackQuery):
         buy_p, _ = get_market_price(biz_key, is_sell=False)
         bal = await db.get_coins(uid)
         if bal < buy_p:
-            return await call.answer(f"Недостаточно монет! Нужно {buy_p:,} 🌑", show_alert=True)
+            return await call.answer(f"Недостаточно монет! Нужно {buy_p:,} 🪙", show_alert=True)
         await db.add_coins(uid, -buy_p, "biz_buy", biz_key)
         await db.change_user_business(uid, biz_key, 1)
         try:
+            import core_backup
             core_backup.schedule_quick_backup(call.bot)
         except Exception:
             pass
         await call.answer(f"🎉 Куплено: {info['name']}!", show_alert=True)
         user_biz = await db.get_user_businesses(uid)
-        text, kb = _render_biz_menu(uid, user_biz, prof)
+        text, kb = _render_biz_menu(uid, user_biz, prof, page=page)
         try:
             await call.message.edit_text(text, reply_markup=kb)
         except Exception:
             pass
         return
+
+    return await call.answer()
 
 
 

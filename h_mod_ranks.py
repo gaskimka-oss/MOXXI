@@ -306,7 +306,7 @@ async def _grant(message: Message, bot: Bot, args: str, rank: int, **kw):
         await db.execute(
             "INSERT INTO staff (chat_id, username, name, rank, user_id, left_chat, pos, ts) "
             "VALUES (?, ?, ?, ?, ?, 0, ?, ?) "
-            "ON CONFLICT(chat_id, user_id) DO UPDATE SET rank=excluded.rank, name=excluded.name, ts=excluded.ts",
+            "ON CONFLICT(chat_id, username) DO UPDATE SET rank=excluded.rank, name=excluded.name, user_id=excluded.user_id, ts=excluded.ts",
             (message.chat.id, u_uname, u_fname or u_uname, rank, uid, int(time.time()), int(time.time()))
         )
 
@@ -331,24 +331,32 @@ def _parse_rank_from_text(text: str) -> tuple[int | None, str]:
     ]
     for names, r in mapping:
         for name in sorted(names, key=len, reverse=True):
-            pattern = rf"\b{re.escape(name)}\b"
+            pattern = rf"(?:\b|\+){re.escape(name)}\b"
             m = re.search(pattern, t)
             if m:
-                rest = (text[:m.start()] + text[m.end():]).strip()
+                start = m.start()
+                if start > 0 and text[start-1] in "+-!":
+                    start -= 1
+                rest = (text[:start] + text[m.end():]).strip()
+                rest = re.sub(r"^[+\-!\s]+|[+\-!\s]+$", "", rest).strip()
                 return r, rest
 
     m_phrase = re.search(r"\b(?:ранг|ранга|до|на|ур|уровень|уровня|lvl)\s*([1-9]|10)\b", t)
     if m_phrase:
         r = int(m_phrase.group(1))
         rest = (text[:m_phrase.start()] + text[m_phrase.end():]).strip()
+        rest = re.sub(r"^[+\-!\s]+|[+\-!\s]+$", "", rest).strip()
         return r, rest
 
     words = text.split()
     for idx, w in enumerate(words):
-        if w.isdigit() and 1 <= int(w) <= MAX_RANK:
-            r = int(w)
+        clean_w = w.lstrip("+-!#")
+        if clean_w.isdigit() and 1 <= int(clean_w) <= MAX_RANK:
+            r = int(clean_w)
             rest_words = words[:idx] + words[idx+1:]
-            return r, " ".join(rest_words).strip()
+            rest = " ".join(rest_words).strip()
+            rest = re.sub(r"^[+\-!\s]+|[+\-!\s]+$", "", rest).strip()
+            return r, rest
 
     return None, text
 
@@ -448,8 +456,8 @@ async def cmd_quick_demote(message: Message, bot: Bot, args: str = "", **kw):
     await cmd_remove_rank(message, bot, args=args, **kw)
 
 
-@router.message(Cmd("+модер", "+админ", "модер", "ранг", "дать ранг", "выдать ранг", "назначить", section=S, rank=8,
-                    usage="+модер {ссылка} [1-10 / должность]",
+@router.message(Cmd("+модер", "+админ", "модер", "админ", "ранг", "+ранг", "!ранг", "+ра", "!ра", "+ra", "!ra", "ра", "ra", "дать ранг", "выдать ранг", "назначить", section=S, rank=6,
+                    usage="+ра {ссылка} [1-10 / должность]",
                     desc="Назначить ранг модератора (1–10)"))
 async def cmd_promote_rank(message: Message, bot: Bot, args: str = "", **kw):
     found_r, clean_args = _parse_rank_from_text(args or "")
@@ -457,7 +465,7 @@ async def cmd_promote_rank(message: Message, bot: Bot, args: str = "", **kw):
         return await _grant(message, bot, clean_args, found_r, **kw)
 
     parts = (args or "").split()
-    rank = 1
+    rank = None
     if parts and parts[0].isdigit() and 1 <= int(parts[0]) <= MAX_RANK:
         rank = int(parts[0])
         args = " ".join(parts[1:]).strip()
@@ -469,10 +477,30 @@ async def cmd_promote_rank(message: Message, bot: Bot, args: str = "", **kw):
         bangs = len(raw) - len(raw.lstrip("!"))
         if bangs > 1:
             rank = min(bangs, MAX_RANK)
+
+    if rank is None:
+        # Если ранг не указан (например "+ra @user" или "+модер @user" или реплай "+ra")
+        uid, name, _ = await resolve_target(message, args, bot)
+        uname = None
+        if not uid:
+            m_u = re.search(r"@([a-zA-Z0-9_]{3,32})", args or "")
+            if m_u:
+                uname = m_u.group(1)
+        if uid:
+            cur = await get_rank(message.chat.id, uid)
+            rank = min(MAX_RANK, cur + 1)
+        elif uname:
+            clean_u = uname.lstrip("@")
+            srow = await db.fetchone("SELECT rank FROM staff WHERE chat_id=? AND lower(username)=lower(?)", (message.chat.id, clean_u))
+            cur = int(srow["rank"]) if srow else 0
+            rank = min(MAX_RANK, cur + 1)
+        else:
+            rank = 1
+
     await _grant(message, bot, args, rank, **kw)
 
 
-@router.message(Cmd("повысить", "поднять ранг", section=S, rank=8, usage="повысить {ссылка} [ранг]",
+@router.message(Cmd("повысить", "поднять ранг", "+повысить", "!повысить", section=S, rank=6, usage="повысить {ссылка} [ранг]",
                     desc="Повысить на один ранг (или до указанного)"))
 async def cmd_promote(message: Message, bot: Bot, args: str = "", **kw):
     found_r, clean_args = _parse_rank_from_text(args or "")
@@ -506,7 +534,7 @@ async def cmd_promote(message: Message, bot: Bot, args: str = "", **kw):
     await _grant(message, bot, str(uid), cur + 1, **kw)
 
 
-@router.message(Cmd("понизить", "разжаловать", "снизить", section=S, rank=8,
+@router.message(Cmd("понизить", "разжаловать", "снизить", "-понизить", "!понизить", "-ра", "!ра", "-ra", "!ra", "-ранг", "!ранг", section=S, rank=6,
                     usage="понизить {ссылка}", desc="Понизить на один ранг"))
 async def cmd_demote(message: Message, bot: Bot, args: str = "", **kw):
     me = await effective_rank(message, bot)
