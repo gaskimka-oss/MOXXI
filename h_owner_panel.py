@@ -1349,7 +1349,12 @@ async def scheduled_announcements_worker(bot: Bot) -> None:
                 rows = await db.fetchall("SELECT chat_id FROM chats WHERE chat_id < 0")
                 sent_count = 0
 
+                me_bot = await bot.me()
+                b_user = me_bot.username or "moxxichat_bot"
                 kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="💬 Написать в тех.поддержку / Есть вопрос", url=f"https://t.me/{b_user}?start=support")
+                    ],
                     [
                         InlineKeyboardButton(text="🔥 Понравилось", callback_data=f"up22:vote:like:{ann_id}"),
                         InlineKeyboardButton(text="😐 Не очень", callback_data=f"up22:vote:neutral:{ann_id}"),
