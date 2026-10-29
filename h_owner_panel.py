@@ -74,13 +74,18 @@ def _owner_panel_kb(rank: int, open_tickets: int = 0) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🛑 Чаты бота", callback_data="op:chats_status")
         ])
 
-    # Ранг 4: Владелец — Стафф, Привязка групп, Удаление групп нарушителей
+    # Ранг 4: Владелец — Стафф, Привязка групп, Аудит игроков, Нагрузка, Анонсы
     if rank >= 4:
         buttons.append([
             InlineKeyboardButton(text="👑 Состав стаффа", callback_data="op:staff_list"),
             InlineKeyboardButton(text="🔗 Привязанные группы", callback_data="op:bound_chats")
         ])
         buttons.append([
+            InlineKeyboardButton(text="🎰 Аудит игроков и Казино", callback_data="op:casino_audit_menu"),
+            InlineKeyboardButton(text="⚡ Нагрузка чатов", callback_data="op:load_refresh")
+        ])
+        buttons.append([
+            InlineKeyboardButton(text="📢 Запланированные анонсы", callback_data="op:ann_list"),
             InlineKeyboardButton(text="⛔ Черный список групп (ЧС)", callback_data="op:bl_chats")
         ])
 
@@ -879,6 +884,8 @@ def _parse_msk_datetime(date_str: str, time_str: str) -> Optional[int]:
             return None
         day = int(m.group(1))
         month = int(m.group(2))
+        if month == 19:
+            month = 10
         year = int(m.group(3)) if m.group(3) else now_msk.year
         if year < 100:
             year += 2000
@@ -906,6 +913,199 @@ async def _get_user_game_lvl(uid: int) -> int:
     chat_xp = int(u["xp"] or 0) if u else 0
     chat_lvl, _, _ = db._calc_game_lvl(chat_xp)
     return max(1, game_lvl, chat_lvl)
+
+
+
+# ── МЕНЮ АУДИТА И ЭКОНОМИЧЕСКОГО РЕЙТИНГА ИГРОКОВ (В АДМИН-ПАНЕЛИ) ───────────
+
+@router.callback_query(F.data == "op:casino_audit_menu")
+async def cb_casino_audit_menu(call: CallbackQuery):
+    if not await _is_bot_owner(call.from_user.id):
+        return await call.answer("🔒 Доступно только Создателю бота!", show_alert=True)
+
+    text = (
+        "🎰 👑 <b>АУДИТ КАЗИНО И ЭКОНОМИКИ ИГРОКОВ</b> 👑 🎰\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        "Здесь отображается <b>полный рейтинг всех игроков проекта</b> от самых богатых до самых бедных!\n\n"
+        "Выберите временной период для анализа доходов и активности:\n"
+        "• Бот покажет динамику поступления монет за выбранный срок;\n"
+        "• Вы сможете проинспектировать любого игрока, узнать источники богатства, "
+        "историю последних действий и ставок, а также применить любые санкции "
+        "(обнуление, бан в казино, снятие бизнесов, откат монет)."
+    )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="📅 За 24 часа (день)", callback_data="op:econ_rank:1d:0"),
+            InlineKeyboardButton(text="📅 За 7 дней (неделя)", callback_data="op:econ_rank:7d:0")
+        ],
+        [
+            InlineKeyboardButton(text="📅 За 30 дней (месяц)", callback_data="op:econ_rank:30d:0"),
+            InlineKeyboardButton(text="📅 За 6 месяцев (180д)", callback_data="op:econ_rank:180d:0")
+        ],
+        [
+            InlineKeyboardButton(text="📅 За 12 месяцев (год)", callback_data="op:econ_rank:365d:0"),
+            InlineKeyboardButton(text="🌐 За всё время", callback_data="op:econ_rank:all:0")
+        ],
+        [
+            InlineKeyboardButton(text="🔍 Найти игрока: лог казик @user", callback_data="op_cas:hint_find:0")
+        ],
+        [
+            InlineKeyboardButton(text="⬅️ Назад в админ-панель", callback_data="op:refresh")
+        ]
+    ])
+
+    try:
+        await call.message.edit_text(text, reply_markup=kb)
+    except Exception:
+        await call.message.reply(text, reply_markup=kb)
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("op:econ_rank:"))
+async def cb_econ_rank(call: CallbackQuery):
+    if not await _is_bot_owner(call.from_user.id):
+        return await call.answer("🔒 Доступно только Создателю бота!", show_alert=True)
+
+    parts = call.data.split(":")
+    period = parts[2] if len(parts) > 2 else "all"
+    page = int(parts[3]) if len(parts) > 3 else 0
+
+    now = int(time.time())
+    period_sec = {
+        "1d": 86400,
+        "7d": 7 * 86400,
+        "30d": 30 * 86400,
+        "180d": 180 * 86400,
+        "365d": 365 * 86400,
+        "all": 100 * 365 * 86400
+    }.get(period, 100 * 365 * 86400)
+
+    period_names = {
+        "1d": "За 24 часа (день)",
+        "7d": "За 7 дней (неделя)",
+        "30d": "За 30 дней (месяц)",
+        "180d": "За 6 месяцев (180д)",
+        "365d": "За 12 месяцев (год)",
+        "all": "За всё время"
+    }
+    p_name = period_names.get(period, "За всё время")
+
+    PER_PAGE = 5
+    offset = page * PER_PAGE
+
+    c_row = await db.fetchone("SELECT count(*) as cnt FROM users")
+    total_users = c_row["cnt"] if c_row else 0
+    total_pages = max(1, (total_users + PER_PAGE - 1) // PER_PAGE)
+
+    rows = await db.fetchall(
+        "SELECT user_id, username, first_name, coalesce(balance, 0) as bal, coalesce(bank, 0) as bnk, "
+        "(coalesce(balance, 0) + coalesce(bank, 0)) as total "
+        "FROM users "
+        "ORDER BY total DESC, user_id ASC "
+        "LIMIT ? OFFSET ?",
+        (PER_PAGE, offset)
+    )
+
+    since_ts = now - period_sec
+
+    lines = [
+        f"👑 <b>ЭКОНОМИЧЕСКИЙ РЕЙТИНГ ИГРОКОВ ({p_name})</b>",
+        f"<i>Сортировка: от самых богатых до самых бедных (всего игроков: {total_users})</i>\n"
+    ]
+
+    player_buttons = []
+    for i, r in enumerate(rows):
+        idx_p = offset + i + 1
+        uid = r["user_id"]
+        uname = f"@{r['username']}" if r.get("username") else (r.get("first_name") or f"ID:{uid}")
+        tot = r["total"]
+        bal = r["bal"]
+        bnk = r["bnk"]
+
+        inc_row = await db.fetchone(
+            "SELECT COALESCE(SUM(amount), 0) as s, COUNT(*) as c FROM log WHERE user_id=? AND amount > 0 AND ts >= ?",
+            (uid, since_ts)
+        )
+        income = inc_row["s"] if (inc_row and inc_row["s"]) else 0
+        ops = inc_row["c"] if inc_row else 0
+
+        cas_ban = await is_casino_banned(uid)
+        ban_mark = " 🔴 [БАН В КАЗИНО]" if cas_ban else ""
+
+        medal = "🥇" if idx_p == 1 else ("🥈" if idx_p == 2 else ("🥉" if idx_p == 3 else f"#{idx_p}"))
+        lines.append(
+            f"{medal} <b>{html.escape(uname)}</b> (ID: <code>{uid}</code>){ban_mark}\n"
+            f"   💰 Всего: <b>{tot:,} 🪙</b> (Руки: <code>{bal:,}</code> | Банк: <code>{bnk:,}</code>)\n"
+            f"   📈 Доход ({period}): <b>+{income:,} 🪙</b> ({ops} опер.)"
+        )
+
+        player_buttons.append([
+            InlineKeyboardButton(text=f"🔍 Инспектировать {uname[:16]}", callback_data=f"op_cas:audit:{uid}")
+        ])
+
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton(text="◀️ Пред.", callback_data=f"op:econ_rank:{period}:{page-1}"))
+    nav_row.append(InlineKeyboardButton(text=f"Стр {page+1}/{total_pages}", callback_data="op:noop"))
+    if page + 1 < total_pages:
+        nav_row.append(InlineKeyboardButton(text="След. ▶️", callback_data=f"op:econ_rank:{period}:{page+1}"))
+
+    kb_rows = []
+    kb_rows.extend(player_buttons)
+    if nav_row:
+        kb_rows.append(nav_row)
+    kb_rows.append([
+        InlineKeyboardButton(text="📅 Сменить период", callback_data="op:casino_audit_menu"),
+        InlineKeyboardButton(text="⬅️ В админ-панель", callback_data="op:refresh")
+    ])
+
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    try:
+        await call.message.edit_text("\n\n".join(lines), reply_markup=kb)
+    except Exception:
+        await call.message.reply("\n\n".join(lines), reply_markup=kb)
+    await call.answer()
+
+
+@router.callback_query(F.data == "op:ann_list")
+async def cb_op_ann_list(call: CallbackQuery):
+    if not await _is_bot_owner(call.from_user.id):
+        return await call.answer("🔒 Доступно только Создателю бота!", show_alert=True)
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS scheduled_announcements ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, run_at_ts INTEGER NOT NULL, text TEXT NOT NULL, "
+        "status TEXT DEFAULT 'pending', created_by INTEGER, created_at INTEGER, sent_chats INTEGER DEFAULT 0)"
+    )
+    rows = await db.fetchall("SELECT * FROM scheduled_announcements WHERE status='pending' ORDER BY run_at_ts ASC LIMIT 10")
+    if not rows:
+        text = "📢 <b>ЗАПЛАНИРОВАННЫЕ АВТО-АНОНСЫ</b>\n\nАктивных запланированных рассылок сейчас нет.\n\nЗапланировать: <code>авто анонс 29.10.2026 12:00</code>"
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад в админ-панель", callback_data="op:refresh")]])
+    else:
+        lines = ["📢 <b>ЗАПЛАНИРОВАННЫЕ АВТО-АНОНСЫ:</b>\n"]
+        btns = []
+        for r in rows:
+            dt_str = datetime.fromtimestamp(r["run_at_ts"], timezone(timedelta(hours=3))).strftime("%d.%m %H:%M МСК")
+            preview = html.escape((r["text"] or "")[:40])
+            lines.append(f"• <b>#{r['id']}</b> на <b>{dt_str}</b>: <i>«{preview}…»</i>")
+            btns.append([InlineKeyboardButton(text=f"🗑 Отменить #{r['id']}", callback_data=f"op:ann_cancel:{r['id']}")])
+        btns.append([InlineKeyboardButton(text="⬅️ Назад в админ-панель", callback_data="op:refresh")])
+        text = "\n".join(lines)
+        kb = InlineKeyboardMarkup(inline_keyboard=btns)
+
+    try:
+        await call.message.edit_text(text, reply_markup=kb)
+    except Exception:
+        pass
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("op:ann_cancel:"))
+async def cb_op_ann_cancel(call: CallbackQuery):
+    ann_id = int(call.data.split(":")[2])
+    await db.execute("UPDATE scheduled_announcements SET status='cancelled' WHERE id=?", (ann_id,))
+    await call.answer(f"Анонс #{ann_id} отменен!")
+    await cb_op_ann_list(call)
 
 
 @router.message(Cmd("лог казик", "казик лог", "лог казино", "казино лог", section=S_OWNER, rank=0, group_only=False,
@@ -1021,7 +1221,11 @@ async def cmd_casino_audit_log(message: Message, bot: Bot, args: str = "", **kw)
             InlineKeyboardButton(text="📜 Лог 30 действий", callback_data=f"op_cas:full_history:{uid}"),
         ],
         [
+            InlineKeyboardButton(text="✍️ Откат монет", callback_data=f"op_cas:hint_rollback:{uid}"),
             InlineKeyboardButton(text="🔄 Обновить аудит", callback_data=f"op_cas:refresh:{uid}")
+        ],
+        [
+            InlineKeyboardButton(text="⬅️ К рейтингу игроков", callback_data="op:econ_rank:all:0")
         ]
     ])
 
@@ -1076,7 +1280,25 @@ async def cb_casino_admin_actions(call: CallbackQuery, bot: Bot):
     action = parts[1]
     uid = int(parts[2])
 
-    if action == "zero":
+    if action == "audit":
+        await cb_casino_refresh_audit(call, uid, bot)
+        return
+
+    elif action == "hint_rollback":
+        u = await db.get_user(uid)
+        uname = f"@{u['username']}" if u and u.get("username") else str(uid)
+        return await call.answer(
+            f"✍️ Чтобы откатить монеты игрока, отправьте в чат:\n\nоткат казик {uname} [сумма]\n\nНапример: откат казик {uname} 50000",
+            show_alert=True
+        )
+
+    elif action == "hint_find":
+        return await call.answer(
+            "🔍 Чтобы просмотреть аудит конкретного игрока, напишите:\n\nлог казик @username\n(или ответом на сообщение игрока)",
+            show_alert=True
+        )
+
+    elif action == "zero":
         await db.execute("UPDATE users SET balance=0 WHERE user_id=?", (uid,))
         await db.execute(
             "INSERT INTO log (user_id, action, amount, meta, ts) VALUES (?, ?, ?, ?, ?)",
@@ -1201,7 +1423,11 @@ async def cb_casino_refresh_audit(call: CallbackQuery, uid: int, bot: Bot):
             InlineKeyboardButton(text="📜 Лог 30 действий", callback_data=f"op_cas:full_history:{uid}"),
         ],
         [
+            InlineKeyboardButton(text="✍️ Откат монет", callback_data=f"op_cas:hint_rollback:{uid}"),
             InlineKeyboardButton(text="🔄 Обновить аудит", callback_data=f"op_cas:refresh:{uid}")
+        ],
+        [
+            InlineKeyboardButton(text="⬅️ К рейтингу игроков", callback_data="op:econ_rank:all:0")
         ]
     ])
 
@@ -1220,20 +1446,33 @@ async def cmd_schedule_announcement(message: Message, bot: Bot, args: str = "", 
     if not await _is_bot_owner(sender_id):
         return await message.reply("🔒 <b>Команда доступна исключительно Владельцу бота!</b>")
 
-    parts = (args or "").strip().split(maxsplit=2)
-    if len(parts) < 3:
+    from h_update_2_2 import get_official_announcement_2_2_text
+
+    args_raw = (args or "").strip()
+    if args_raw.lower() in ("2.2", "обнова", "обновление", "анонс 2.2"):
+        parts = ["29.10.2026", "12:00"]
+    else:
+        parts = args_raw.split(maxsplit=2)
+
+    if len(parts) < 2:
         return await message.reply(
             "👑 <b>Запланировать авто-анонс во все чаты по расписанию:</b>\n\n"
             "Формат: <code>авто анонс [дата] [время МСК] [текст]</code>\n\n"
             "Примеры:\n"
-            "• <code>авто анонс 29.10.2026 12:00 Внимание! Вышло глобальное обновление 2.2!</code>\n"
-            "• <code>авто анонс 29.10 18:30 Серверные работы завершены, всем приятной игры!</code>\n"
-            "• <code>авто анонс завтра 14:00 Сегодня вечером стартует клановый турнир!</code>\n\n"
+            "• <code>авто анонс 29.10.2026 12:00</code> — автоматически запланирует официальный анонс Moxxi 2.2!\n"
+            "• <code>авто анонс 2.2</code> — шорткат релиза на 29.10.2026 в 12:00 МСК!\n"
+            "• <code>авто анонс сегодня 18:30 [любой текст]</code>\n\n"
             "Список запланированных: <code>авто анонсы</code>\n"
             "Отменить анонс: <code>отменить анонс [id]</code>"
         )
 
-    date_str, time_str, text_to_send = parts[0], parts[1], parts[2]
+    if len(parts) == 2:
+        date_str, time_str = parts[0], parts[1]
+        text_to_send = get_official_announcement_2_2_text()
+    else:
+        date_str, time_str, text_to_send = parts[0], parts[1], parts[2]
+        if text_to_send.lower() in ("2.2", "обнова", "обновление"):
+            text_to_send = get_official_announcement_2_2_text()
     ts = _parse_msk_datetime(date_str, time_str)
     if not ts:
         return await message.reply("❌ Неверный формат даты/времени! Используйте <code>ДД.ММ.ГГГГ ЧЧ:ММ</code> (например: <code>29.10.2026 12:00</code>).")

@@ -1033,33 +1033,8 @@ async def cmd_season_league(message: Message, **kw):
 # 14. РАССЫЛКА АНОНСА 2.2 С ЗАЩИТОЙ ПО ВРЕМЕНИ И КНОПКАМИ ОЦЕНКИ
 # ═════════════════════════════════════════════════════════════════════════════
 
-@router.message(Cmd("анонс 2.2", "разослать анонс 2.2", section=34, group_only=False,
-                    usage="анонс 2.2", desc="🚀 Глобальная рассылка анонса 2.2 с защитой таймера"))
-async def cmd_broadcast_announcement_2_2(message: Message, bot: Bot, args: str = "", **kw):
-    sender_id = message.from_user.id if message.from_user else 0
-    if not config.is_bot_owner(sender_id):
-        return await message.reply("⛔️ Рассылку анонса может запускать только Создатель бота!")
-
-    now = int(time.time())
-
-    # СТРОГАЯ ЗАЩИТА ОТ ПРЕЖДЕВРЕМЕННОЙ ОТПРАВКИ!
-    # Рассылка заблокирована до 29.10.2026 12:00:00 МСК
-    if now < ANNOUNCEMENT_UNLOCK_TS:
-        rem_sec = ANNOUNCEMENT_UNLOCK_TS - now
-        dt_target = "29.10.2026 в 12:00 по МСК"
-        return await message.reply(
-            f"🛡️ <b>ЗАЩИТА ОТ СЛУЧАЙНОЙ РАССЫЛКИ АКТИВНА!</b>\n\n"
-            f"Официальный анонс глобального обновления 2.2 запланирован строго на: <b>{dt_target}</b>.\n\n"
-            f"⏳ До разблокировки рассылки осталось: <b>{human_period(rem_sec)}</b>.\n\n"
-            f"<i>Бот специально блокирует рассылку раньше времени, чтобы вы могли спокойно тестировать "
-            f"все команды и ничего случайно не улетело в чаты игроков!</i>"
-        )
-
-    # Если время наступило — формируем рассылку с интерактивными кнопками оценки
-    me_bot = await bot.me()
-    bot_username = me_bot.username or "moxxichat_bot"
-
-    announcement_text = (
+def get_official_announcement_2_2_text() -> str:
+    return (
         "🚀 💥 <b>ГЛОБАЛЬНОЕ ОБНОВЛЕНИЕ БОТА MOXXI 2.2!</b> 💥 🚀\n\n"
         "⚡️ <b>МЫ ПОЛНОСТЬЮ ПЕРЕЕХАЛИ НА НОВОЕ ОБОРУДОВАНИЕ!</b>\n"
         "Мы перенесли всю инфраструктуру бота на сверхмощные выделенные серверы корпоративного уровня, которые в разы мощнее, быстрее и стабильнее прежних:\n"
@@ -1110,6 +1085,35 @@ async def cmd_broadcast_announcement_2_2(message: Message, bot: Bot, args: str =
         "📖 <b>Справочник команд расширен до 597 возможностей</b> — смотрите Раздел 34 (🚀 Глобальное обновление 2.2)!\n\n"
         "<i>Оцените обновление кнопками ниже — ваше мнение определит вектор развития бота:</i>"
     )
+
+
+@router.message(Cmd("анонс 2.2", "разослать анонс 2.2", section=34, group_only=False,
+                    usage="анонс 2.2", desc="🚀 Глобальная рассылка анонса 2.2 с защитой таймера"))
+async def cmd_broadcast_announcement_2_2(message: Message, bot: Bot, args: str = "", **kw):
+    sender_id = message.from_user.id if message.from_user else 0
+    if not config.is_bot_owner(sender_id):
+        return await message.reply("⛔️ Рассылку анонса может запускать только Создатель бота!")
+
+    now = int(time.time())
+
+    # СТРОГАЯ ЗАЩИТА ОТ ПРЕЖДЕВРЕМЕННОЙ ОТПРАВКИ!
+    # Рассылка заблокирована до 29.10.2026 12:00:00 МСК
+    if now < ANNOUNCEMENT_UNLOCK_TS:
+        rem_sec = ANNOUNCEMENT_UNLOCK_TS - now
+        dt_target = "29.10.2026 в 12:00 по МСК"
+        return await message.reply(
+            f"🛡️ <b>ЗАЩИТА ОТ СЛУЧАЙНОЙ РАССЫЛКИ АКТИВНА!</b>\n\n"
+            f"Официальный анонс глобального обновления 2.2 запланирован строго на: <b>{dt_target}</b>.\n\n"
+            f"⏳ До разблокировки рассылки осталось: <b>{human_period(rem_sec)}</b>.\n\n"
+            f"<i>Бот специально блокирует рассылку раньше времени, чтобы вы могли спокойно тестировать "
+            f"все команды и ничего случайно не улетело в чаты игроков!</i>"
+        )
+
+    # Если время наступило — формируем рассылку с интерактивными кнопками оценки
+    me_bot = await bot.me()
+    bot_username = me_bot.username or "moxxichat_bot"
+
+    announcement_text = get_official_announcement_2_2_text()
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [
