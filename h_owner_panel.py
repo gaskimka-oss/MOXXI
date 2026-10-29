@@ -920,8 +920,9 @@ async def _get_user_game_lvl(uid: int) -> int:
 
 @router.callback_query(F.data == "op:casino_audit_menu")
 async def cb_casino_audit_menu(call: CallbackQuery):
+    await call.answer()
     if not await _is_bot_owner(call.from_user.id):
-        return await call.answer("🔒 Доступно только Создателю бота!", show_alert=True)
+        return await call.message.reply("🔒 Доступно только Создателю бота!")
 
     text = (
         "🎰 👑 <b>АУДИТ КАЗИНО И ЭКОНОМИКИ ИГРОКОВ</b> 👑 🎰\n"
