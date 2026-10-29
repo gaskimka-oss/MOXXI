@@ -5,8 +5,9 @@ import html
 import re
 import time
 
-from aiogram import Bot, Router
-from aiogram.types import Message
+from aiogram import Bot, F, Router
+from aiogram.types import (CallbackQuery, InlineKeyboardButton,
+                           InlineKeyboardMarkup, Message)
 
 import db
 import core_members as members
@@ -173,12 +174,87 @@ async def _staff_rows(chat_id: int, bot: Bot | None = None) -> dict[int, list[tu
     return out
 
 
-def _render_staff(groups: dict[int, list[tuple[str, bool]]], title: str = "А Д М И Н И С Т Р А Ц И Я   Б Е С Е Д Ы") -> str:
-    """Стильное VIP Diamond Rainbow дерево оформления состава модерации."""
+STAFF_THEMES = {
+    "rainbow": {
+        "id": "rainbow",
+        "name": "🌈 Радужный VIP (Diamond Rainbow)",
+        "badge": "🌈",
+        "desc": "Фирменный градиентный стиль с кристаллами, алмазами и цветными акцентами",
+        "banner": "✦ ══ • ⊰ 💖 🔮 💙 🩵 💚 💛 🟣 🧡 ❤️ 🤍 ⊱ • ══ ✦",
+        "header_title": "👑 ✨ <b>{title}</b> ✨ 👑",
+        "group_box": "┌ <b>{head}</b>",
+        "branch_mid": "├─▸",
+        "branch_last": "└─▸",
+        "footer_banner": "✦ ══════════════════════════════ ✦",
+        "footer_fmt": "📊 <i>Всего в администрации: <b>{total}</b></i>",
+        "bullets": {10: "👑", 9: "🔱", 8: "🔮", 7: "💎", 6: "⭐", 5: "🛡️", 4: "⚔️", 3: "🗡️", 2: "🔹", 1: "▫️"}
+    },
+    "cyber_sakura": {
+        "id": "cyber_sakura",
+        "name": "🌸 Сакура & Киберпанк (Tokyo Neo-Samurai)",
+        "badge": "🌸",
+        "desc": "Японский кибер-стиль с цветущей сакурой, неоновыми разделителями и катанами",
+        "banner": "🌸 ════════ • ⛩️ • ════════ 🌸",
+        "header_title": "🏮 🌸 <b>{title}</b> 🌸 🏮",
+        "group_box": "┏━ 🌸 <b>{head}</b>",
+        "branch_mid": "┣━▸",
+        "branch_last": "┗━▸",
+        "footer_banner": "🌸 ════════ • ⛩️ • ════════ 🌸",
+        "footer_fmt": "⛩️ <i>Мастеров самурайского совета: <b>{total}</b></i>",
+        "bullets": {10: "⛩️", 9: "🏮", 8: "⚡", 7: "🥷", 6: "🗡️", 5: "⚔️", 4: "🎋", 3: "🌸", 2: "🏮", 1: "🥋"}
+    },
+    "dark_order": {
+        "id": "dark_order",
+        "name": "⚔️ Тёмный Орден (Gothic Castle / Dark Souls)",
+        "badge": "⚔️",
+        "desc": "Готический средневековый стиль с рыцарскими щитами, клинками и гербами",
+        "banner": "⚜️ ━━━━━━━━ • ⚔️ • ━━━━━━━━ ⚜️",
+        "header_title": "🏰 ⚔️ <b>{title}</b> ⚔️ 🏰",
+        "group_box": "╔══ ⚜️ <b>{head}</b>",
+        "branch_mid": "╠══▸",
+        "branch_last": "╚══▸",
+        "footer_banner": "⚜️ ━━━━━━━━ • ⚔️ • ━━━━━━━━ ⚜️",
+        "footer_fmt": "🛡️ <i>Рыцарей круглого стола: <b>{total}</b></i>",
+        "bullets": {10: "👑", 9: "⚜️", 8: "🦅", 7: "⚔️", 6: "🛡️", 5: "🗡️", 4: "🏹", 3: "⚖️", 2: "🛡️", 1: "🗡️"}
+    },
+    "minimal_slate": {
+        "id": "minimal_slate",
+        "name": "💎 Минимализм (Modern Executive Slate)",
+        "badge": "💎",
+        "desc": "Строгий современный моноширинный дизайн для деловых и технологичных бесед",
+        "banner": "──────────────────────────────",
+        "header_title": "┌────────────────────────────┐\n│   <b>{title}</b>   │\n└────────────────────────────┘",
+        "group_box": "■ <b>{head}</b>",
+        "branch_mid": "  ├─",
+        "branch_last": "  └─",
+        "footer_banner": "──────────────────────────────",
+        "footer_fmt": "• <i>Руководящий состав: <b>{total}</b></i>",
+        "bullets": {10: "◈", 9: "◈", 8: "✦", 7: "✦", 6: "✦", 5: "▫️", 4: "▫️", 3: "▪️", 2: "▪️", 1: "▫️"}
+    },
+    "cosmic_galaxy": {
+        "id": "cosmic_galaxy",
+        "name": "🌌 Космос & Галактика (Cosmic Starfleet)",
+        "badge": "🌌",
+        "desc": "Глубокий космический вайб со звёздами, кометами, орбитами и туманностями",
+        "banner": "✨ ⋆ ★ ━━━━━━━ • 🛸 • ━━━━━━━ ★ ⋆ ✨",
+        "header_title": "🪐 🚀 <b>{title}</b> 🚀 🪐",
+        "group_box": "┏━ 🪐 <b>{head}</b>",
+        "branch_mid": "┣━💫",
+        "branch_last": "┗━💫",
+        "footer_banner": "✨ ⋆ ★ ━━━━━━━ • 🛸 • ━━━━━━━ ★ ⋆ ✨",
+        "footer_fmt": "🛰️ <i>Экипаж командного мостика: <b>{total}</b></i>",
+        "bullets": {10: "🪐", 9: "🚀", 8: "🛸", 7: "🌟", 6: "🌠", 5: "☄️", 4: "🛰️", 3: "💫", 2: "✨", 1: "🔭"}
+    }
+}
+
+
+def _render_staff(groups: dict[int, list[tuple[str, bool]]], title: str = "А Д М И Н И С Т Р А Ц И Я   Б Е С Е Д Ы", theme: str = "rainbow") -> str:
+    """Оформление состава модерации с поддержкой кастомных тем чата."""
     from core_registry import RANK_RAINBOW_BULLETS, RANK_RAINBOW_HEADERS, RANK_RAINBOW_PLURAL_HEADERS
 
-    banner = "✦ ══ • ⊰ 💖 🔮 💙 🩵 💚 💛 🟣 🧡 ❤️ 🤍 ⊱ • ══ ✦"
-    header = f"{banner}\n👑 ✨ <b>{title}</b> ✨ 👑\n{banner}"
+    t = STAFF_THEMES.get(theme) or STAFF_THEMES["rainbow"]
+    banner = t["banner"]
+    header = f"{banner}\n" + t["header_title"].format(title=title) + f"\n{banner}"
 
     if not groups:
         return (
@@ -186,7 +262,7 @@ def _render_staff(groups: dict[int, list[tuple[str, bool]]], title: str = "А Д
             "<i>В этой группе ещё не назначен состав модерации.</i>\n\n"
             "👑 Создатель группы автоматически получает ранг.\n"
             "Назначить администратора: <code>+модер 3 @user</code>\n\n"
-            "✦ ══════════════════════════════ ✦"
+            f"{t['footer_banner']}"
         )
 
     parts = [header, ""]
@@ -198,21 +274,21 @@ def _render_staff(groups: dict[int, list[tuple[str, bool]]], title: str = "А Д
             continue
         head = RANK_RAINBOW_PLURAL_HEADERS.get(rank, RANK_RAINBOW_HEADERS.get(rank, f"Ранг {rank}")) if len(people) > 1 \
             else RANK_RAINBOW_HEADERS.get(rank, f"Ранг {rank}")
-        parts.append(f"┌ <b>{head}</b>")
-        bullet = RANK_RAINBOW_BULLETS.get(rank, "🔹")
+        
+        parts.append(t["group_box"].format(head=head))
+        bullet = t["bullets"].get(rank, RANK_RAINBOW_BULLETS.get(rank, "🔹"))
         for idx, (link, left) in enumerate(people):
             is_last = (idx == len(people) - 1)
-            branch = "└─▸" if is_last else "├─▸"
+            branch = t["branch_last"] if is_last else t["branch_mid"]
             if left:
                 parts.append(f"{branch} 🔴 <b>{link}</b> <i>(вышел)</i>")
             else:
                 parts.append(f"{branch} {bullet} <b>{link}</b>")
         parts.append("")
 
-    parts.append("✦ ══════════════════════════════ ✦")
-    parts.append(f"📊 <i>Всего в администрации: <b>{total_staff}</b></i>")
+    parts.append(t["footer_banner"])
+    parts.append(t["footer_fmt"].format(total=total_staff))
     return "\n".join(parts).strip()
-
 
 # ---------------- Назначение ----------------
 async def _grant(message: Message, bot: Bot, args: str, rank: int, **kw):
@@ -725,7 +801,9 @@ async def cmd_staff(message: Message, bot: Bot, **kw):
         except Exception:
             pass
 
-    text = _render_staff(groups, "Состав администрации")
+    t_row = await db.fetchone("SELECT theme FROM chat_themes WHERE chat_id=?", (message.chat.id,))
+    cur_theme = t_row["theme"] if (t_row and t_row.get("theme")) else "rainbow"
+    text = _render_staff(groups, "Состав администрации", theme=cur_theme)
     await message.reply(text, disable_web_page_preview=True)
 
 
@@ -756,7 +834,7 @@ async def cmd_ranks_help(message: Message, **kw):
     from core_registry import RANK_RAINBOW_HEADERS
     perms = {
         10: "полный контроль, высший иммунитет, передача лидерства",
-        9: "заместитель лидера, управление модерацией 1–8 ранга, настройки чата",
+        9: "заместитель: управление модерацией 1–8 ранга, настройки чата",
         8: "технический доступ, системный аудит, управление правами команд (ДК)",
         7: "главный админ: снятие всех рангов, управление доступом команд (ДК), сброс",
         6: "старший админ: сетка чатов, исключение (кик) участников, автокик, антиспам, анкета чата",
@@ -1042,3 +1120,187 @@ async def cmd_global_ranks(message: Message, bot: Bot, args: str = "", **kw):
         f"🌐 Глобальные ранги: <b>{'включены' if cur == '1' else 'выключены'}</b>\n\n"
         f"<i>Включено — звание одинаково во всех чатах.</i>\n"
         f"Изменить: <code>глобальные ранги выкл</code>")
+
+
+# ═════════════════════════════════════════════════════════════════════
+# 🎨 КАСТОМИЗАЦИЯ ДИЗАЙНА ЧАТА И ОФОРМЛЕНИЯ СОСТАВА (Обновление 2.2)
+# ═════════════════════════════════════════════════════════════════════
+
+def _make_theme_menu_kb(cur_theme: str) -> InlineKeyboardMarkup:
+    """Генерирует инлайн-кнопки для выбора темы чата."""
+    kb_rows = []
+    themes_list = list(STAFF_THEMES.values())
+    for i in range(0, len(themes_list), 2):
+        row = []
+        for t in themes_list[i:i+2]:
+            mark = " ✅" if t["id"] == cur_theme else ""
+            row.append(InlineKeyboardButton(text=f"{t['badge']} {t['name'].split('(')[0].strip()}{mark}",
+                                              callback_data=f"chat_theme:select:{t['id']}"))
+        kb_rows.append(row)
+    return InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
+
+@router.message(Cmd("дизайн чата", "тема чата", "дизайн состава", "тема состава",
+                    "стиль состава", "стиль чата", "оформление состава",
+                    section=34, group_only=True,
+                    usage="дизайн чата", desc="🎨 Настройка дизайна оформления состава и чата"))
+async def cmd_chat_design(message: Message, bot: Bot, **kw):
+    me = await effective_rank(message, bot)
+    if me < 4:
+        return await message.reply("⛔️ Настраивать дизайн чата могут только администраторы от <b>4 ранга (Главный модератор)</b> и выше!")
+
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS chat_themes ("
+        "chat_id INTEGER PRIMARY KEY, "
+        "theme TEXT NOT NULL DEFAULT 'rainbow', "
+        "updated_at INTEGER NOT NULL DEFAULT 0, "
+        "updated_by INTEGER NOT NULL DEFAULT 0)"
+    )
+
+    t_row = await db.fetchone("SELECT theme FROM chat_themes WHERE chat_id=?", (message.chat.id,))
+    cur_theme = t_row["theme"] if (t_row and t_row.get("theme")) else "rainbow"
+    t_info = STAFF_THEMES.get(cur_theme, STAFF_THEMES["rainbow"])
+
+    txt = (
+        "🎨 <b>НАСТРОЙКА ДИЗАЙНА ЧАТА И СОСТАВА</b>\n\n"
+        "Здесь вы можете изменить визуальный стиль оформления команды <code>админ состав</code> и системных списков!\n\n"
+        f"📌 Текущий стиль: <b>{t_info['name']}</b>\n"
+        f"📝 <i>{t_info['desc']}</i>\n\n"
+        "👇 <b>Выберите тему ниже, чтобы просмотреть превью или установить её:</b>"
+    )
+
+    await message.reply(txt, reply_markup=_make_theme_menu_kb(cur_theme))
+
+
+@router.callback_query(F.data.startswith("chat_theme:select:"))
+async def cb_theme_select(cq: CallbackQuery, bot: Bot):
+    theme_id = cq.data.split(":", 2)[2]
+    t = STAFF_THEMES.get(theme_id)
+    if not t:
+        return await cq.answer("⚠️ Неизвестная тема", show_alert=True)
+
+    chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
+    t_row = await db.fetchone("SELECT theme FROM chat_themes WHERE chat_id=?", (chat_id,))
+    cur_theme = t_row["theme"] if (t_row and t_row.get("theme")) else "rainbow"
+    is_active = (theme_id == cur_theme)
+
+    txt = (
+        f"🎨 <b>ВЫБРАН СТИЛЬ: {t['name']}</b>\n\n"
+        f"📝 <b>Описание:</b> {t['desc']}\n"
+        f"Статус в этом чате: <b>{'🟢 Активен сейчас' if is_active else '⚪️ Не активен'}</b>\n\n"
+        "<i>Нажмите кнопку ниже, чтобы увидеть живой пример прямо в этом чате или установить стиль для всей беседы:</i>"
+    )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="👁 Посмотреть как будет выглядеть в чате",
+                                 callback_data=f"chat_theme:preview:{theme_id}")
+        ],
+        [
+            InlineKeyboardButton(text="✅ Установить для этого чата",
+                                 callback_data=f"chat_theme:apply:{theme_id}")
+        ],
+        [
+            InlineKeyboardButton(text="◀️ Назад ко всем стилям",
+                                 callback_data="chat_theme:menu")
+        ]
+    ])
+
+    if cq.message:
+        await cq.message.edit_text(txt, reply_markup=kb)
+    await cq.answer()
+
+
+@router.callback_query(F.data == "chat_theme:menu")
+async def cb_theme_menu(cq: CallbackQuery, bot: Bot):
+    chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
+    t_row = await db.fetchone("SELECT theme FROM chat_themes WHERE chat_id=?", (chat_id,))
+    cur_theme = t_row["theme"] if (t_row and t_row.get("theme")) else "rainbow"
+    t_info = STAFF_THEMES.get(cur_theme, STAFF_THEMES["rainbow"])
+
+    txt = (
+        "🎨 <b>НАСТРОЙКА ДИЗАЙНА ЧАТА И СОСТАВА</b>\n\n"
+        "Здесь вы можете изменить визуальный стиль оформления команды <code>админ состав</code> и системных списков!\n\n"
+        f"📌 Текущий стиль: <b>{t_info['name']}</b>\n"
+        f"📝 <i>{t_info['desc']}</i>\n\n"
+        "👇 <b>Выберите тему ниже, чтобы просмотреть превью или установить её:</b>"
+    )
+
+    if cq.message:
+        await cq.message.edit_text(txt, reply_markup=_make_theme_menu_kb(cur_theme))
+    await cq.answer()
+
+
+@router.callback_query(F.data.startswith("chat_theme:preview:"))
+async def cb_theme_preview(cq: CallbackQuery, bot: Bot):
+    theme_id = cq.data.split(":", 2)[2]
+    t = STAFF_THEMES.get(theme_id)
+    if not t:
+        return await cq.answer("⚠️ Неизвестная тема", show_alert=True)
+
+    sample_groups = {
+        10: [("👑 Владелец Беседы", False)],
+        7: [("💎 Главный Администратор", False)],
+        4: [("⚔️ Старший Модератор", False), ("🛡️ Модератор Чата", False)]
+    }
+
+    rendered_sample = _render_staff(sample_groups, "СОСТАВ АДМИНИСТРАЦИИ (ПРЕВЬЮ)", theme=theme_id)
+
+    preview_msg = (
+        f"👁 <b>ПРЕДПРОСМОТР СТИЛЯ: {t['name']}</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"{rendered_sample}\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "💡 <i>Если вам нравится этот вид — нажмите кнопку «✅ Установить» в меню настроек выше!</i>"
+    )
+
+    if cq.message:
+        await cq.message.reply(preview_msg, disable_web_page_preview=True)
+    await cq.answer("👁 Превью отправлено в чат!", show_alert=False)
+
+
+@router.callback_query(F.data.startswith("chat_theme:apply:"))
+async def cb_theme_apply(cq: CallbackQuery, bot: Bot):
+    theme_id = cq.data.split(":", 2)[2]
+    t = STAFF_THEMES.get(theme_id)
+    if not t:
+        return await cq.answer("⚠️ Неизвестная тема", show_alert=True)
+
+    chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
+    uid = cq.from_user.id
+    import time
+    now = int(time.time())
+
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS chat_themes ("
+        "chat_id INTEGER PRIMARY KEY, "
+        "theme TEXT NOT NULL DEFAULT 'rainbow', "
+        "updated_at INTEGER NOT NULL DEFAULT 0, "
+        "updated_by INTEGER NOT NULL DEFAULT 0)"
+    )
+
+    await db.execute(
+        "INSERT INTO chat_themes (chat_id, theme, updated_at, updated_by) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(chat_id) DO UPDATE SET theme=excluded.theme, updated_at=excluded.updated_at, updated_by=excluded.updated_by",
+        (chat_id, theme_id, now, uid)
+    )
+
+    success_txt = (
+        "🎉 <b>СТИЛЬ УСПЕШНО УСТАНОВЛЕН!</b>\n\n"
+        f"Для этого чата активирована тема: <b>{t['name']}</b> {t['badge']}\n\n"
+        "✨ Теперь списки администрации и модерации оформлены в этом дизайне!\n"
+        "🔍 Проверьте командой: <code>админы</code> или <code>состав</code>"
+    )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="👁 Посмотреть в чате", callback_data=f"chat_theme:preview:{theme_id}")
+        ],
+        [
+            InlineKeyboardButton(text="🎨 Сменить на другой стиль", callback_data="chat_theme:menu")
+        ]
+    ])
+
+    if cq.message:
+        await cq.message.edit_text(success_txt, reply_markup=kb)
+    await cq.answer(f"✅ Стиль «{t['name']}» установлен!", show_alert=True)

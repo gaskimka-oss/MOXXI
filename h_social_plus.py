@@ -425,9 +425,13 @@ async def cmd_broadcast_promocode(message: Message, bot: Bot, args: str = "", **
         f"💰 Награда: <b>+{row['reward']:,} монет</b> каждому!\n"
         f"👥 Всего активаций: <b>{row['uses_left']} шт.</b> (успей забрать!)\n\n"
         "👉 <b>Как получить монеты:</b>\n"
-        f"Напишите в чат: <code>промо {code}</code>\n\n"
+        f"Нажмите кнопку ниже или напишите в чат: <code>промо {code}</code>\n\n"
         "✦ ══ • ⊰ 🍸 MOXXI 2.0 ⊱ • ══ ✦"
     )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"🎁 Забрать +{row['reward']:,} монет в 1 клик", callback_data=f"promo_claim:{code}")]
+    ])
 
     sent = await broadcast_notice(bot, text)
     await m.edit_text(
@@ -461,8 +465,167 @@ async def cmd_activate_promocode(message: Message, bot: Bot, args: str = "", **k
     await db.execute("UPDATE promocodes SET uses_left=uses_left-1 WHERE code=?", (code,))
     await db.add_coins(message.from_user.id, row["reward"], "promocode_reward", code)
 
+    rem = row["uses_left"] - 1
+
+    total_act = await db.fetchone("SELECT COUNT(*) as cnt FROM promocode_activations WHERE code=?", (code,))
+    claimed_cnt = total_act["cnt"] if total_act else 1
+    total_initial = claimed_cnt + rem
+
+    # Сообщение в чат (без тега пользователя, чисто анонимный азарт)
+    if rem > 0:
+        await message.reply(
+            f"🎉 <b>ПРОМОКОД УСПЕШНО АКТИВИРОВАН!</b>\n\n"
+            f"💰 Вам начислено: <b>+{row['reward']:,} монет</b> на баланс!\n"
+            f"⚡ <b>Кто-то уже забрал!</b> (Забрали <b>{claimed_cnt} из {total_initial}</b> промов, осталось: <b>{rem} шт.</b>)"
+        )
+    else:
+        await message.reply(
+            f"🎉 <b>ПРОМОКОД УСПЕШНО АКТИВИРОВАН!</b>\n\n"
+            f"💰 Вам начислено: <b>+{row['reward']:,} монет</b> на баланс!\n"
+            f"🔥 <b>Кто-то забрал последний промокод!</b> (Все <b>{total_initial} из {total_initial}</b> промов розданы, наград больше нет!)"
+        )
+
+    # Уведомление создателю промокода в ЛС
+    try:
+        import config
+        creator_id = row.get("created_by") or config.OWNER_ID
+        chat_title = message.chat.title or "Личные сообщения"
+        if creator_id:
+            if rem > 0:
+                await bot.send_message(
+                    creator_id,
+                    f"🎟️ <b>Активация промокода <code>{code}</code>!</b>\n"
+                    f"💬 Чат: «{chat_title}»\n"
+                    f"💰 Награда: +{row['reward']:,} монет\n"
+                    f"⏳ <b>Осталось: {rem} шт.</b>"
+                )
+            else:
+                await bot.send_message(
+                    creator_id,
+                    f"🏁 <b>Промокод <code>{code}</code> полностью закончился!</b>\n"
+                    f"Последний забрали в чате «{chat_title}».\n"
+                    f"Все награды успешно розданы игрокам!"
+                )
+        if config.OWNER_ID and config.OWNER_ID != creator_id:
+            if rem > 0:
+                await bot.send_message(
+                    config.OWNER_ID,
+                    f"🎟️ <b>Активация промокода <code>{code}</code>!</b>\n"
+                    f"💬 Чат: «{chat_title}»\n"
+                    f"⏳ <b>Осталось: {rem} шт.</b>"
+                )
+            else:
+                await bot.send_message(
+                    config.OWNER_ID,
+                    f"🏁 <b>Промокод <code>{code}</code> полностью закончился!</b>\n"
+                    f"Последний забрали в чате «{chat_title}»."
+                )
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data.startswith("promo_claim:"))
+async def cb_claim_promocode(cq: CallbackQuery, bot: Bot):
+    """Активация промокода в 1 клик по инлайн-кнопке под постом рассылки."""
+    code = cq.data.split(":", 1)[1].strip().upper()
+    uid = cq.from_user.id
+
+    row = await db.fetchone("SELECT * FROM promocodes WHERE code=?", (code,))
+    if not row or row["uses_left"] <= 0:
+        return await cq.answer("⚠️ Все промокоды уже разобрали! Активаций больше нет.", show_alert=True)
+
+    used = await db.fetchone("SELECT 1 FROM promocode_activations WHERE code=? AND user_id=?",
+                             (code, uid))
+    if used:
+        return await cq.answer("⛔️ Вы уже активировали этот промокод ранее!", show_alert=True)
+
+    now = int(time.time())
+    await db.execute("INSERT INTO promocode_activations (code, user_id, ts) VALUES (?, ?, ?)",
+                     (code, uid, now))
+    await db.execute("UPDATE promocodes SET uses_left=uses_left-1 WHERE code=?", (code,))
+    await db.add_coins(uid, row["reward"], "promocode_reward", code)
+
+    rem = row["uses_left"] - 1
+
+    total_act = await db.fetchone("SELECT COUNT(*) as cnt FROM promocode_activations WHERE code=?", (code,))
+    claimed_cnt = total_act["cnt"] if total_act else 1
+    total_initial = claimed_cnt + rem
+
+    await cq.answer(f"🎉 Вы успешно забрали +{row['reward']:,} монет!\nОсталось: {rem} из {total_initial} шт.", show_alert=True)
+
+    # Сообщение в чат (без юзернейма, чисто анонимный азарт)
+    chat_title = cq.message.chat.title if cq.message and cq.message.chat else "Группа"
+    if rem > 0:
+        if cq.message:
+            await cq.message.reply(
+                f"⚡ <b>Кто-то уже забрал промокод!</b>\n"
+                f"Забрали <b>{claimed_cnt} из {total_initial}</b> промов (осталось всего: <b>{rem} шт.</b>)! Поторопитесь!"
+            )
+    else:
+        if cq.message:
+            await cq.message.reply(
+                f"🔥 <b>Кто-то забрал последний промокод!</b>\n"
+                f"Все <b>{total_initial} из {total_initial}</b> промокодов <code>{code}</code> разобраны, наград больше нет!"
+            )
+
+    # Личное уведомление создателю в ЛС
+    try:
+        import config
+        creator_id = row.get("created_by") or config.OWNER_ID
+        if creator_id:
+            if rem > 0:
+                await bot.send_message(
+                    creator_id,
+                    f"🎟️ <b>Активация промокода <code>{code}</code> (кнопкой в 1 клик)!</b>\n"
+                    f"💬 Чат: «{chat_title}»\n"
+                    f"💰 Награда: +{row['reward']:,} монет\n"
+                    f"⏳ <b>Осталось: {rem} шт.</b>"
+                )
+            else:
+                await bot.send_message(
+                    creator_id,
+                    f"🏁 <b>Промокод <code>{code}</code> полностью закончился!</b>\n"
+                    f"Последний забрали по кнопке в чате «{chat_title}»."
+                )
+        if config.OWNER_ID and config.OWNER_ID != creator_id:
+            if rem > 0:
+                await bot.send_message(
+                    config.OWNER_ID,
+                    f"🎟️ <b>Активация промокода <code>{code}</code> (в 1 клик)!</b>\n"
+                    f"💬 Чат: «{chat_title}»\n"
+                    f"⏳ <b>Осталось: {rem} шт.</b>"
+                )
+    except Exception:
+        pass
+
+
+@router.message(Cmd("промо инфо", "инфо промо", "статус промо", "промо статус", rank=0, group_only=False,
+                    usage="промо инфо [код]", desc="📊 Статистика промокода (сколько осталось и кто активировал)"))
+async def cmd_promocode_info(message: Message, bot: Bot, args: str = "", **kw):
+    import config
+    sender_id = message.from_user.id if message.from_user else 0
+    if not config.is_bot_owner(sender_id):
+        return await message.reply("⛔️ Просматривать статус промокодов могут только Создатели бота!")
+
+    code = (args or "").strip().upper()
+    if not code:
+        row = await db.fetchone("SELECT * FROM promocodes ORDER BY ts DESC LIMIT 1")
+    else:
+        row = await db.fetchone("SELECT * FROM promocodes WHERE code=?", (code,))
+
+    if not row:
+        return await message.reply("⚠️ Промокод не найден.")
+
+    total_row = await db.fetchone("SELECT COUNT(*) as cnt FROM promocode_activations WHERE code=?", (row["code"],))
+    activated_count = total_row["cnt"] if total_row else 0
+    total_initial = activated_count + row["uses_left"]
+
     await message.reply(
-        f"🎉 <b>ПРОМОКОД АКТИВИРОВАН!</b>\n\n"
-        f"💰 Вам начислено: <b>+{row['reward']:,} монет</b>!\n"
-        f"Осталось активаций: {row['uses_left'] - 1} шт."
+        f"📊 <b>Статистика промокода <code>{row['code']}</code>:</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"💰 Награда: <b>+{row['reward']:,} монет</b>\n"
+        f"👥 Активировано: <b>{activated_count} из {total_initial}</b>\n"
+        f"⚡ <b>Осталось активаций: {row['uses_left']} шт.</b>\n"
+        f"📅 Создан: {time.strftime('%d.%m.%Y %H:%M', time.localtime(row['ts']))}\n"
+        f"Статус: {'🟢 Активен' if row['uses_left'] > 0 else '🔴 Исчерпан'}"
     )

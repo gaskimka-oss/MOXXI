@@ -733,8 +733,8 @@ async def cmd_balance(message: Message, bot: Bot, args: str = "", **kw):
     await message.reply(txt, reply_markup=kb)
 
 
-@router.message(Cmd("бонус", "бонус монет", "бонус коинов", "бонус грамм", "монеты бонус", "ежедневный бонус", section=S,
-                    usage="бонус", desc=f"Бонус {DAILY_COINS:,} монет"))
+@router.message(Cmd("бонус", "бонус монет", "бонус коинов", "бонус грамм", "монеты бонус", "ежедневный бонус", "дейлик", "стрик", section=S,
+                    usage="бонус", desc=f"Ежедневный бонус с серией (до {DAILY_COINS * 4:,} монет)"))
 async def cmd_daily(message: Message, **kw):
     if not await topic_ok(message):
         return
@@ -745,12 +745,77 @@ async def cmd_daily(message: Message, **kw):
     left = await db.cooldown_left(uid, "gram_daily", cd)
     if left:
         return await message.reply(f"⏳ Бонус уже получен.\nСледующий через <b>{hms(left)}</b>")
-    bal = await db.add_balance(uid, DAILY_COINS, "daily_bonus")
+
+    # Инициализация таблицы серий если нет
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS daily_streaks ("
+        "user_id INTEGER PRIMARY KEY, "
+        "streak INTEGER DEFAULT 1, "
+        "max_streak INTEGER DEFAULT 1, "
+        "last_ts INTEGER DEFAULT 0)"
+    )
+
+    now = int(time.time())
+    streak_row = await db.fetchone("SELECT * FROM daily_streaks WHERE user_id=?", (uid,))
+
+    is_broken = False
+    if streak_row and streak_row["last_ts"] > 0:
+        diff = now - streak_row["last_ts"]
+        if diff <= 36 * 3600:
+            streak = streak_row["streak"] + 1
+        else:
+            streak = 1
+            is_broken = True
+        max_streak = max(streak, streak_row["max_streak"])
+    else:
+        streak = 1
+        max_streak = 1
+
+    await db.execute(
+        "INSERT INTO daily_streaks (user_id, streak, max_streak, last_ts) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET streak=?, max_streak=?, last_ts=?",
+        (uid, streak, max_streak, now, streak, max_streak, now)
+    )
+
+    if streak >= 30:
+        mult = 4.0
+    elif streak >= 14:
+        mult = 3.0
+    elif streak >= 7:
+        mult = 2.5
+    elif streak == 6:
+        mult = 2.0
+    elif streak == 5:
+        mult = 1.8
+    elif streak == 4:
+        mult = 1.6
+    elif streak == 3:
+        mult = 1.4
+    elif streak == 2:
+        mult = 1.2
+    else:
+        mult = 1.0
+
+    reward = int(DAILY_COINS * mult)
+    bal = await db.add_balance(uid, reward, "daily_bonus")
     await db.set_cooldown(uid, "gram_daily")
+
+    cycle_day = ((streak - 1) % 7) + 1
+    p_bar = "🟩" * cycle_day + "⬜" * (7 - cycle_day)
+
+    broken_text = "⚠️ <i>Вы пропустили день, серия началась заново!</i>\n\n" if is_broken else ""
+    jackpot_text = "\n🔥 <b>НЕДЕЛЬНЫЙ ДЖЕКПОТ ЗАБРАН!</b> (+бонусный буст!)" if cycle_day == 7 else ""
+
     await message.reply(
-        f"🎁 <b>Ежедневный бонус!</b>\n\n"
-        f"Начислено: <b>+{c(DAILY_COINS)}</b> 🎉\n"
-        f"Ваш баланс: <b>{c(bal)}</b>")
+        f"🎁 <b>ЕЖЕДНЕВНЫЙ БОНУС!</b>\n\n"
+        f"{broken_text}"
+        f"💰 Начислено: <b>+{c(reward)}</b> (множитель: <b>x{mult:.1f}</b>) 🎉\n"
+        f"💳 Баланс: <b>{c(bal)}</b>\n\n"
+        f"🔥 <b>Серия посещений: {streak}-й день подряд!</b>\n"
+        f"Цикл: [{p_bar}] ({cycle_day}/7 дней){jackpot_text}\n"
+        f"🏆 Рекорд серии: <b>{max_streak} дн.</b>\n\n"
+        f"<i>Заходите каждый день, чтобы множитель вырос до x4.0!</i>"
+    )
 
 
 @router.message(Cmd("топ", "топ монет", "топ игроков", "топ коинов", "топ грамм", "топ граммов", "топ грами", "топ богатых", "топ баланс", "топ по ирискам", "топ ирисок", section=S,

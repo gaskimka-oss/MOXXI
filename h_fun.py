@@ -305,6 +305,13 @@ _duels: dict[str, dict] = {}
 async def _bet_of(message: Message, raw: str) -> int | None:
     if not await topic_ok(message):
         return None
+    try:
+        from h_owner_panel import is_casino_banned
+        if await is_casino_banned(message.from_user.id):
+            await message.reply("⛔️ <b>Вам закрыт доступ к казино и азартным играм по решению Владельца бота!</b>")
+            return None
+    except Exception:
+        pass
     u = await db.get_user(message.from_user.id)
     bet = parse_amount(raw, u["balance"], MIN_BET)
     if not bet or bet < MIN_BET:

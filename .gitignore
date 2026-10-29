@@ -5,3 +5,13 @@ data/
 *.log
 .env
 bot_iric_*.py
+.vercel
+*.mp4
+*.mp3
+*.wav
+venv/
+scratch/
+*.db
+frames_vid1/
+frames_vid2/
+sk3dguard-compact-vm/

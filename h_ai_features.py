@@ -28,51 +28,117 @@ router = Router(name="ai_features")
 S = 42  # Раздел 42: Искусственный интеллект (Moxxi AI)
 
 
-# ══════════════════ 1. РАСПОЗНАВАНИЕ ГОЛОСОВЫХ (VOICE-TO-TEXT) ══════════════════
+# ══════════════════ 1. РАСПОЗНАВАНИЕ ГОЛОСОВЫХ И КРУЖОЧКОВ (VOICE-TO-TEXT) ══════════════════
 
 async def process_voice_message(message: Message, bot: Bot) -> bool:
-    """Транскрибирует голосовое или видео-заметку через Gemini/STT."""
-    if message.chat.type == "private":
-        return False
+    """Мгновенно транскрибирует голосовое сообщение или видео-кружочек через Gemini STT."""
     if not message.from_user or message.from_user.is_bot:
         return False
 
     cid = message.chat.id
-    enabled = await db.get_setting(cid, "voice_text", "1") == "1"
-    if not enabled:
-        return False
+    # В беседах проверяем, не выключил ли админ авто-распознавание (по умолчанию включено: 1)
+    if message.chat.type != "private":
+        v_enabled = await db.get_setting(cid, "voice_text", "1") != "0"
+        s_enabled = await db.get_setting(cid, "stt", "1") != "0"
+        if not (v_enabled and s_enabled):
+            return False
 
     obj = message.voice or message.video_note
     if not obj:
         return False
 
-    if (obj.duration or 0) > 120:  # максимум 2 минуты
+    # Лимит длительности: до 5 минут (300 сек)
+    if (obj.duration or 0) > 300:
         return False
 
     try:
-        # Пробуем через core_stt если доступен, либо через Gemini
         import core_stt as stt
         if stt.available():
             f = await bot.get_file(obj.file_id)
             buf = await bot.download_file(f.file_path)
             audio = buf.read()
-            name = "voice.ogg" if message.voice else "circle.mp4"
-            text = await stt.transcribe(audio, name)
+            mime_type = "audio/ogg" if message.voice else "video/mp4"
+            filename = "voice.ogg" if message.voice else "circle.mp4"
+            text = await stt.transcribe(audio, filename=filename, mime_type=mime_type)
             if text:
-                kind = "🎙 <b>Голосовое</b>" if message.voice else "⭕️ <b>Кружок</b>"
+                kind = "🎙 <b>Голосовое сообщение</b>" if message.voice else "⭕️ <b>Кружочек</b>"
                 who = mention(message.from_user)
                 mm, ss = divmod(int(obj.duration or 0), 60)
                 dur = f"{mm}:{ss:02d}"
                 await message.reply(
-                    f"{kind} от {who} · <code>{dur}</code>\n\n"
+                    f"{kind} от {who} (<code>{dur}</code>):\n\n"
                     f"💬 <i>«{html.escape(text.strip())}»</i>",
                     disable_web_page_preview=True
                 )
+                if message.chat.type != "private":
+                    try:
+                        await db.bump_chat_stat(cid, message.from_user.id, 1)
+                    except Exception:
+                        pass
                 return True
     except Exception as e:
         log.warning("Ошибка Voice-to-Text: %s", e)
 
     return False
+
+
+@router.message(F.voice | F.video_note)
+async def on_voice_or_video_note(message: Message, bot: Bot):
+    """Автоматическое распознавание всех голосовых сообщений и кружочков на лету без команд."""
+    if not message.from_user or message.from_user.is_bot:
+        return
+
+    # В личных сообщениях с ботом — расшифровываем всегда и мгновенно
+    if message.chat.type == "private":
+        await process_voice_message(message, bot)
+        return
+
+    cid = message.chat.id
+    uid = message.from_user.id
+
+    # 1. Проверяем ночной режим (если тихий час запрещает медиа)
+    try:
+        from h_nightmode import check_night_restrictions
+        if await check_night_restrictions(message, bot):
+            return
+    except Exception:
+        pass
+
+    # 2. Проверяем шлюз описаний / анкет (если включен в группе)
+    try:
+        from config import OWNER_ID
+        from core_ranks import effective_rank
+        is_staff = (uid == OWNER_ID) or (await effective_rank(message, bot) >= 1)
+        if not is_staff and not message.reply_to_message:
+            from h_userinfo import needs_form, get_form_topic, topic_link
+            if await needs_form(cid, uid):
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
+                if not await db.cooldown_left(uid, "form_media", 90):
+                    await db.set_cooldown(uid, "form_media")
+                    ft = await get_form_topic(cid)
+                    link = topic_link(cid, ft) if ft else ""
+                    try:
+                        warn = await bot.send_message(
+                            cid,
+                            f"🔇 {mention(message.from_user)}, голосовые и кружочки будут доступны после заполнения описания.\n\n"
+                            + (f"✍️ Заполнить: {link}" if link else "✍️ Заполнить: команда <code>шаблон</code>"),
+                            message_thread_id=ft or None,
+                            disable_web_page_preview=True
+                        )
+                        import asyncio as _a
+                        from h_passive import _del_later
+                        _a.create_task(_del_later(warn, 60))
+                    except Exception:
+                        pass
+                return
+    except Exception:
+        pass
+
+    # 3. Мгновенно расшифровываем голосовое или кружочек
+    await process_voice_message(message, bot)
 
 
 @router.message(Cmd("гс текст", "текст гс", "распознавание гс", section=S, rank=4,

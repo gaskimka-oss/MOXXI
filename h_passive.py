@@ -68,8 +68,36 @@ async def on_added(event: ChatMemberUpdated, bot: Bot):
     except Exception:
         pass
 
+    # 🎁 ВИРУСНЫЙ БОНУС ОБНОВЛЕНИЯ 2.2: 1,000,000 в казну + 7 дней VIP пригласившему
+    bonus_info = ""
+    try:
+        await db.execute(
+            "CREATE TABLE IF NOT EXISTS chat_treasury ("
+            "chat_id INTEGER PRIMARY KEY, "
+            "balance INTEGER NOT NULL DEFAULT 0, "
+            "updated_at INTEGER NOT NULL DEFAULT 0)"
+        )
+        row_treasury = await db.fetchone("SELECT balance FROM chat_treasury WHERE chat_id=?", (event.chat.id,))
+        if not row_treasury:
+            now_ts = int(time.time())
+            await db.execute(
+                "INSERT INTO chat_treasury (chat_id, balance, updated_at) VALUES (?, 1000000, ?)",
+                (event.chat.id, now_ts)
+            )
+            adder_uid = event.from_user.id if event.from_user else 0
+            if adder_uid and not (event.from_user and event.from_user.is_bot):
+                vip_until = now_ts + 7 * 86400
+                await db.set_vip(adder_uid, vip_until, level=1)
+                bonus_info = (
+                    f"\n\n🎁 <b>БОНУС ЗА ПОДКЛЮЧЕНИЕ ЧАТА:</b>\n"
+                    f"💰 В казну группы начислено: <b>1,000,000 монет</b> (команда: <code>казна</code>)!\n"
+                    f"🌟 Пригласившему ({mention_id(adder_uid, event.from_user.first_name)}) выдан <b>VIP-статус на 7 дней</b>!"
+                )
+    except Exception:
+        pass
+
     me = await bot.me()
-    text = RIGHTS_TEXT + creator_info
+    text = RIGHTS_TEXT + creator_info + bonus_info
     text += "\n\n📖 <code>команды</code> — все возможности\n🔐 <code>ДК</code> — доступ команд"
 
     try:
@@ -427,6 +455,14 @@ async def activity(message: Message, bot: Bot):
     try:
         from h_nightmode import check_night_restrictions
         if await check_night_restrictions(message, bot):
+            return
+    except Exception:
+        pass
+
+    # --- интерактивные наказания и царский указ (клоун, пьяница, указ) ---
+    try:
+        from h_update_2_2 import check_interactive_punishments_and_decrees
+        if await check_interactive_punishments_and_decrees(message, bot):
             return
     except Exception:
         pass
