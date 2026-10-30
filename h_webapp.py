@@ -19,15 +19,15 @@ from utils import mention, money
 router = Router(name="webapp")
 S = 32  # Раздел 32: Инфо, справка и Mini App
 
-# URL для Telegram WebApp (по умолчанию ссылка на хостинг или зеркало)
-DEFAULT_WEBAPP_URL = os.getenv("WEBAPP_URL", "https://t.me/moxxichat_bot/app").strip()
+# URL для Telegram WebApp (постоянный GitHub Pages хостинг с поддержкой HTTPS)
+DEFAULT_WEBAPP_URL = os.getenv("WEBAPP_URL", "https://gaskimka-oss.github.io/MOXXI/").strip()
 
 
 def _get_webapp_kb(url: str | None = None) -> InlineKeyboardMarkup:
     target_url = url or DEFAULT_WEBAPP_URL
-    # Если URL не начинается с https://, используем запасной рабочий WebApp URL
+    # Если URL не начинается с https://, используем постоянный GitHub Pages хостинг
     if not target_url.startswith("https://"):
-        target_url = "https://moxxibot.vercel.app"
+        target_url = "https://gaskimka-oss.github.io/MOXXI/"
 
     if "t.me/" in target_url:
         top_btn = InlineKeyboardButton(text="📱 Открыть Moxxi Mini App (Казино & Игры)", url=target_url)

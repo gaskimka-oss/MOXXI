@@ -1353,6 +1353,10 @@ async def cb_casino_admin_actions(call: CallbackQuery, bot: Bot):
 
 
 async def cb_casino_refresh_audit(call: CallbackQuery, uid: int, bot: Bot):
+    try:
+        await call.answer()
+    except Exception:
+        pass
     u = await db.get_user(uid)
     if not u:
         return
@@ -1589,8 +1593,12 @@ async def scheduled_announcements_worker(bot: Bot) -> None:
                 rows = await db.fetchall("SELECT chat_id FROM chats WHERE chat_id < 0")
                 sent_count = 0
 
-                me_bot = await bot.me()
-                b_user = me_bot.username or "moxxichat_bot"
+                try:
+                    me_bot = await bot.get_me()
+                    b_user = me_bot.username or "moxxichat_bot"
+                except Exception:
+                    b_user = "moxxichat_bot"
+
                 kb = InlineKeyboardMarkup(inline_keyboard=[
                     [
                         InlineKeyboardButton(text="💬 Написать в тех.поддержку / Есть вопрос", url=f"https://t.me/{b_user}?start=support")
@@ -1613,8 +1621,8 @@ async def scheduled_announcements_worker(bot: Bot) -> None:
                         )
                         sent_count += 1
                         await asyncio.sleep(0.06)
-                    except Exception:
-                        pass
+                    except Exception as err:
+                        log.debug("broadcast to %s failed: %s", cid, err)
 
                 await db.execute(
                     "UPDATE scheduled_announcements SET status='completed', sent_chats=? WHERE id=?",
