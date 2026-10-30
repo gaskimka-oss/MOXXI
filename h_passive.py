@@ -467,6 +467,14 @@ async def activity(message: Message, bot: Bot):
     except Exception:
         pass
 
+    # --- теплокарта активности 7x24 ---
+    if message.chat and message.chat.type in {"group", "supergroup"}:
+        try:
+            from h_update_2_2 import record_chat_activity
+            await record_chat_activity(message.chat.id)
+        except Exception:
+            pass
+
     # --- буфер для контекста в логах модерации ---
     try:
         import core_modlog as _ml
