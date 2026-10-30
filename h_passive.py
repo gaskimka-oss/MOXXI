@@ -627,10 +627,11 @@ async def activity(message: Message, bot: Bot):
 
         await db.bump_chat_stat(message.chat.id, uid, XP_PER_MESSAGE)
         import time as _t
+        from utils import current_msk_date
         await db.execute(
             "INSERT INTO daily_stats (day, chat_id, user_id, messages) VALUES (?,?,?,1) "
             "ON CONFLICT(day, chat_id, user_id) DO UPDATE SET messages = messages + 1",
-            (_t.strftime("%Y-%m-%d"), message.chat.id, uid))
+            (current_msk_date(), message.chat.id, uid))
         await db.execute(
             "INSERT OR IGNORE INTO first_seen (chat_id, user_id, ts) VALUES (?,?,?)",
             (message.chat.id, uid, int(_t.time())))

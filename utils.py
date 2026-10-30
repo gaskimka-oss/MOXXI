@@ -27,8 +27,17 @@ def mention(user: User) -> str:
     return f'<a href="tg://user?id={user.id}">{name}</a>'
 
 
+def current_msk_date() -> str:
+    """Возвращает текущую дату по Московскому времени (UTC+3) в формате YYYY-MM-DD."""
+    from datetime import datetime, timezone, timedelta
+    return datetime.now(timezone(timedelta(hours=3))).strftime("%Y-%m-%d")
+
+
 def mention_id(user_id: int, name: str | None = None) -> str:
-    return f'<a href="tg://user?id={user_id}">{html.escape(name or str(user_id))}</a>'
+    cleaned = (str(name) if name is not None else "").strip()
+    if not cleaned or cleaned in {"-", "—", ".", "?", "None", "null"}:
+        cleaned = f"Игрок {user_id}"
+    return f'<a href="tg://user?id={user_id}">{html.escape(cleaned)}</a>'
 
 
 def level_of(xp: int) -> tuple[int, str, int, int]:

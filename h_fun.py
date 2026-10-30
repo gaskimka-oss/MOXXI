@@ -835,25 +835,50 @@ async def cmd_shop(message: Message, **kw):
 
 @router.message(Cmd("топ дня", "топдня", "актив дня", section=9, usage="топ дня",
                     desc="Самые активные за сегодня"))
-async def cmd_topday(message: Message, **kw):
-    import time as _t
-    day = _t.strftime("%Y-%m-%d")
+async def cmd_topday(message: Message, bot: Bot, **kw):
+    from utils import current_msk_date
+    day = current_msk_date()
     if message.chat.type == "private":
         rows = await db.fetchall(
-            "SELECT d.user_id, SUM(d.messages) m, u.first_name FROM daily_stats d "
-            "LEFT JOIN users u ON u.user_id=d.user_id WHERE d.day=? "
+            "SELECT d.user_id, SUM(d.messages) as m, u.first_name, u.username, u.nick, p.real_name "
+            "FROM daily_stats d "
+            "LEFT JOIN users u ON u.user_id=d.user_id "
+            "LEFT JOIN profiles p ON p.user_id=d.user_id "
+            "WHERE d.day=? "
             "GROUP BY d.user_id ORDER BY m DESC LIMIT 10", (day,))
     else:
         rows = await db.fetchall(
-            "SELECT d.user_id, d.messages m, u.first_name FROM daily_stats d "
-            "LEFT JOIN users u ON u.user_id=d.user_id WHERE d.day=? AND d.chat_id=? "
+            "SELECT d.user_id, d.messages as m, u.first_name, u.username, u.nick, p.real_name "
+            "FROM daily_stats d "
+            "LEFT JOIN users u ON u.user_id=d.user_id "
+            "LEFT JOIN profiles p ON p.user_id=d.user_id "
+            "WHERE d.day=? AND d.chat_id=? "
             "ORDER BY m DESC LIMIT 10", (day, message.chat.id))
     if not rows:
         return await message.reply("🏆 Сегодня ещё никто не активничал.")
     medals = ["🥇", "🥈", "🥉"] + ["▫️"] * 7
-    await message.reply("🏆 <b>Топ дня</b>\n\n" + "\n".join(
-        f"{medals[i]} {mention_id(r['user_id'], r['first_name'])} — {r['m']} сообщ."
-        for i, r in enumerate(rows)))
+    lines = []
+    for i, r in enumerate(rows):
+        uid = r["user_id"]
+        uname = (r["first_name"] or "").strip()
+        if not uname or uname in {"-", "—", ".", "?", "None"}:
+            uname = (r["nick"] or "").strip()
+        if not uname or uname in {"-", "—", ".", "?", "None"}:
+            uname = (r["real_name"] or "").strip()
+        if not uname or uname in {"-", "—", ".", "?", "None"}:
+            if r["username"]:
+                uname = f"@{r['username']}"
+        if not uname or uname in {"-", "—", ".", "?", "None"}:
+            try:
+                member = await bot.get_chat_member(message.chat.id, uid)
+                if member and member.user:
+                    uname = member.user.first_name or member.user.username or f"Игрок {uid}"
+                    await db.touch_user(uid, member.user.username, member.user.first_name)
+            except Exception:
+                uname = f"Игрок {uid}"
+        lines.append(f"{medals[i]} {mention_id(uid, uname)} — {r['m']} сообщ.")
+
+    await message.reply("🏆 <b>Топ дня</b>\n\n" + "\n".join(lines))
 
 
 # ══════════════════ ЕЖЕДНЕВНОЕ КОЛЕСО ФОРТУНЫ МОКСИ ══════════════════

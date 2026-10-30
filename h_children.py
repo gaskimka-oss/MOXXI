@@ -212,6 +212,9 @@ def child_main_keyboard(child_id: int, rel_id: int, current_idx: int = 0, total_
         [
             InlineKeyboardButton(text="📚 Обучение", callback_data=f"kid_cat:edu:{child_id}:{rel_id}:{current_idx}"),
             InlineKeyboardButton(text="🔄 Обновить", callback_data=f"kid_view:{child_id}:{rel_id}:{current_idx}")
+        ],
+        [
+            InlineKeyboardButton(text="👦/👧 Сменить пол малыша", callback_data=f"kid_ch_gender:{child_id}:{rel_id}:{current_idx}")
         ]
     ]
     if total_children > 1:
@@ -246,16 +249,16 @@ def parse_child_name_and_gender(args: str, cmd_name: str = "") -> tuple[str | No
     full = f"{cmd_name} {text}".strip().lower()
 
     gender = None
-    if "девочк" in full or "дочь" in full or "дочк" in full or "девчонк" in full:
+    if any(k in full for k in ["девочк", "дочь", "дочк", "дочурк", "девчонк", "удочерить"]):
         gender = "👧 Девочка"
-    elif "мальчик" in full or "сын" in full or "сынок" in full or "парен" in full:
+    elif any(k in full for k in ["мальчик", "сын", "сынок", "сыночек", "парен", "усыновить"]):
         gender = "👦 Мальчик"
 
     words = text.split()
     name_words = []
     for w in words:
         wl = w.lower()
-        if any(g in wl for g in ["мальчик", "девочк", "сын", "сынок", "дочь", "дочк", "девчонк", "ребенок", "ребёнок"]):
+        if any(g in wl for g in ["мальчик", "девочк", "сын", "сынок", "сыночек", "дочь", "дочк", "дочурк", "девчонк", "ребенок", "ребёнок", "усыновить", "удочерить", "малыш"]):
             continue
         name_words.append(w)
 
@@ -268,9 +271,12 @@ def _get_other_partner(rel: dict, me_id: int) -> int:
 
 
 @router.message(Cmd("отн ребенок", "завести ребенка", "родить ребенка", "родить мальчика",
-                    "родить девочку", "завести мальчика", "завести девочку", section=S_REL,
-                    usage="отн ребенок [мальчик/девочка] [имя]", desc="Завести совместного ребёнка с выбором пола"))
-async def cmd_have_child(message: Message, bot: Bot, args: str = "", cmd_name: str = "отн ребенок", **kw):
+                    "родить девочку", "завести мальчика", "завести девочку", "родить",
+                    "родить сына", "родить дочь", "завести сына", "завести дочь",
+                    "усыновить", "удочерить", "отн родить", "новый ребенок", "создать ребенка",
+                    section=S_REL, usage="родить [мальчик/девочка] [имя]",
+                    desc="Завести совместного ребёнка в паре с выбором пола"))
+async def cmd_have_child(message: Message, bot: Bot, args: str = "", cmd_name: str = "родить", **kw):
     me_id = message.from_user.id
     rel = await db.get_relationship(me_id)
     if not rel:
@@ -284,13 +290,13 @@ async def cmd_have_child(message: Message, bot: Bot, args: str = "", cmd_name: s
     if not child_name:
         return await message.reply(
             "👶 <b>Как завести ребёнка в отношениях:</b>\n\n"
-            "• <code>отн ребенок мальчик Максим</code>\n"
-            "• <code>отн ребенок девочка Алиса</code>\n"
-            "• Или: <code>отн ребенок [Имя]</code> — и выберите пол кнопкой!\n\n"
-            "💖 <i>За рождение ребёнка даётся +150 любви к отношениям!</i>"
+            "• <code>родить мальчика [Имя]</code> (или: <code>усыновить [Имя]</code>)\n"
+            "• <code>родить девочку [Имя]</code> (или: <code>удочерить [Имя]</code>)\n"
+            "• Или просто: <code>родить [Имя]</code> — и выберите пол кнопками!\n\n"
+            "💖 <i>За рождение малыша даётся +150 любви к отношениям пары!</i>"
         )
 
-    # Если пол не указан текстом — предлагаем выбрать кнопками
+    # Если пол не указан текстом — предлагаем выбрать интерактивными кнопками (без рандома!)
     if not gender:
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [
@@ -302,9 +308,9 @@ async def cmd_have_child(message: Message, bot: Bot, args: str = "", cmd_name: s
             ]
         ])
         return await message.reply(
-            f"🍼 <b>Выбор пола для вашего малыша!</b>\n\n"
-            f"Имя ребёнка: <b>{html.escape(child_name)}</b>\n"
-            f"Выберите, кто у вас родится:",
+            f"🍼 <b>В семье пополнение! Выберите пол для вашего малыша:</b>\n\n"
+            f"👶 Имя ребёнка: <b>{html.escape(child_name)}</b>\n\n"
+            f"👇 <i>Кто у вас родится? Нажмите нужную кнопку:</i>",
             reply_markup=kb
         )
 
@@ -326,6 +332,10 @@ async def cmd_have_child(message: Message, bot: Bot, args: str = "", cmd_name: s
 
 @router.callback_query(F.data.startswith("rel_kid_gender:"))
 async def cb_rel_kid_gender(call: CallbackQuery, bot: Bot):
+    try:
+        await call.answer()
+    except Exception:
+        pass
     parts = call.data.split(":", 3)
     rel_id = int(parts[1])
     g_code = parts[2]
@@ -356,7 +366,131 @@ async def cb_rel_kid_gender(call: CallbackQuery, bot: Bot):
         )
     except Exception:
         pass
-    await call.answer(f"Поздравляем с рождением {gender}!")
+
+
+@router.callback_query(F.data.startswith("kid_ch_gender:"))
+async def cb_kid_change_gender_menu(call: CallbackQuery):
+    try:
+        await call.answer()
+    except Exception:
+        pass
+    parts = call.data.split(":")
+    child_id = int(parts[1])
+    rel_id = int(parts[2])
+    idx = int(parts[3]) if len(parts) > 3 else 0
+
+    rel = await db.get_rel_by_id(rel_id)
+    if not rel or call.from_user.id not in (rel["user1_id"], rel["user2_id"]):
+        return await call.answer("🔒 Меню доступно только родителям малыша!", show_alert=True)
+
+    child = await db.get_child_by_id(child_id)
+    if not child:
+        return await call.answer("Ребёнок не найден.", show_alert=True)
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="👦 Сделать мальчиком", callback_data=f"kid_set_g:boy:{child_id}:{rel_id}:{idx}"),
+            InlineKeyboardButton(text="👧 Сделать девочкой", callback_data=f"kid_set_g:girl:{child_id}:{rel_id}:{idx}")
+        ],
+        [
+            InlineKeyboardButton(text="🔙 Назад в профиль", callback_data=f"kid_view:{child_id}:{rel_id}:{idx}")
+        ]
+    ])
+
+    try:
+        await call.message.edit_text(
+            f"👶 <b>СМЕНА ПОЛА РЕБЁНКА: {html.escape(child['name'])}</b>\n\n"
+            f"🏷 Текущий пол: <b>{child['gender']}</b>\n\n"
+            f"👇 <i>Выберите нужный пол для вашего малыша:</i>",
+            reply_markup=kb
+        )
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data.startswith("kid_set_g:"))
+async def cb_kid_set_gender(call: CallbackQuery, bot: Bot):
+    parts = call.data.split(":")
+    g_code = parts[1]
+    child_id = int(parts[2])
+    rel_id = int(parts[3])
+    idx = int(parts[4]) if len(parts) > 4 else 0
+
+    rel = await db.get_rel_by_id(rel_id)
+    if not rel or call.from_user.id not in (rel["user1_id"], rel["user2_id"]):
+        return await call.answer("🔒 Сменить пол могут только родители!", show_alert=True)
+
+    child = await db.get_child_by_id(child_id)
+    if not child:
+        return await call.answer("Ребёнок не найден.", show_alert=True)
+
+    new_gender = "👦 Мальчик" if g_code == "boy" else "👧 Девочка"
+    await db.execute("UPDATE relationship_children SET gender=? WHERE id=?", (new_gender, child_id))
+    await call.answer(f"✅ Пол малыша изменён на {new_gender}!", show_alert=True)
+
+    kids = await db.get_rel_children(rel_id)
+    u1 = await db.get_user(rel["user1_id"])
+    u2 = await db.get_user(rel["user2_id"])
+    n1 = u1["first_name"] or str(rel["user1_id"])
+    n2 = u2["first_name"] or str(rel["user2_id"])
+    parent_names = f"{mention_id(rel['user1_id'], n1)} & {mention_id(rel['user2_id'], n2)}"
+
+    updated_child = await db.get_child_by_id(child_id)
+    text = format_child_card(updated_child, parent_names)
+    kb = child_main_keyboard(child_id, rel_id, idx, len(kids))
+    try:
+        await call.message.edit_text(text, reply_markup=kb)
+    except Exception:
+        pass
+
+
+@router.message(Cmd("сменить пол ребенка", "пол ребенка", "изменить пол ребенка", "отн пол ребенка",
+                    section=S_REL, usage="пол ребенка [мальчик/девочка]", desc="Сменить пол ребёнка пары"))
+async def cmd_change_child_gender(message: Message, bot: Bot, args: str = "", **kw):
+    me_id = message.from_user.id
+    rel = await db.get_relationship(me_id)
+    if not rel:
+        return await message.reply("❌ У вас нет отношений.")
+
+    kids = await db.get_rel_children(rel["id"])
+    if not kids:
+        return await message.reply("🍼 У вашей пары пока нет детей.")
+
+    arg_low = (args or "").strip().lower()
+    if not arg_low or not any(k in arg_low for k in ["мал", "дев", "сын", "доч"]):
+        return await message.reply(
+            "👶 <b>Как изменить пол ребёнка:</b>\n\n"
+            "• <code>пол ребенка мальчик</code>\n"
+            "• <code>пол ребенка девочка</code>\n"
+            "• Если несколько детей: <code>пол ребенка 1 мальчик</code> (или укажите имя)"
+        )
+
+    new_gender = "👦 Мальчик" if any(k in arg_low for k in ["мал", "сын", "парен"]) else "👧 Девочка"
+
+    target_child = kids[0]
+    parts = arg_low.split()
+    for p in parts:
+        if p.isdigit():
+            c_idx = int(p) - 1
+            if 0 <= c_idx < len(kids):
+                target_child = kids[c_idx]
+                break
+        else:
+            for c in kids:
+                if c["name"].lower() in p or p in c["name"].lower():
+                    target_child = c
+                    break
+
+    await db.execute("UPDATE relationship_children SET gender=? WHERE id=?", (new_gender, target_child["id"]))
+    await message.reply(f"✅ 👶 Пол ребёнка <b>{html.escape(target_child['name'])}</b> успешно изменён на <b>{new_gender}</b>!")
+
+
+@router.callback_query(F.data == "noop")
+async def cb_noop_children(call: CallbackQuery):
+    try:
+        await call.answer()
+    except Exception:
+        pass
 
 
 @router.message(Cmd("ребенок", "ребёнок", "мой ребенок", "мой ребёнок", "дети", "отн дети", "отн ребенок инфо",
@@ -389,6 +523,10 @@ async def cmd_my_child(message: Message, bot: Bot, **kw):
 
 @router.callback_query(F.data.startswith("kid_view:"))
 async def cb_kid_view(call: CallbackQuery, bot: Bot):
+    try:
+        await call.answer()
+    except Exception:
+        pass
     parts = call.data.split(":")
     child_id = int(parts[1])
     rel_id = int(parts[2])
@@ -417,6 +555,10 @@ async def cb_kid_view(call: CallbackQuery, bot: Bot):
 
 @router.callback_query(F.data.startswith("kid_nav:"))
 async def cb_kid_nav(call: CallbackQuery, bot: Bot):
+    try:
+        await call.answer()
+    except Exception:
+        pass
     parts = call.data.split(":")
     target_idx = int(parts[1])
     rel_id = int(parts[2])

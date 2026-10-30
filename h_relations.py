@@ -1256,9 +1256,9 @@ async def cb_rel_ui(call: CallbackQuery, bot: Bot):
             text = ("👶 <b>Дети пары</b>\n\n"
                     "У вашей пары пока нет детей.\n"
                     "С 3-го уровня отношений вы можете завести ребенка командой:\n"
-                    "• <code>отн ребенок мальчик [Имя]</code>\n"
-                    "• <code>отн ребенок девочка [Имя]</code>\n"
-                    "Или просто укажите имя: <code>отн ребенок [Имя]</code>")
+                    "• <code>родить мальчика [Имя]</code> (или: <code>усыновить [Имя]</code>)\n"
+                    "• <code>родить девочку [Имя]</code> (или: <code>удочерить [Имя]</code>)\n"
+                    "Или просто: <code>родить [Имя]</code> — и выберите пол кнопками!")
             await call.message.edit_text(text, reply_markup=back_kb)
             return await call.answer()
         else:

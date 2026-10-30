@@ -1152,8 +1152,19 @@ async def cmd_casino_audit_log(message: Message, bot: Bot, args: str = "", **kw)
         sources_txt.append("• <i>Логи транзакций отсутствуют</i>")
 
     # 3. Бизнесы, работа, крипта
-    biz_rows = await db.fetchall("SELECT biz_type, level FROM business_upgrades WHERE user_id=?", (uid,))
-    biz_list = [f"{b['biz_type']} (Lvl {b['level']})" for b in biz_rows] if biz_rows else ["Нет бизнесов"]
+    biz_rows = await db.fetchall(
+        "SELECT b.biz_key, b.count, COALESCE(u.level, 1) as level "
+        "FROM user_businesses b LEFT JOIN business_upgrades u ON u.user_id=b.user_id AND u.biz_key=b.biz_key "
+        "WHERE b.user_id=? AND b.count > 0",
+        (uid,)
+    )
+    biz_list = [f"{b['biz_key']} x{b['count']} (Lvl {b['level']})" for b in biz_rows] if biz_rows else ["Нет предприятий"]
+
+    promos = await db.fetchall("SELECT meta, amount FROM log WHERE user_id=? AND action='promocode_reward' ORDER BY ts DESC LIMIT 3", (uid,))
+    promo_txt = [f"• Промо <code>{p['meta']}</code>: <b>+{p['amount']:,}</b>" for p in promos] if promos else ["• <i>Не активировал промо</i>"]
+
+    transfers = await db.fetchall("SELECT action, amount, meta FROM log WHERE user_id=? AND action IN ('transfer_in', 'transfer_out', 'give_money', 'pay') ORDER BY ts DESC LIMIT 3", (uid,))
+    transfers_txt = [f"• <code>{t['action']}</code>: <b>{t['amount']:,}</b> ({t['meta']})" for t in transfers] if transfers else ["• <i>Нет прямых переводов</i>"]
 
     job_row = await db.fetchone("SELECT job_key FROM user_jobs WHERE user_id=?", (uid,))
     job_txt = job_row["job_key"] if job_row else "Безработный"
@@ -1198,6 +1209,9 @@ async def cmd_casino_audit_log(message: Message, bot: Bot, args: str = "", **kw)
         f"• <b>Всего за историю:</b> <b>+{r_all['s']:,}</b> 🪙 ({r_all['c']} опер.)\n\n"
         f"🔍 <b>ОТКУДА МОНЕТЫ (ТОП ИСТОЧНИКОВ):</b>\n"
         + "\n".join(sources_txt) + "\n\n"
+        f"🎁 <b>ПРОМОКОДЫ И ПЕРЕВОДЫ:</b>\n"
+        + "\n".join(promo_txt) + "\n"
+        + "\n".join(transfers_txt) + "\n\n"
         f"🏢 <b>АКТИВЫ И БИЗНЕСЫ:</b>\n"
         f"• Работа: <b>{job_txt}</b>\n"
         f"• Бизнесы: <b>{', '.join(biz_list)}</b>\n"
@@ -1325,8 +1339,9 @@ async def cb_casino_admin_actions(call: CallbackQuery, bot: Bot):
         await call.answer("✅ Игрок разблокирован в казино!", show_alert=True)
 
     elif action == "strip_biz":
+        await db.execute("DELETE FROM user_businesses WHERE user_id=?", (uid,))
         await db.execute("DELETE FROM business_upgrades WHERE user_id=?", (uid,))
-        await call.answer("🏢 Все бизнесы игрока конфискованы!", show_alert=True)
+        await call.answer("🏢 Все предприятия и бизнесы игрока конфискованы!", show_alert=True)
 
     elif action == "full_history":
         rows = await db.fetchall(
@@ -1384,8 +1399,32 @@ async def cb_casino_refresh_audit(call: CallbackQuery, uid: int, bot: Bot):
     else:
         sources_txt.append("• <i>Логи транзакций отсутствуют</i>")
 
-    biz_rows = await db.fetchall("SELECT biz_type, level FROM business_upgrades WHERE user_id=?", (uid,))
-    biz_list = [f"{b['biz_type']} (Lvl {b['level']})" for b in biz_rows] if biz_rows else ["Нет бизнесов"]
+    biz_rows = await db.fetchall(
+        "SELECT b.biz_key, b.count, COALESCE(u.level, 1) as level "
+        "FROM user_businesses b LEFT JOIN business_upgrades u ON u.user_id=b.user_id AND u.biz_key=b.biz_key "
+        "WHERE b.user_id=? AND b.count > 0",
+        (uid,)
+    )
+    biz_list = [f"{b['biz_key']} x{b['count']} (Lvl {b['level']})" for b in biz_rows] if biz_rows else ["Нет предприятий"]
+
+    promos = await db.fetchall("SELECT meta, amount FROM log WHERE user_id=? AND action='promocode_reward' ORDER BY ts DESC LIMIT 3", (uid,))
+    promo_txt = [f"• Промо <code>{p['meta']}</code>: <b>+{p['amount']:,}</b>" for p in promos] if promos else ["• <i>Не активировал промо</i>"]
+
+    transfers = await db.fetchall("SELECT action, amount, meta FROM log WHERE user_id=? AND action IN ('transfer_in', 'transfer_out', 'give_money', 'pay') ORDER BY ts DESC LIMIT 3", (uid,))
+    transfers_txt = [f"• <code>{t['action']}</code>: <b>{t['amount']:,}</b> ({t['meta']})" for t in transfers] if transfers else ["• <i>Нет прямых переводов</i>"]
+
+    recent_logs = await db.fetchall(
+        "SELECT action, amount, meta, ts FROM log WHERE user_id=? ORDER BY ts DESC LIMIT 6",
+        (uid,)
+    )
+    logs_txt = []
+    if recent_logs:
+        for rl in recent_logs:
+            t_str = time.strftime("%d.%m %H:%M", time.localtime(rl["ts"]))
+            sign = "+" if rl["amount"] > 0 else ""
+            logs_txt.append(f"• <code>[{t_str}]</code> <b>{rl['action']}</b> ({sign}{rl['amount']:,}) <i>{html.escape(str(rl['meta'])[:25])}</i>")
+    else:
+        logs_txt.append("• <i>Нет недавних событий</i>")
 
     cas_banned = await is_casino_banned(uid)
     cas_status_str = "🔴 <b>ЗАБЛОКИРОВАН В КАЗИНО</b>" if cas_banned else "🟢 <b>АКТИВЕН (Доступ разрешен)</b>"
@@ -1408,8 +1447,13 @@ async def cb_casino_refresh_audit(call: CallbackQuery, uid: int, bot: Bot):
         f"• <b>Всего за историю:</b> <b>+{r_all['s']:,}</b> 🪙 ({r_all['c']} опер.)\n\n"
         f"🔍 <b>ОТКУДА МОНЕТЫ (ТОП ИСТОЧНИКОВ):</b>\n"
         + "\n".join(sources_txt) + "\n\n"
+        f"🎁 <b>ПРОМОКОДЫ И ПЕРЕВОДЫ:</b>\n"
+        + "\n".join(promo_txt) + "\n"
+        + "\n".join(transfers_txt) + "\n\n"
         f"🏢 <b>АКТИВЫ И БИЗНЕСЫ:</b>\n"
-        f"• Бизнесы: <b>{', '.join(biz_list)}</b>\n\n"
+        f"• Предприятия: <b>{', '.join(biz_list)}</b>\n\n"
+        f"📜 <b>ПОСЛЕДНИЕ СОБЫТИЯ В ЛОГАХ:</b>\n"
+        + "\n".join(logs_txt) + "\n"
         f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
         f"✍️ <i>Откатить баланс: <code>откат казик @юзер [сумма]</code></i>\n"
         f"👇 <i>Панель действий Владельца над игроком:</i>"
@@ -1656,7 +1700,8 @@ async def cmd_chats_load(message: Message, bot: Bot, **kw):
     if not await _is_bot_owner(sender_id):
         return await message.reply("🔒 <b>Команда доступна исключительно Владельцу бота!</b>")
 
-    today_str = time.strftime("%Y-%m-%d")
+    from utils import current_msk_date
+    today_str = current_msk_date()
     rows = await db.fetchall(
         "SELECT chat_id, SUM(messages) as m FROM daily_stats WHERE day=? GROUP BY chat_id ORDER BY m DESC",
         (today_str,)
@@ -1724,7 +1769,8 @@ async def cmd_chats_load(message: Message, bot: Bot, **kw):
 async def cb_load_refresh(call: CallbackQuery, bot: Bot):
     if not await _is_bot_owner(call.from_user.id):
         return await call.answer("🔒 Доступно только Владельцу.", show_alert=True)
-    today_str = time.strftime("%Y-%m-%d")
+    from utils import current_msk_date
+    today_str = current_msk_date()
     rows = await db.fetchall(
         "SELECT chat_id, SUM(messages) as m FROM daily_stats WHERE day=? GROUP BY chat_id ORDER BY m DESC",
         (today_str,)
