@@ -964,6 +964,15 @@ CREATE TABLE IF NOT EXISTS daily_roulette_spins (
     user_id   INTEGER PRIMARY KEY,
     last_spin INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS user_battlepass (
+    user_id INTEGER PRIMARY KEY,
+    season INTEGER NOT NULL DEFAULT 1,
+    level INTEGER NOT NULL DEFAULT 1,
+    xp INTEGER NOT NULL DEFAULT 0,
+    claimed_levels TEXT NOT NULL DEFAULT '',
+    is_premium INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
@@ -1360,6 +1369,61 @@ async def record_roulette_spin(user_id: int) -> None:
         "ON CONFLICT(user_id) DO UPDATE SET last_spin=excluded.last_spin",
         (user_id, now)
     )
+
+
+# ── Сезонный Боевой Пропуск (Moxxi Cyber Pass) ─────────────────────────────
+
+async def get_battlepass(user_id: int) -> dict:
+    row = await fetchone("SELECT * FROM user_battlepass WHERE user_id=?", (user_id,))
+    if not row:
+        await execute(
+            "INSERT INTO user_battlepass (user_id, season, level, xp, claimed_levels, is_premium) "
+            "VALUES (?, 1, 1, 0, '', 0) ON CONFLICT(user_id) DO NOTHING",
+            (user_id,)
+        )
+        row = await fetchone("SELECT * FROM user_battlepass WHERE user_id=?", (user_id,))
+    return dict(row) if row else {"user_id": user_id, "season": 1, "level": 1, "xp": 0, "claimed_levels": "", "is_premium": 0}
+
+
+async def add_battlepass_xp(user_id: int, xp_amount: int) -> tuple[int, int, bool]:
+    """Добавляет сезонный опыт, возвращает (новый_уровень, новый_xp, был_ли_levelup)."""
+    bp = await get_battlepass(user_id)
+    cur_lvl = bp["level"]
+    cur_xp = bp["xp"] + max(0, xp_amount)
+    leveled_up = False
+
+    XP_PER_LVL = 500
+    MAX_LVL = 30
+    while cur_xp >= XP_PER_LVL and cur_lvl < MAX_LVL:
+        cur_xp -= XP_PER_LVL
+        cur_lvl += 1
+        leveled_up = True
+
+    await execute(
+        "UPDATE user_battlepass SET level=?, xp=? WHERE user_id=?",
+        (cur_lvl, cur_xp, user_id)
+    )
+    return cur_lvl, cur_xp, leveled_up
+
+
+async def claim_battlepass_level(user_id: int, level: int) -> bool:
+    bp = await get_battlepass(user_id)
+    claimed = set(bp["claimed_levels"].split(",")) if bp["claimed_levels"] else set()
+    claimed.add(str(level))
+    new_claimed_str = ",".join(sorted(claimed, key=lambda x: int(x) if x.isdigit() else 0))
+    await execute("UPDATE user_battlepass SET claimed_levels=? WHERE user_id=?", (new_claimed_str, user_id))
+    return True
+
+
+async def get_top_battlepass(limit: int = 10) -> list[dict]:
+    rows = await fetchall(
+        "SELECT bp.user_id, bp.level, bp.xp, u.first_name, u.username "
+        "FROM user_battlepass bp "
+        "LEFT JOIN users u ON bp.user_id = u.id "
+        "ORDER BY bp.level DESC, bp.xp DESC LIMIT ?",
+        (limit,)
+    )
+    return [dict(r) for r in rows]
 
 async def blacklist_chat(chat_id: int, reason: str = "", banned_by: int = 0) -> None:
     now = int(time.time())

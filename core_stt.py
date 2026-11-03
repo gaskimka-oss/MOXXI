@@ -111,13 +111,16 @@ def _transcribe_gemini_sync(audio: bytes, mime_type: str = "audio/ogg") -> str |
         if not ai.KEYS:
             return None
 
+        # Очищаем MIME-тип от параметров типа codecs=opus
+        clean_mime = (mime_type or "audio/ogg").split(";")[0].strip()
+
         prompt_instruction = (
             "Транскрибируй речь человека из этого видео-кружочка дословно на русском языке. "
             "Выведи ТОЛЬКО расшифрованный текст того, что он говорит. "
             "Никаких описаний видео, никаких комментариев, никаких вводных слов, никаких служебных мыслей."
-            if mime_type.startswith("video/") else
-            "Транскрибируй эту речь дословно на языке оригинала (русский). "
-            "Выведи ТОЛЬКО расшифрованный текст сообщения. "
+            if clean_mime.startswith("video/") else
+            "Транскрибируй эту речь дословно на русском языке. "
+            "Выведи ТОЛЬКО расшифрованный текст аудиосообщения. "
             "Никаких вводных слов, никаких комментариев, никаких кавычек, никаких служебных мыслей."
         )
 
@@ -128,7 +131,7 @@ def _transcribe_gemini_sync(audio: bytes, mime_type: str = "audio/ogg") -> str |
                     "parts": [
                         {
                             "inline_data": {
-                                "mime_type": mime_type,
+                                "mime_type": clean_mime,
                                 "data": b64_data
                             }
                         },
@@ -150,7 +153,7 @@ def _transcribe_gemini_sync(audio: bytes, mime_type: str = "audio/ogg") -> str |
         max_tries = min(len(ai.KEYS), 4)
         for _ in range(max_tries):
             current_key = ai.get_next_key()
-            for m in ["gemini-flash-lite-latest", "gemini-2.5-flash-lite", "gemini-flash-latest"]:
+            for m in ["gemini-flash-lite-latest", "gemini-flash-latest", "gemini-2.0-flash"]:
                 endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={current_key}"
                 req = urllib.request.Request(endpoint, data=body, headers=headers)
                 try:
@@ -164,7 +167,7 @@ def _transcribe_gemini_sync(audio: bytes, mime_type: str = "audio/ogg") -> str |
                         text = "".join(p.get("text", "") for p in clean_parts).strip()
                         text = re.sub(r"<thought>[\s\S]*?</thought>", "", text, flags=re.IGNORECASE).strip()
                         # Очищаем от обрамляющих кавычек
-                        text = re.sub(r'^[«"\'`](.*)[»"\'`]$', r'\1', text).strip()
+                        text = re.sub(r'^[«"\'`“„\s]+|[»"\'`”\s]+$', '', text).strip()
                         low = text.lower()
                         if low in {"тишина", "[тишина]", "(тишина)", "*тишина*", "звуков нет", "нет речи", "музыка", "[музыка]", "молчит"}:
                             return None

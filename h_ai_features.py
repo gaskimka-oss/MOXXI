@@ -56,20 +56,29 @@ async def process_voice_message(message: Message, bot: Bot) -> bool:
         if stt.available():
             f = await bot.get_file(obj.file_id)
             buf = await bot.download_file(f.file_path)
-            audio = buf.read()
+            audio = buf.getvalue() if hasattr(buf, "getvalue") else buf.read()
             mime_type = "audio/ogg" if message.voice else "video/mp4"
             filename = "voice.ogg" if message.voice else "circle.mp4"
             text = await stt.transcribe(audio, filename=filename, mime_type=mime_type)
             if text:
-                kind = "🎙 <b>Голосовое сообщение</b>" if message.voice else "⭕️ <b>Кружочек</b>"
-                who = mention(message.from_user)
-                mm, ss = divmod(int(obj.duration or 0), 60)
-                dur = f"{mm}:{ss:02d}"
-                await message.reply(
-                    f"{kind} от {who} (<code>{dur}</code>):\n\n"
-                    f"💬 <i>«{html.escape(text.strip())}»</i>",
-                    disable_web_page_preview=True
-                )
+                clean_text = text.strip()
+                clean_text = clean_text.strip(" \t\r\n«»\"'`“”„")
+                if clean_text:
+                    # Нативный формат SaluteSpeech / SmartSpeech: блок-цитата с закрывающей кавычкой ❞
+                    quote_block = f"<blockquote>{html.escape(clean_text)}  ❞</blockquote>"
+                    try:
+                        await message.reply(
+                            quote_block,
+                            parse_mode="HTML",
+                            disable_web_page_preview=True
+                        )
+                    except Exception as e_send:
+                        log.warning("Ошибка отправки HTML blockquote STT: %s", e_send)
+                        await message.reply(
+                            f"💬 {html.escape(clean_text)}",
+                            parse_mode="HTML",
+                            disable_web_page_preview=True
+                        )
                 if message.chat.type != "private":
                     try:
                         await db.bump_chat_stat(cid, message.from_user.id, 1)
@@ -631,7 +640,7 @@ async def cmd_ai_chat(message: Message, bot: Bot, args: str = "", **kw):
     try:
         await message.reply(full_text, disable_web_page_preview=True)
     except Exception:
-        clean_text = re.sub(r"<[^>]+>", "", reply_text.strip())
+        clean_text = reply_text.strip(" \t\r\n«»\"'`“”„")
         await message.reply(f"💋 Мокси{badge}:\n{clean_text}", disable_web_page_preview=True)
 
 
