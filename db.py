@@ -52,6 +52,13 @@ CREATE TABLE IF NOT EXISTS chat_members (
 CREATE INDEX IF NOT EXISTS idx_chat_members_active
     ON chat_members(chat_id, is_member, updated_at);
 
+CREATE TABLE IF NOT EXISTS hidden_chats (
+    chat_id INTEGER PRIMARY KEY,
+    title TEXT,
+    hidden_by INTEGER,
+    ts INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS chats (
     chat_id   INTEGER PRIMARY KEY,
     title     TEXT,
@@ -1590,10 +1597,6 @@ async def touch_user(user_id: int, username: str | None, first_name: str | None)
             await execute(
                 "UPDATE staff SET user_id=? WHERE chat_id=? AND lower(username)=lower(?)",
                 (user_id, r["chat_id"], username))
-            await execute(
-                "INSERT INTO ranks (chat_id,user_id,rank,granted_by,ts) VALUES (?,?,?,0,?) "
-                "ON CONFLICT(chat_id,user_id) DO NOTHING",
-                (r["chat_id"], user_id, r["rank"], int(__import__("time").time())))
 
 
 async def get_balance(user_id: int) -> int:

@@ -124,22 +124,45 @@ def _link(username: str | None, name: str | None, user_id: int = 0) -> str:
 
 
 async def _staff_rows(chat_id: int, bot: Bot | None = None) -> dict[int, list[tuple[str, bool]]]:
-    """Собирает состав из таблицы ranks (живые) + staff (импортированные)."""
+    """Собирает состав администрации. Исключает снятых, забаненных и вышедших участников."""
     out: dict[int, list[tuple[str, bool]]] = {}
+
+    # 1. Получаем список забаненных в чате (навсегда или действующие)
+    now_ts = int(time.time())
+    b_rows = await db.fetchall(
+        "SELECT user_id FROM bans WHERE chat_id=? AND (until=0 OR until>?)",
+        (chat_id, now_ts)
+    )
+    banned_uids = {b["user_id"] for b in b_rows}
+
+    # Сразу очищаем забаненных из таблицы рангов и стаффа
+    for b_uid in banned_uids:
+        await db.execute("DELETE FROM ranks WHERE chat_id=? AND user_id=?", (chat_id, b_uid))
+        await db.execute("DELETE FROM staff WHERE chat_id=? AND user_id=?", (chat_id, b_uid))
 
     rows = await db.fetchall(
         "SELECT r.user_id, r.rank, u.first_name, u.username FROM ranks r "
         "LEFT JOIN users u ON u.user_id = r.user_id "
         "WHERE r.chat_id=? AND r.rank>0", (chat_id,))
     seen_ids = set()
+
     for r in rows:
         uid = r["user_id"]
-        seen_ids.add(uid)
+        if uid in banned_uids:
+            continue
+
         fname = r["first_name"]
         uname = r["username"]
-        if bot and uid and not clean_visible_name(fname):
+
+        # Живая проверка через Telegram API
+        if bot and uid:
             try:
                 cm = await bot.get_chat_member(chat_id, uid)
+                if cm.status in {"left", "kicked"}:
+                    # Пользователь вышел или забанен в Telegram — удаляем ранг и не показываем!
+                    await db.execute("DELETE FROM ranks WHERE chat_id=? AND user_id=?", (chat_id, uid))
+                    await db.execute("DELETE FROM staff WHERE chat_id=? AND user_id=?", (chat_id, uid))
+                    continue
                 if cm and cm.user:
                     u_live = cm.user
                     fname = u_live.first_name or fname
@@ -147,30 +170,28 @@ async def _staff_rows(chat_id: int, bot: Bot | None = None) -> dict[int, list[tu
                     await db.touch_user(uid, uname, fname)
             except Exception:
                 pass
-        out.setdefault(r["rank"], []).append(
-            (_link(uname, fname, uid), False))
 
+        seen_ids.add(uid)
+        out.setdefault(r["rank"], []).append((_link(uname, fname, uid), False))
+
+    # Из таблицы staff берем ТОЛЬКО тех, у кого нет user_id (нераспознанные при импорте @ники), и кто НЕ вышел!
     srows = await db.fetchall(
         "SELECT username, name, rank, user_id, left_chat FROM staff "
-        "WHERE chat_id=? ORDER BY rank DESC, pos ASC, rowid ASC", (chat_id,))
+        "WHERE chat_id=? AND (left_chat=0 OR left_chat IS NULL) "
+        "ORDER BY rank DESC, pos ASC, rowid ASC", (chat_id,))
     for r in srows:
         uid = r["user_id"] or 0
-        if uid and uid in seen_ids:
+        if uid:
+            if uid in seen_ids or uid in banned_uids:
+                continue
+            # Если пользователь есть в staff, но удален из ranks — он был снят! Чистим staff
+            await db.execute("DELETE FROM staff WHERE chat_id=? AND user_id=?", (chat_id, uid))
             continue
+
         fname = r["name"]
         uname = r["username"]
-        if bot and uid and not clean_visible_name(fname):
-            try:
-                cm = await bot.get_chat_member(chat_id, uid)
-                if cm and cm.user:
-                    u_live = cm.user
-                    fname = u_live.first_name or fname
-                    uname = u_live.username or uname
-                    await db.touch_user(uid, uname, fname)
-            except Exception:
-                pass
-        out.setdefault(r["rank"], []).append(
-            (_link(uname, fname, uid), bool(r["left_chat"])))
+        out.setdefault(r["rank"], []).append((_link(uname, fname, 0), False))
+
     return out
 
 

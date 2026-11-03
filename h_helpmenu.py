@@ -42,7 +42,7 @@ def _img(name: str):
 CMDS_PER_PAGE = 15
 
 def _all_commands_page(page: int = 0, is_group: bool = False) -> tuple[str, InlineKeyboardMarkup]:
-    cmds = sorted(REGISTRY, key=lambda c: (c.section, c.rank, c.usage))
+    cmds = [c for c in sorted(REGISTRY, key=lambda c: (c.section, c.rank, c.usage)) if c.section != 40 and c.rank < 10]
     total = max(1, (len(cmds) + CMDS_PER_PAGE - 1) // CMDS_PER_PAGE)
     page = max(0, min(page, total - 1))
     chunk = cmds[page * CMDS_PER_PAGE : (page + 1) * CMDS_PER_PAGE]
@@ -96,7 +96,7 @@ def _all_commands_page(page: int = 0, is_group: bool = False) -> tuple[str, Inli
 def _menu_kb(page: int = 0, is_group: bool = False, hide_topics: bool = False) -> InlineKeyboardMarkup:
     by_sec = registry_by_section()
     # В одиночном режиме скрываем раздел 10 («Темы модераторов»)
-    nums = [n for n in sorted(SECTIONS) if by_sec.get(n) and not (hide_topics and n == 10)]
+    nums = [n for n in sorted(SECTIONS) if by_sec.get(n) and n != 40 and not (hide_topics and n == 10)]
     total = (len(nums) + PER_PAGE - 1) // PER_PAGE
     chunk = nums[page * PER_PAGE:(page + 1) * PER_PAGE]
     rows, buf = [], []

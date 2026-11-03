@@ -319,6 +319,9 @@ async def cmd_ban(message: Message, bot: Bot, args: str = "", **kw):
     except Exception as e:
         return await message.reply(explain_error(e, "забанить"))
     await members.remember_member(message.chat.id, uid, "kicked", False)
+    # Снимаем все ранги и удаляем из стаффа при бане
+    await db.execute("DELETE FROM ranks WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
+    await db.execute("DELETE FROM staff WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
     # Очищаем анкету, описание и ник забаненного игрока для этого чата
     await db.execute("DELETE FROM chat_profiles WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
     await db.execute("DELETE FROM chat_nicks WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
@@ -372,6 +375,9 @@ async def cmd_unban(message: Message, bot: Bot, args: str = "", **kw):
         return await message.reply(explain_error(e, "разбанить"))
     await db.execute("DELETE FROM bans WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
     await members.remember_member(message.chat.id, uid, "left", False)
+    # Снимаем все ранги и удаляем из стаффа при кике
+    await db.execute("DELETE FROM ranks WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
+    await db.execute("DELETE FROM staff WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
     await lift_punish(message.chat.id, uid, "ban", message.from_user.id)
 
     # Журнал снятий
