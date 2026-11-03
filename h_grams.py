@@ -545,6 +545,21 @@ async def casino_enabled(chat_id: int) -> bool:
 async def topic_ok(message: Message) -> bool:
     """Проверяет тему для игр, казино, заработка, ограблений и монет."""
     if message.chat.type != "private":
+        from h_chatset import get_effective_chat_mode
+        mode = await get_effective_chat_mode(message.chat.id, getattr(message.chat, "is_forum", False))
+
+        if not await casino_enabled(message.chat.id):
+            await message.reply(
+                "🎰 <b>Казино и игры отключены в этом чате администрацией.</b>\n"
+                "Включить: <code>+казино</code> (доступно администрации)",
+                disable_web_page_preview=True
+            )
+            return False
+
+        # В одиночной группе или в режиме 'all' (все команды везде) — разрешаем играть прямо здесь
+        if mode in ("single", "all"):
+            return True
+
         tid = _tid(message)
         # В теме описаний никогда не выводим предупреждения казино!
         try:
@@ -554,14 +569,6 @@ async def topic_ok(message: Message) -> bool:
                 return False
         except Exception:
             pass
-
-        if not await casino_enabled(message.chat.id):
-            await message.reply(
-                "🎰 <b>Казино и игры отключены в этом чате администрацией.</b>\n"
-                "Включить: <code>+казино</code> (доступно администрации)",
-                disable_web_page_preview=True
-            )
-            return False
 
         ft = await get_gram_topic(message.chat.id)
         if ft and tid != ft:

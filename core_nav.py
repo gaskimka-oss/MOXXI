@@ -41,7 +41,9 @@ async def cb_home(call: CallbackQuery, bot: Bot):
                 reply_markup=await main_kb(call.from_user.id))
         else:
             from h_helpmenu import _menu_kb, _menu_text
-            await call.message.edit_text(_menu_text(), reply_markup=_menu_kb(0))
+            from h_chatset import get_effective_chat_mode
+            mode = await get_effective_chat_mode(call.message.chat.id, getattr(call.message.chat, "is_forum", False))
+            await call.message.edit_text(_menu_text(), reply_markup=_menu_kb(0, is_group=True, hide_topics=(mode == "single")))
     except Exception:
         pass
     await call.answer()

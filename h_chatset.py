@@ -6,8 +6,8 @@ import html
 import time
 
 from aiogram import Bot, F, Router
-from aiogram.types import (CallbackQuery, InlineQuery, InlineQueryResultArticle,
-                           InputTextMessageContent, Message)
+from aiogram.types import (CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup,
+                           InlineQuery, InlineQueryResultArticle, InputTextMessageContent, Message)
 
 import db
 import core_members as members
@@ -966,3 +966,144 @@ async def tg_check(message: Message, bot: Bot, **kw):
         f"{mark(manage)} Управление группой\n\n"
         f"Ваш ранг: <b>{rank_label(r) if r else 'Участник'}</b>"
         + (("\n\n<b>Что исправить:</b>\n" + "\n".join(tips)) if tips else "\n\n🎉 Всё настроено!"))
+
+
+async def get_effective_chat_mode(chat_id: int, is_forum: bool = False) -> str:
+    """Возвращает режим чата: 'single' (одиночная), 'topics' (по темам), 'all' (все команды везде)."""
+    mode = await db.get_setting(chat_id, "chat_mode", "auto")
+    if mode == "auto":
+        return "topics" if is_forum else "single"
+    return mode
+
+
+def chat_mode_keyboard(current_mode: str) -> InlineKeyboardMarkup:
+    def mark(m: str, label: str) -> str:
+        return f"🔘 {label}" if current_mode == m else f"⚪️ {label}"
+
+    kb = [
+        [InlineKeyboardButton(text=mark("single", "💬 Одиночная группа"), callback_data="cmode:single")],
+        [InlineKeyboardButton(text=mark("topics", "📂 Группа по темам (Форум)"), callback_data="cmode:topics")],
+        [InlineKeyboardButton(text=mark("all", "🌐 Все команды (Смешанный режим)"), callback_data="cmode:all")],
+        [InlineKeyboardButton(text=mark("auto", "🤖 Авто (по типу группы в ТГ)"), callback_data="cmode:auto")],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data="h:close")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+
+@router.message(Cmd("режим чата", "режим группы", "тип чата", "тип группы", "chat mode", "chatmode",
+                    section=S_CHAT, rank=3, group_only=True,
+                    usage="режим чата [одиночный / темы / все / авто]",
+                    desc="Выбор режима работы команд бота: Одиночный, По темам, Все команды, Авто"))
+async def cmd_chat_mode(message: Message, bot: Bot, args: str = "", **kw):
+    if not await require(message, bot, 3):
+        return
+
+    arg = (args or "").strip().lower()
+    cid = message.chat.id
+    is_forum = getattr(message.chat, "is_forum", False)
+
+    if arg in {"одиночный", "одиночная", "single", "1", "монолит", "без тем"}:
+        await db.set_setting(cid, "chat_mode", "single")
+        return await message.reply(
+            "✅ <b>Установлен режим: 💬 Одиночная группа!</b>\n\n"
+            "• Работают стандартные команды единого чата (игры, казик, профили, модерация, отношения).\n"
+            "• Бот не требует распределения по темам и не блокирует команды.\n"
+            "• В меню <code>/help</code> скрыты лишние команды настройки топиков."
+        )
+
+    if arg in {"темы", "по темам", "топики", "форум", "topics", "forum", "2"}:
+        await db.set_setting(cid, "chat_mode", "topics")
+        return await message.reply(
+            "✅ <b>Установлен режим: 📂 Группа по темам (Форум)!</b>\n\n"
+            "• Доступны все базовые команды и специализированные команды управления темами.\n"
+            "• Действует привязка по веткам (игры в теме игр, анкеты в теме описаний)."
+        )
+
+    if arg in {"все", "всё", "все команды", "смешанный", "all", "гибрид", "3"}:
+        await db.set_setting(cid, "chat_mode", "all")
+        return await message.reply(
+            "✅ <b>Установлен режим: 🌐 Все команды (Смешанный режим)!</b>\n\n"
+            "• Доступны абсолютно все команды (и одиночные, и для тем).\n"
+            "• Команды и игры разрешены в любом месте без каких-либо блокировок по веткам!"
+        )
+
+    if arg in {"авто", "auto", "по умолчанию", "сброс", "default", "4"}:
+        await db.set_setting(cid, "chat_mode", "auto")
+        mode_now = "Группа по темам" if is_forum else "Одиночная группа"
+        return await message.reply(
+            f"✅ <b>Установлен режим: 🤖 Автоматический!</b>\n\n"
+            f"Бот сам определяет тип группы в Telegram.\n"
+            f"Текущее состояние вашей группы: <b>{mode_now}</b>."
+        )
+
+    cur = await db.get_setting(cid, "chat_mode", "auto")
+    eff = await get_effective_chat_mode(cid, is_forum)
+
+    mode_names = {
+        "auto": "🤖 Авто (по типу группы в ТГ)",
+        "single": "💬 Одиночная группа (без разделения на ветки)",
+        "topics": "📂 Группа по темам (Форум)",
+        "all": "🌐 Все команды (Смешанный — всё разрешено везде)"
+    }
+    eff_names = {
+        "single": "💬 Одиночная группа",
+        "topics": "📂 Группа по темам",
+        "all": "🌐 Все команды везде"
+    }
+
+    txt = (
+        f"⚙️ <b>РЕЖИМ РАБОТЫ КОМАНД БОТА В ЧАТЕ</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"📌 <b>Выбранный режим:</b> <b>{mode_names.get(cur, cur)}</b>\n"
+        f"⚡️ <b>Фактический статус:</b> <b>{eff_names.get(eff, eff)}</b>\n"
+        f"💬 <b>Тип группы в Telegram:</b> {'Форум (Темы включены)' if is_forum else 'Обычная группа (без тем)'}\n\n"
+        f"<b>Описание режимов:</b>\n"
+        f"• <b>Одиночная группа:</b> монолитный чат. Все команды работают прямо здесь, бот не требует топиков, раздел настроек тем скрыт из <code>/help</code>.\n"
+        f"• <b>Группа по темам:</b> работают и одиночные, и «темные» команды с распределением по веткам.\n"
+        f"• <b>Все команды:</b> режим максимальной свободы — все команды работают в любых темах без ограничений.\n\n"
+        f"👇 <i>Выберите нужный режим кнопками ниже:</i>"
+    )
+    await message.reply(txt, reply_markup=chat_mode_keyboard(cur))
+
+
+@router.callback_query(F.data.startswith("cmode:"))
+async def cb_chat_mode(call: CallbackQuery, bot: Bot):
+    if not await require(call, bot, 3):
+        return await call.answer("🔒 Требуется ранг 3 (Администратор)", show_alert=True)
+
+    mode = call.data.split(":")[1]
+    cid = call.message.chat.id
+    is_forum = getattr(call.message.chat, "is_forum", False)
+
+    await db.set_setting(cid, "chat_mode", mode)
+    eff = await get_effective_chat_mode(cid, is_forum)
+
+    mode_names = {
+        "auto": "🤖 Авто (по типу группы в ТГ)",
+        "single": "💬 Одиночная группа (без разделения на ветки)",
+        "topics": "📂 Группа по темам (Форум)",
+        "all": "🌐 Все команды (Смешанный — всё разрешено везде)"
+    }
+    eff_names = {
+        "single": "💬 Одиночная группа",
+        "topics": "📂 Группа по темам",
+        "all": "🌐 Все команды везде"
+    }
+
+    txt = (
+        f"⚙️ <b>РЕЖИМ РАБОТЫ КОМАНД БОТА В ЧАТЕ</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"📌 <b>Выбранный режим:</b> <b>{mode_names.get(mode, mode)}</b>\n"
+        f"⚡️ <b>Фактический статус:</b> <b>{eff_names.get(eff, eff)}</b>\n"
+        f"💬 <b>Тип группы в Telegram:</b> {'Форум (Темы включены)' if is_forum else 'Обычная группа (без тем)'}\n\n"
+        f"<b>Описание режимов:</b>\n"
+        f"• <b>Одиночная группа:</b> монолитный чат. Все команды работают прямо здесь, бот не требует топиков, раздел настроек тем скрыт из <code>/help</code>.\n"
+        f"• <b>Группа по темам:</b> работают и одиночные, и «темные» команды с распределением по веткам.\n"
+        f"• <b>Все команды:</b> режим максимальной свободы — все команды работают в любых темах без ограничений.\n\n"
+        f"👇 <i>Выберите нужный режим кнопками ниже:</i>"
+    )
+    try:
+        await call.message.edit_text(txt, reply_markup=chat_mode_keyboard(mode))
+    except Exception:
+        pass
+    await call.answer(f"Режим обновлен: {mode}")

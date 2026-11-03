@@ -38,9 +38,10 @@ def _img(name: str):
     return None
 
 
-def _menu_kb(page: int = 0) -> InlineKeyboardMarkup:
+def _menu_kb(page: int = 0, is_group: bool = False, hide_topics: bool = False) -> InlineKeyboardMarkup:
     by_sec = registry_by_section()
-    nums = [n for n in sorted(SECTIONS) if by_sec.get(n)]
+    # В одиночном режиме скрываем раздел 10 («Темы модераторов»)
+    nums = [n for n in sorted(SECTIONS) if by_sec.get(n) and not (hide_topics and n == 10)]
     total = (len(nums) + PER_PAGE - 1) // PER_PAGE
     chunk = nums[page * PER_PAGE:(page + 1) * PER_PAGE]
     rows, buf = [], []
@@ -75,6 +76,9 @@ def _menu_kb(page: int = 0) -> InlineKeyboardMarkup:
             rows.append([InlineKeyboardButton(text=f"🪞 Зеркало ч.{i+j+1}",
                                               url=docs.mirror(u))
                          for j, u in enumerate(chunk)])
+    if is_group:
+        rows.append([InlineKeyboardButton(text="❌ Закрыть", callback_data="h:close")])
+        return InlineKeyboardMarkup(inline_keyboard=rows)
     from core_nav import with_home
     return with_home(InlineKeyboardMarkup(inline_keyboard=rows))
 
@@ -177,15 +181,22 @@ async def cmd_start(message: Message):
 @router.message(Cmd("команды", "помощь", "хелп", "help", "start", section=32,
                     usage="команды", desc="Меню всех команд бота"))
 async def cmd_help(message: Message, **kw):
+    is_group = message.chat.type != "private"
+    hide_topics = False
+    if is_group:
+        from h_chatset import get_effective_chat_mode
+        mode = await get_effective_chat_mode(message.chat.id, getattr(message.chat, "is_forum", False))
+        hide_topics = (mode == "single")
+
+    kb = _menu_kb(0, is_group=is_group, hide_topics=hide_topics)
+    txt = _menu_text()
     photo = _img("banner_main")
     if photo:
         try:
-            return await message.answer_photo(photo, caption=_menu_text(),
-                                              reply_markup=_menu_kb(0))
+            return await message.answer_photo(photo, caption=txt, reply_markup=kb)
         except Exception:
             pass
-    await message.answer(_menu_text(), reply_markup=_menu_kb(0),
-                         disable_web_page_preview=True)
+    await message.answer(txt, reply_markup=kb, disable_web_page_preview=True)
 
 
 async def _edit(call: CallbackQuery, text: str, kb: InlineKeyboardMarkup, img: str):
@@ -213,10 +224,25 @@ async def cb_help(call: CallbackQuery):
     parts = call.data.split(":")
     if parts[1] == "noop":
         return await call.answer()
+    if parts[1] == "close":
+        try:
+            await call.message.delete()
+        except Exception:
+            await call.answer("Справочник закрыт")
+        return
+
+    is_group = call.message.chat.type != "private"
+    hide_topics = False
+    if is_group:
+        from h_chatset import get_effective_chat_mode
+        mode = await get_effective_chat_mode(call.message.chat.id, getattr(call.message.chat, "is_forum", False))
+        hide_topics = (mode == "single")
+
     if parts[1] == "p":
         page = int(parts[2])
-        await _edit(call, _menu_text(), _menu_kb(page), "banner_main")
+        await _edit(call, _menu_text(), _menu_kb(page, is_group=is_group, hide_topics=hide_topics), "banner_main")
         return await call.answer()
+
     if parts[1] == "s":
         num, page = int(parts[2]), int(parts[3])
         sub = int(parts[4]) if len(parts) > 4 else 0
@@ -240,11 +266,17 @@ async def cb_help(call: CallbackQuery):
                 InlineKeyboardButton(text="🔗 Раздел в справке", url=url),
                 InlineKeyboardButton(text="🪞 Зеркало",
                                      url=docs.mirror(url))])
-        from core_nav import with_home
-        await _edit(call, pages[sub],
-                    with_home(InlineKeyboardMarkup(inline_keyboard=rows),
-                              back=f"h:p:{page}", back_text="⬅️ К разделам"),
-                    SECTION_IMG.get(num, "banner_main"))
+        if is_group:
+            rows.append([InlineKeyboardButton(text="⬅️ К разделам", callback_data=f"h:p:{page}")])
+            rows.append([InlineKeyboardButton(text="❌ Закрыть", callback_data="h:close")])
+            await _edit(call, pages[sub], InlineKeyboardMarkup(inline_keyboard=rows),
+                        SECTION_IMG.get(num, "banner_main"))
+        else:
+            from core_nav import with_home
+            await _edit(call, pages[sub],
+                        with_home(InlineKeyboardMarkup(inline_keyboard=rows),
+                                  back=f"h:p:{page}", back_text="⬅️ К разделам"),
+                        SECTION_IMG.get(num, "banner_main"))
         return await call.answer()
     await call.answer()
 

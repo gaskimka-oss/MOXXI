@@ -222,8 +222,17 @@ class Cmd(Filter):
         body = text
         had_prefix = False
 
-        # символьный префикс: !, ., / (в т.ч. повторы !!! для рангов)
-        if body[0] in PREFIX_CHARS:
+        # 1. Если сообщение начинается с тега бота: @moxxichat_bot help
+        if body.startswith("@"):
+            parts = body.split(maxsplit=1)
+            first_word = parts[0]
+            rest = parts[1] if len(parts) > 1 else ""
+            if re.match(r"^@[a-zA-Z0-9_]+$", first_word):
+                body = rest
+                had_prefix = True
+
+        # 2. Символьный префикс: !, ., / (в т.ч. повторы !!! для рангов)
+        if body and body[0] in PREFIX_CHARS:
             body = body.lstrip(PREFIX_CHARS).strip()
             had_prefix = True
         else:
@@ -236,6 +245,18 @@ class Cmd(Filter):
                     had_prefix = True
                     break
 
+        if not body:
+            return False
+
+        # 3. Суффикс бота в команде Telegram: /help@moxxichat_bot или /duels@moxxichat_bot
+        parts = body.split(maxsplit=1)
+        first_token = parts[0]
+        rest_token = parts[1] if len(parts) > 1 else ""
+        if "@" in first_token:
+            cmd_part, bot_mention = first_token.split("@", 1)
+            if re.match(r"^[a-zA-Z0-9_]+$", bot_mention):
+                body = f"{cmd_part} {rest_token}".strip() if rest_token else cmd_part
+                had_prefix = True
 
         if self.need_prefix and not had_prefix:
             return False
