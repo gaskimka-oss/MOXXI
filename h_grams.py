@@ -561,15 +561,6 @@ async def topic_ok(message: Message) -> bool:
             return True
 
         tid = _tid(message)
-        # В теме описаний никогда не выводим предупреждения казино!
-        try:
-            from h_userinfo import get_form_topic
-            form_top = await get_form_topic(message.chat.id)
-            if form_top and tid == form_top:
-                return False
-        except Exception:
-            pass
-
         ft = await get_gram_topic(message.chat.id)
         if ft and tid != ft:
             chat_id = message.chat.id

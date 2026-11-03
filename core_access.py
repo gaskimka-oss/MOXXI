@@ -187,20 +187,6 @@ async def access_middleware(handler, event, data: dict):
                         pass
                 return
 
-        # тема описаний — только для незаполнивших: остальным там тихо
-        if key not in {"описание", "+описание", "шаблон", "тема описания",
-                       "анкета обязательна"}:
-            try:
-                from h_userinfo import (get_form_topic, needs_form,
-                                               topic_id)
-                ft = await get_form_topic(event.chat.id)
-                if ft and topic_id(event) == ft and event.from_user:
-                    if not await needs_form(event.chat.id, event.from_user.id):
-                        from core_ranks import effective_rank
-                        if await effective_rank(event, data.get("bot")) < 1:
-                            return
-            except Exception:
-                pass
 
         # доступ разрешён на уровне ДК — внутренние require() не должны спорить
         try:

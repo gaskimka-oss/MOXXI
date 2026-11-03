@@ -298,18 +298,63 @@ class TopicClosedRetryMiddleware(BaseRequestMiddleware):
             return await make_request(bot, method)
         except TelegramBadRequest as e:
             err = str(e).lower()
-            if "topic_closed" in err or "topic_deleted" in err or "message thread not found" in err:
-                tid = getattr(method, "message_thread_id", None)
+            if any(p in err for p in (
+                "topic_closed", "topic is closed", "message thread is closed",
+                "thread is closed", "topic_deleted", "topic deleted",
+                "message thread not found", "message thread has expired",
+                "reply message not found", "replied message not found"
+            )):
                 cid = getattr(method, "chat_id", None)
-                if tid is not None:
-                    log.warning("Тема #%s в чате %s закрыта/удалена — отправляю в основной чат", tid, cid)
+                tid = getattr(method, "message_thread_id", None)
+
+                # 1. Если тема закрыта, пробуем временно открыть её через API бота-администратора и отправить сообщение
+                if tid and tid > 1 and cid:
+                    try:
+                        await bot.reopen_forum_topic(chat_id=cid, message_thread_id=tid)
+                        res = await make_request(bot, method)
+                        try:
+                            await bot.close_forum_topic(chat_id=cid, message_thread_id=tid)
+                        except Exception:
+                            pass
+                        return res
+                    except Exception as e_reopen:
+                        log.debug("Не удалось переоткрыть тему #%s в чате %s: %s", tid, cid, e_reopen)
+
+                # 2. Если переоткрыть нельзя (или это General / удалённая тема) — перенаправляем в тему общения (sms_topic) или корень чата
+                log.warning("Тема #%s в чате %s закрыта/недоступна — перенаправляю ответ", tid, cid)
+
+                # Сбрасываем reply_parameters, т.к. ответ на сообщение в закрытой теме отклоняется сервером Telegram
+                setattr(method, "reply_parameters", None)
+
+                sms_tid = None
+                try:
+                    from h_chatset import get_sms_topic
+                    sms_tid = await get_sms_topic(cid)
+                except Exception:
+                    pass
+
+                if sms_tid and sms_tid != tid:
+                    setattr(method, "message_thread_id", sms_tid)
+                else:
+                    setattr(method, "message_thread_id", None)
+
+                note = f"⚠️ <i>[Тема #{tid} закрыта, ответ на команду перенесён сюда]:</i>\n\n" if tid else ""
+                if note:
+                    if hasattr(method, "text") and method.text:
+                        method.text = note + method.text
+                    elif hasattr(method, "caption") and method.caption:
+                        method.caption = note + method.caption
+
+                try:
+                    return await make_request(bot, method)
+                except Exception as e2:
+                    log.debug("Повторная отправка в sms_topic не удалась (%s), пробую без thread_id", e2)
                     setattr(method, "message_thread_id", None)
                     try:
                         return await make_request(bot, method)
-                    except Exception as e2:
-                        log.debug("Повторная отправка в основной чат не удалась: %s", e2)
+                    except Exception as e3:
+                        log.error("Критическая ошибка отправки в чат %s: %s", cid, e3)
                         return None
-                return None
             raise
 
 
