@@ -49,6 +49,43 @@ async def remember_member(chat_id: int, user_id: int, status: str = "member",
         "updated_at=excluded.updated_at",
         (chat_id, user_id, status, 1 if is_member else 0, int(time.time())))
 
+async def clean_user_from_chat(chat_id: int, user_id: int, username: str | None = None) -> None:
+    """Полностью и изолированно убирает пользователя из конкретного чата chat_id.
+
+    1. Помечает в chat_members как не-участника (is_member=0, status='kicked').
+    2. Удаляет из ranks и staff для данного chat_id (снимает ранг и убирает из «кто админ»).
+    3. Удаляет локальную анкету/описание и ник для данного chat_id (chat_profiles, chat_nicks).
+    4. Удаляет из chat_stats для данного chat_id (чтобы не отображался в «кто неактив» и чистке).
+
+    ВАЖНО: Другие чаты и глобальные таблицы (profiles, users) НЕ затрагиваются!
+    """
+    now = int(time.time())
+    # 1. Помечаем в chat_members
+    await db.execute(
+        "INSERT INTO chat_members(chat_id,user_id,status,is_member,updated_at) "
+        "VALUES (?,?,'kicked',0,?) ON CONFLICT(chat_id,user_id) DO UPDATE SET "
+        "status='kicked',is_member=0,updated_at=excluded.updated_at",
+        (chat_id, user_id, now)
+    )
+    # 2. Снимаем ранги и стафф только в этом чате
+    await db.execute("DELETE FROM ranks WHERE chat_id=? AND user_id=?", (chat_id, user_id))
+    if username:
+        clean_u = str(username).strip().lstrip("@")
+        await db.execute(
+            "DELETE FROM staff WHERE chat_id=? AND (user_id=? OR (username IS NOT NULL AND LOWER(username)=LOWER(?)))",
+            (chat_id, user_id, clean_u)
+        )
+    else:
+        await db.execute("DELETE FROM staff WHERE chat_id=? AND user_id=?", (chat_id, user_id))
+
+    # 3. Удаляем локальную анкету/описание и ник в этом чате
+    await db.execute("DELETE FROM chat_profiles WHERE chat_id=? AND user_id=?", (chat_id, user_id))
+    await db.execute("DELETE FROM chat_nicks WHERE chat_id=? AND user_id=?", (chat_id, user_id))
+
+    # 4. Удаляем активность в этом чате, чтобы исключить из 'кто неактив'
+    await db.execute("DELETE FROM chat_stats WHERE chat_id=? AND user_id=?", (chat_id, user_id))
+
+
 
 async def remember_chat_member(chat_id: int, member: Any) -> bool:
     present = member_is_present(member)

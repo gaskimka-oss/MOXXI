@@ -181,6 +181,8 @@ async def _staff_rows(chat_id: int, bot: Bot | None = None) -> dict[int, list[tu
         "ORDER BY rank DESC, pos ASC, rowid ASC", (chat_id,))
     for r in srows:
         uid = r["user_id"] or 0
+        uname = r["username"]
+        fname = r["name"]
         if uid:
             if uid in seen_ids or uid in banned_uids:
                 continue
@@ -188,8 +190,19 @@ async def _staff_rows(chat_id: int, bot: Bot | None = None) -> dict[int, list[tu
             await db.execute("DELETE FROM staff WHERE chat_id=? AND user_id=?", (chat_id, uid))
             continue
 
-        fname = r["name"]
-        uname = r["username"]
+        if uname:
+            # Проверяем, не забанен ли этот username в chat_id
+            b_u = await db.fetchone(
+                "SELECT user_id FROM bans WHERE chat_id=? AND user_id IN "
+                "(SELECT user_id FROM users WHERE lower(username)=lower(?)) "
+                "AND (until=0 OR until>?)",
+                (chat_id, uname.lstrip("@"), now_ts)
+            )
+            if b_u:
+                await db.execute("DELETE FROM staff WHERE chat_id=? AND lower(username)=lower(?)",
+                                 (chat_id, uname.lstrip("@")))
+                continue
+
         out.setdefault(r["rank"], []).append((_link(uname, fname, 0), False))
 
     return out

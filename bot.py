@@ -153,6 +153,7 @@ async def user_middleware(handler, event, data: dict):
                 pass
             if user.username:
                 try:
+                    now_ts = int(time.time())
                     s_rows = await db.fetchall(
                         "SELECT chat_id, rank FROM staff WHERE lower(username)=lower(?) AND (user_id=0 OR user_id IS NULL)",
                         (user.username,)
@@ -160,11 +161,22 @@ async def user_middleware(handler, event, data: dict):
                     if s_rows:
                         from core_ranks import set_rank
                         for s in s_rows:
+                            s_cid = s["chat_id"]
+                            # Проверяем, не забанен ли пользователь в этой группе!
+                            is_banned = await db.fetchone(
+                                "SELECT 1 FROM bans WHERE chat_id=? AND user_id=? AND (until=0 OR until>?)",
+                                (s_cid, user.id, now_ts)
+                            )
+                            if is_banned:
+                                await db.execute("DELETE FROM staff WHERE chat_id=? AND lower(username)=lower(?)",
+                                                 (s_cid, user.username))
+                                continue
+
                             await db.execute(
                                 "UPDATE staff SET user_id=?, name=? WHERE chat_id=? AND lower(username)=lower(?)",
-                                (user.id, user.first_name, s["chat_id"], user.username)
+                                (user.id, user.first_name, s_cid, user.username)
                             )
-                            await set_rank(s["chat_id"], user.id, s["rank"], by=0)
+                            await set_rank(s_cid, user.id, s["rank"], by=0)
                 except Exception:
                     pass
         await db.register_chat(chat.id, chat.title)

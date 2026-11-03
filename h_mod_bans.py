@@ -318,15 +318,7 @@ async def cmd_ban(message: Message, bot: Bot, args: str = "", **kw):
         await bot.ban_chat_member(message.chat.id, uid)
     except Exception as e:
         return await message.reply(explain_error(e, "забанить"))
-    await members.remember_member(message.chat.id, uid, "kicked", False)
-    # Снимаем все ранги и удаляем из стаффа при бане
-    await db.execute("DELETE FROM ranks WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
-    await db.execute("DELETE FROM staff WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
-    # Очищаем анкету, описание и ник забаненного игрока для этого чата
-    await db.execute("DELETE FROM chat_profiles WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
-    await db.execute("DELETE FROM chat_nicks WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
-    await db.execute("DELETE FROM profiles WHERE user_id=?", (uid,))
-    await db.execute("UPDATE users SET nick=NULL WHERE user_id=?", (uid,))
+    await members.clean_user_from_chat(message.chat.id, uid, username=name)
 
     pid = await log_punish(message.chat.id, uid, "ban", reason, 0,
                            message.from_user.id if message.from_user else 0)
@@ -374,7 +366,7 @@ async def cmd_unban(message: Message, bot: Bot, args: str = "", **kw):
     except Exception as e:
         return await message.reply(explain_error(e, "разбанить"))
     await db.execute("DELETE FROM bans WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
-    await members.remember_member(message.chat.id, uid, "left", False)
+    await members.clean_user_from_chat(message.chat.id, uid, username=name)
     # Снимаем все ранги и удаляем из стаффа при кике
     await db.execute("DELETE FROM ranks WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
     await db.execute("DELETE FROM staff WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
@@ -1771,9 +1763,15 @@ async def cmd_warn_inactive(message: Message, bot: Bot, args: str = "", **kw):
     secs, _ = parse_period(args)
     secs = secs or 14 * 86400  # по умолчанию 14 дней
     border = int(time.time()) - secs
+    now_ts = int(time.time())
     rows = await db.fetchall(
-        "SELECT user_id FROM chat_stats WHERE chat_id=? AND (last_seen < ? OR last_seen = 0)",
-        (message.chat.id, border))
+        "SELECT cs.user_id FROM chat_stats cs "
+        "LEFT JOIN bans b ON b.chat_id = cs.chat_id AND b.user_id = cs.user_id AND (b.until = 0 OR b.until > ?) "
+        "LEFT JOIN chat_members cm ON cm.chat_id = cs.chat_id AND cm.user_id = cs.user_id "
+        "WHERE cs.chat_id=? AND (cs.last_seen < ? OR cs.last_seen = 0) "
+        "  AND b.user_id IS NULL "
+        "  AND (cm.is_member IS NULL OR cm.is_member = 1)",
+        (now_ts, message.chat.id, border))
     if not rows:
         return await message.reply(f"🟢 Неактивных участников (более {human_period(secs)}) не найдено!")
 
@@ -1882,16 +1880,22 @@ async def cmd_kick_deleted(message: Message, bot: Bot, **kw):
 
 # ══════════════════ УМНАЯ ЧИСТКА НЕАКТИВА (ИЗОЛИРОВАННАЯ) ══════════════════
 
-async def _build_inactive_candidates_view(cid: int, days: int = 7) -> tuple[str, list[int], InlineKeyboardMarkup]:
-    border = int(time.time()) - (days * 86400)
-    # Выбираем СТРОГО участников текущей группы cid!
+async def _build_inactive_candidates_view(cid: int, days: int = 7, bot: Bot | None = None) -> tuple[str, list[int], InlineKeyboardMarkup]:
+    now = int(time.time())
+    border = now - (days * 86400)
+    # Выбираем СТРОГО активных участников текущей группы cid!
+    # Исключаем тех, кто в бане, и тех, кто уже помечен как вышедший/исключённый
     rows = await db.fetchall(
         "SELECT cs.user_id, cs.messages, cs.last_seen, u.first_name, u.username "
         "FROM chat_stats cs "
         "LEFT JOIN users u ON cs.user_id = u.user_id "
+        "LEFT JOIN bans b ON b.chat_id = cs.chat_id AND b.user_id = cs.user_id AND (b.until = 0 OR b.until > ?) "
+        "LEFT JOIN chat_members cm ON cm.chat_id = cs.chat_id AND cm.user_id = cs.user_id "
         "WHERE cs.chat_id=? AND cs.last_seen < ? "
-        "ORDER BY cs.last_seen ASC LIMIT 40",
-        (cid, border)
+        "  AND b.user_id IS NULL "
+        "  AND (cm.is_member IS NULL OR cm.is_member = 1) "
+        "ORDER BY cs.last_seen ASC LIMIT 60",
+        (now, cid, border)
     )
 
     voters = set()
@@ -1906,13 +1910,26 @@ async def _build_inactive_candidates_view(cid: int, days: int = 7) -> tuple[str,
         pass
 
     candidates = []
-    now = int(time.time())
     for r in rows:
         uid = r["user_id"]
         if uid in voters:
             continue
         if await get_rank(cid, uid) > 0:
             continue
+
+        # Живая проверка Telegram если передан bot
+        if bot:
+            try:
+                m = await bot.get_chat_member(cid, uid)
+                if m.status in ("kicked", "left"):
+                    # Участник уже забанен или вышел — очищаем его данные для этой группы и пропускаем!
+                    await members.clean_user_from_chat(cid, uid, username=r["username"])
+                    continue
+            except Exception:
+                # Если Telegram сообщает, что пользователь не найден или не участник
+                await members.clean_user_from_chat(cid, uid, username=r["username"])
+                continue
+
         days_silent = max(1, (now - r["last_seen"]) // 86400) if r["last_seen"] else days
         candidates.append({
             "uid": uid,
@@ -1974,7 +1991,7 @@ async def cmd_inactive_candidates(message: Message, bot: Bot, args: str = "", **
     elif "30" in a:
         days = 30
 
-    text, _, kb = await _build_inactive_candidates_view(message.chat.id, days)
+    text, _, kb = await _build_inactive_candidates_view(message.chat.id, days, bot=bot)
     await message.reply(text, reply_markup=kb, disable_web_page_preview=True)
 
 
@@ -1988,7 +2005,7 @@ async def cb_clean_refresh(call: CallbackQuery, bot: Bot):
     uid = call.from_user.id
     if not (uid == config.OWNER_ID or uid in config.ADMINS or await get_rank(cid, uid) >= 3):
         return await call.answer("🔒 Доступно только модераторам и админам чата!", show_alert=True)
-    text, _, kb = await _build_inactive_candidates_view(cid, days)
+    text, _, kb = await _build_inactive_candidates_view(cid, days, bot=bot)
     try:
         await call.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
     except Exception:
@@ -2007,7 +2024,7 @@ async def cb_clean_kick(call: CallbackQuery, bot: Bot):
     if not (uid == config.OWNER_ID or uid in config.ADMINS or await get_rank(cid, uid) >= 4):
         return await call.answer("🔒 Исключать участников могут только администраторы чата (ранг 4+)!", show_alert=True)
 
-    text, uids, _ = await _build_inactive_candidates_view(cid, days)
+    text, uids, _ = await _build_inactive_candidates_view(cid, days, bot=bot)
     if not uids:
         return await call.answer("Неактивных кандидатов не найдено!", show_alert=True)
 
@@ -2017,6 +2034,7 @@ async def cb_clean_kick(call: CallbackQuery, bot: Bot):
         try:
             await bot.ban_chat_member(cid, user_to_kick)
             await bot.unban_chat_member(cid, user_to_kick)
+            await members.clean_user_from_chat(cid, user_to_kick)
             kicked += 1
             await asyncio.sleep(0.08)
         except Exception:
@@ -2161,6 +2179,7 @@ async def cmd_silent_ban(message: Message, bot: Bot, args: str = "", **kw):
         return await message.reply(explain_error(e, "забанить"))
 
     now = int(time.time())
+    await members.clean_user_from_chat(message.chat.id, uid, username=name)
     await db.execute(
         "INSERT OR REPLACE INTO bans (chat_id, user_id, reason, by_id, until, ts) VALUES (?,?,?,?,?,?)",
         (message.chat.id, uid, reason, message.from_user.id, 0, now))
