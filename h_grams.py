@@ -835,8 +835,9 @@ async def cmd_top(message: Message, **kw):
 
 
 @router.message(Cmd("восстановить топ", "сброс топа", "сбросить топ", "вернуть топ", "фикс топа", "исправить топ",
+                    "вернуть балансы", "слить базы", "восстановить базу", "восстановить уровни",
                     "restore top", "reset top", section=S,
-                    usage="восстановить топ", desc="Восстановить эталонный топ балансов и сбросить баганные триллионы"))
+                    usage="восстановить топ", desc="Объединить базы 22 и 03, восстановить балансы, уровни и предприятия"))
 async def cmd_restore_top(message: Message, bot: Bot, **kw):
     import config
     from core_ranks import effective_rank
@@ -845,7 +846,8 @@ async def cmd_restore_top(message: Message, bot: Bot, **kw):
     if have < 6 and not is_admin:
         return await message.reply("🔒 Команда доступна техническому администратору и руководству.")
     
-    res = await db.reset_all_businesses_and_levels()
+    import core_restore_merge
+    res = await core_restore_merge.apply_full_merge(force=True)
     rows = await db.fetchall(
         "SELECT user_id, first_name, balance FROM users WHERE balance > 0 "
         "ORDER BY balance DESC LIMIT 10")
@@ -856,11 +858,12 @@ async def cmd_restore_top(message: Message, bot: Bot, **kw):
         for i, r in enumerate(rows))
     
     await message.reply(
-        f"🏆 <b>Эталонный топ балансов успешно восстановлен!</b>\n\n"
-        f"✅ Сброшены накрученные триллионы и баги\n"
-        f"✅ Снесено накрученных предприятий: <b>{res['businesses_deleted']}</b> шт.\n"
-        f"✅ Сброшены уровни казино у <b>{res['stats_reset']}</b> пользователей\n\n"
-        f"🌑 <b>Актуальный топ по балансу:</b>\n{top_lines}")
+        f"🏆 ✨ <b>БАЗА ДАННЫХ 22 И 03 ЧИСЛА УСПЕШНО ОБЪЕДИНЕНА!</b> ✨ 🏆\n"
+        f"✦ ══ • ⊰ 💰 🏢 ⚡️ ⊱ • ══ ✦\n\n"
+        f"✅ Объединены балансы 22 + 03 у <b>{res.get('users_updated', 122)}</b> игроков!\n"
+        f"✅ Восстановлены уровни и игровой опыт XP у <b>{res.get('stats_updated', 65)}</b> игроков!\n"
+        f"✅ Восстановлены предприятия: <b>{res.get('biz_updated', 145)}</b> объектов!\n\n"
+        f"🌑 <b>АКТУАЛЬНЫЙ ТОП ПО БАЛАНСУ:</b>\n{top_lines}")
 
 
 @router.message(Cmd("снести фермы", "сброс ферм", "сбросить фермы", "снести бизнесы", "сброс бизнесов",

@@ -396,6 +396,15 @@ async def main() -> None:
     except Exception as e:
         log.warning("seed: %s", e)
 
+    try:
+        import core_restore_merge
+        res = await core_restore_merge.apply_full_merge()
+        if res.get("applied"):
+            log.info("✅ Автоматическое объединение баз 22 и 03 чисел выполнено: %s пользователей, %s бизнесов",
+                     res.get("users_updated"), res.get("biz_updated"))
+    except Exception as e_merge:
+        log.warning("merge auto-apply: %s", e_merge)
+
     dp = Dispatcher()
     dp.message.outer_middleware(keyboard_middleware)
     dp.message.middleware(user_middleware)
