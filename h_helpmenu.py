@@ -38,6 +38,61 @@ def _img(name: str):
     return None
 
 
+
+CMDS_PER_PAGE = 15
+
+def _all_commands_page(page: int = 0, is_group: bool = False) -> tuple[str, InlineKeyboardMarkup]:
+    cmds = sorted(REGISTRY, key=lambda c: (c.section, c.rank, c.usage))
+    total = max(1, (len(cmds) + CMDS_PER_PAGE - 1) // CMDS_PER_PAGE)
+    page = max(0, min(page, total - 1))
+    chunk = cmds[page * CMDS_PER_PAGE : (page + 1) * CMDS_PER_PAGE]
+
+    lines = [
+        f"📑 <b>ВСЕ КОМАНДЫ БОТА</b> (Стр. <b>{page+1}/{total}</b> — всего: <b>{len(cmds)}</b>)",
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈"
+    ]
+    for c in chunk:
+        rank_badge = f" <i>[{RANK_NAMES.get(c.rank, f'Ранг {c.rank}')}]</i>" if c.rank else ""
+        sec_name = SECTIONS.get(c.section, "")
+        sec_emoji = SECTION_EMOJI.get(c.section, "•")
+        lines.append(
+            f"• <code>{html.escape(c.usage)}</code>{rank_badge}\n"
+            f"   {html.escape(c.desc)}\n"
+            f"   <i>{sec_emoji} {sec_name}</i>"
+        )
+    lines.append("┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈")
+    lines.append("💡 <i>Поиск: отправьте <code>найти бан</code> или <code>поиск дуэль</code></i>")
+
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton(text="◀️", callback_data=f"h:all:{page-1}"))
+    nav_row.append(InlineKeyboardButton(text=f"{page+1}/{total}", callback_data="h:noop"))
+    if page + 1 < total:
+        nav_row.append(InlineKeyboardButton(text="▶️", callback_data=f"h:all:{page+1}"))
+
+    jump_row = []
+    if page > 0:
+        jump_row.append(InlineKeyboardButton(text="⏮ В начало", callback_data="h:all:0"))
+    if page < total - 1:
+        jump_row.append(InlineKeyboardButton(text="В конец ⏭", callback_data=f"h:all:{total-1}"))
+
+    extra_row = [
+        InlineKeyboardButton(text="📂 К разделам", callback_data="h:p:0"),
+        InlineKeyboardButton(text="🔍 Поиск", callback_data="h:find_prompt"),
+    ]
+    if is_group:
+        extra_row.append(InlineKeyboardButton(text="❌ Закрыть", callback_data="h:close"))
+
+    kb_rows = [nav_row]
+    if jump_row:
+        kb_rows.append(jump_row)
+    kb_rows.append(extra_row)
+
+    if not is_group:
+        from core_nav import with_home
+        return "\n".join(lines), with_home(InlineKeyboardMarkup(inline_keyboard=kb_rows))
+    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
 def _menu_kb(page: int = 0, is_group: bool = False, hide_topics: bool = False) -> InlineKeyboardMarkup:
     by_sec = registry_by_section()
     # В одиночном режиме скрываем раздел 10 («Темы модераторов»)
@@ -45,6 +100,10 @@ def _menu_kb(page: int = 0, is_group: bool = False, hide_topics: bool = False) -
     total = (len(nums) + PER_PAGE - 1) // PER_PAGE
     chunk = nums[page * PER_PAGE:(page + 1) * PER_PAGE]
     rows, buf = [], []
+    rows.append([
+        InlineKeyboardButton(text="📑 Все 598 команд (по страницам)", callback_data="h:all:0"),
+        InlineKeyboardButton(text="🔍 Поиск", callback_data="h:find_prompt")
+    ])
     for n in chunk:
         buf.append(InlineKeyboardButton(
             text=f"{SECTION_EMOJI.get(n,'•')} {SECTIONS[n]}", callback_data=f"h:s:{n}:{page}"))
@@ -179,14 +238,26 @@ async def cmd_start(message: Message):
 
 
 @router.message(Cmd("команды", "помощь", "хелп", "help", "start", section=32,
-                    usage="команды", desc="Меню всех команд бота"))
-async def cmd_help(message: Message, **kw):
+                    usage="команды [номер_страницы]", desc="Меню всех команд бота"))
+async def cmd_help(message: Message, args: str = "", **kw):
     is_group = message.chat.type != "private"
     hide_topics = False
     if is_group:
         from h_chatset import get_effective_chat_mode
         mode = await get_effective_chat_mode(message.chat.id, getattr(message.chat, "is_forum", False))
         hide_topics = (mode == "single")
+
+    a = (args or "").strip()
+    if a.isdigit():
+        page = max(0, int(a) - 1)
+        txt, kb = _all_commands_page(page, is_group=is_group)
+        photo = _img("sec_moderation")
+        if photo:
+            try:
+                return await message.answer_photo(photo, caption=txt, reply_markup=kb)
+            except Exception:
+                pass
+        return await message.answer(txt, reply_markup=kb, disable_web_page_preview=True)
 
     kb = _menu_kb(0, is_group=is_group, hide_topics=hide_topics)
     txt = _menu_text()
@@ -238,6 +309,18 @@ async def cb_help(call: CallbackQuery):
         mode = await get_effective_chat_mode(call.message.chat.id, getattr(call.message.chat, "is_forum", False))
         hide_topics = (mode == "single")
 
+    if parts[1] == "all":
+        page = int(parts[2]) if len(parts) > 2 else 0
+        txt, kb = _all_commands_page(page, is_group=is_group)
+        await _edit(call, txt, kb, "sec_moderation")
+        return await call.answer()
+
+    if parts[1] == "find_prompt":
+        return await call.answer(
+            "🔍 Отправьте в чат:\nнайти [слово]\nНапример: найти бан или найти дуэль",
+            show_alert=True
+        )
+
     if parts[1] == "p":
         page = int(parts[2])
         await _edit(call, _menu_text(), _menu_kb(page, is_group=is_group, hide_topics=hide_topics), "banner_main")
@@ -281,26 +364,28 @@ async def cb_help(call: CallbackQuery):
     await call.answer()
 
 
-@router.message(Cmd("найти", "поиск команды", "поиск", "find", section=32,
+@router.message(Cmd("найти", "поиск команды", "поиск", "найти команду", "find", "search", section=32,
                     usage="найти {слово}", desc="Поиск команды по названию"))
 async def cmd_find(message: Message, args: str = "", **kw):
     q = (args or "").strip()
     if not q:
-        return await message.reply("Формат: <code>найти бан</code>")
+        return await message.reply("Формат: <code>найти бан</code> или <code>найти дуэль</code>")
     found = find_commands(q)
     if not found:
         return await message.reply(f"Ничего не найдено по «{html.escape(q)}».")
     out = [f"🔎 Найдено: <b>{len(found)}</b>\n"]
     for c in found[:15]:
-        out.append(f"• <code>{html.escape(c.usage)}</code> — {html.escape(c.desc)}\n"
-                   f"   <i>{SECTIONS.get(c.section,'')}</i>")
+        rank_str = f" <i>[{RANK_NAMES.get(c.rank, f'Ранг {c.rank}')}]</i>" if c.rank else ""
+        out.append(f"• <code>{html.escape(c.usage)}</code>{rank_str} — {html.escape(c.desc)}\n"
+                   f"   <i>Раздел: {SECTIONS.get(c.section,'')}</i>")
     from core_nav import with_home
-    kb = None
+    rows = []
     if found:
         url = docs.section_url(found[0].section)
         if url:
-            kb = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="🔗 Открыть в справке", url=url)]])
+            rows.append([InlineKeyboardButton(text="🔗 Открыть в справке", url=url)])
+    rows.append([InlineKeyboardButton(text="📑 Все команды (по страницам)", callback_data="h:all:0")])
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
     await message.reply(_safe_cut("\n".join(out), 3800),
                         reply_markup=with_home(kb),
                         disable_web_page_preview=True)

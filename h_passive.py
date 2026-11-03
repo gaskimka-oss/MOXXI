@@ -309,24 +309,36 @@ async def cb_captcha_verify(call: CallbackQuery, bot: Bot):
     _a.create_task(_del_later(call.message, 5))
 
 
-@router.message(Cmd("капча", "защита от ботов", "антибот", section=6, rank=3,
-                    usage="капча вкл|выкл", desc="Проверка новых участников кнопкой «Я человек»"))
+@router.message(Cmd("+капча", "-капча", "капча",
+                    "+антибот", "-антибот", "антибот", "+анти бот", "-анти бот", "анти бот",
+                    "+защита от ботов", "-защита от ботов", "защита от ботов",
+                    section=6, rank=0,
+                    usage="антибот [вкл/выкл]", desc="Проверка новых участников кнопкой «Я человек»"))
 async def cmd_captcha_toggle(message: Message, bot: Bot, args: str = "", **kw):
-    if not await require(message, bot, 3):
-        return
     a = (args or "").strip().lower()
-    if a in {"вкл", "on", "1", "да"}:
+    cmd_name = (kw.get("cmd_name") or (message.text or "")).strip().lower()
+
+    # Включение (+антибот, капча вкл, +капча, +защита от ботов)
+    if cmd_name.startswith(("+антибот", "+анти бот", "+капча", "+защита от ботов")) or a in {"вкл", "on", "1", "да", "enable"}:
+        if not await require(message, bot, 3):
+            return
         await db.set_setting(message.chat.id, "captcha", "1")
-        return await message.reply("🛡 <b>Капча включена!</b>\nНовые участники будут замьючены, пока не нажмут кнопку «✅ Я человек».")
-    if a in {"выкл", "off", "0", "нет"}:
+        return await message.reply("🛡 <b>Защита от ботов (капча) включена!</b>\nНовые участники будут замьючены, пока не нажмут кнопку «✅ Я человек».")
+
+    # Выключение (-антибот, капча выкл, -капча, -защита от ботов)
+    if cmd_name.startswith(("-антибот", "-анти бот", "-капча", "-защита от ботов")) or a in {"выкл", "off", "0", "нет", "disable"}:
+        if not await require(message, bot, 3):
+            return
         await db.set_setting(message.chat.id, "captcha", "0")
-        return await message.reply("⚪️ <b>Капча выключена.</b> Новые участники сразу могут писать в чат.")
+        return await message.reply("⚪️ <b>Защита от ботов (капча) выключена.</b> Новые участники сразу могут писать в чат.")
+
+    # Просмотр статуса доступен любому участнику
     cur = await db.get_setting(message.chat.id, "captcha", "0")
     state = "🟢 включена" if cur == "1" else "🔴 выключена"
     await message.reply(
         f"🤖 <b>Защита от ботов (Капча):</b> {state}\n\n"
-        f"Включить: <code>капча вкл</code>\n"
-        f"Выключить: <code>капча выкл</code>"
+        f"• Включить: <code>+антибот</code> (или <code>капча вкл</code>)\n"
+        f"• Выключить: <code>-антибот</code> (или <code>капча выкл</code>)"
     )
 
 

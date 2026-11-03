@@ -475,8 +475,13 @@ async def cmd_question_of_day(message: Message, bot: Bot, **kw):
 # 6. ⏰ «УМНАЯ ЧАТ-НАПОМИНАЛКА И ТАЙМЕР МОКСИ»
 # ══════════════════════════════════════════════════════════════
 
-async def _remind_job(bot: Bot, chat_id: int, reply_to_id: int, user_id: int, user_name: str, note: str, total_sec: int, dur_str: str):
+async def _remind_job(bot: Bot, timer_id: int, chat_id: int, reply_to_id: int, user_id: int, user_name: str, note: str, total_sec: int, dur_str: str):
     await asyncio.sleep(total_sec)
+    # Помечаем выполненным в базе данных, чтобы фоновый worker не продублировал
+    try:
+        await db.execute("UPDATE timers SET done=1 WHERE id=?", (timer_id,))
+    except Exception:
+        pass
     u_link = mention_id(user_id, user_name)
     text = (
         f"⏰ 🔔 <b>НАПОМИНАНИЕ ОТ МОКСИ!</b> 🔔 ⏰\n"
@@ -498,22 +503,23 @@ async def _remind_job(bot: Bot, chat_id: int, reply_to_id: int, user_id: int, us
                     usage="напомни [время] [текст]", desc="Поставить умный таймер или напоминалку"))
 async def cmd_reminder(message: Message, bot: Bot, **kw):
     raw = message.text or ""
-    # Ищем шаблон времени: например "через 15 мин сделать чай" или "10м пить воду" или "30 сек"
-    m = re.search(r'(?:через\s+)?(\d+)\s*(сек|секунд|секунды|с|мин|минут|минуты|м|ч|час|часа|часов|дн|дней|дня|д)\b\s*(.*)', raw, re.I)
-    if not m:
+    # Ищем шаблон времени: поддерживаем "через 15 мин чай", "7 дней взнос", "10 сделано" (по умолч. мин)
+    m = re.search(r'(?:через\s+)?(\d+)\s*(сек|секунд|секунды|с|мин|минут|минуты|м|ч|час|часа|часов|дн|дней|дня|д)?\b\s*(.*)', raw, re.I)
+    if not m or not m.group(1):
         text = (
             f"⏰ <b>КАК ПОСТАВИТЬ НАПОМИНАЛКУ ИЛИ ТАЙМЕР:</b>\n\n"
             f"• <code>напомни через 15 мин выключить плиту</code>\n"
+            f"• <code>таймер 7 дней сделал взнос?</code>\n"
             f"• <code>таймер 30 сек</code>\n"
-            f"• <code>будильник 2 ч пойти спать</code>\n"
-            f"• <code>напомни 10 м размять спину</code>\n\n"
-            f"🔔 <i>Мокси запомнит заметку и позовёт вас прямо в этот чат!</i>"
+            f"• <code>будильник 2 ч пойти спать</code>\n\n"
+            f"📋 <b>Ваши таймеры:</b> <code>мои таймеры</code>\n"
+            f"❌ <b>Отмена:</b> <code>отменить таймер</code>"
         )
         return await message.reply(text)
 
     num = int(m.group(1))
-    unit = m.group(2).lower()
-    note = m.group(3).strip() or "Время вышло! Таймер завершён!"
+    unit = (m.group(2) or "мин").lower()
+    note = (m.group(3) or "").strip() or "Время вышло! Таймер завершён!"
 
     if unit in ("с", "сек", "секунд", "секунды"):
         total_sec = num
@@ -533,23 +539,35 @@ async def cmd_reminder(message: Message, bot: Bot, **kw):
     if total_sec > 604800:
         return await message.reply("⏳ Максимальное время напоминалки — 7 дней!")
 
-    asyncio.create_task(_remind_job(
-        bot=bot,
-        chat_id=message.chat.id,
-        reply_to_id=message.message_id,
-        user_id=message.from_user.id,
-        user_name=message.from_user.first_name,
-        note=note,
-        total_sec=total_sec,
-        dur_str=dur_str,
-    ))
+    fire_at = int(time.time()) + total_sec
+    cur = await db.execute(
+        "INSERT INTO timers (chat_id, user_id, text, fire_at) VALUES (?, ?, ?, ?)",
+        (message.chat.id, message.from_user.id, note, fire_at)
+    )
+    timer_id = cur.lastrowid
+
+    # Для таймеров короче 5 минут запускаем мгновенный таск
+    if total_sec <= 300:
+        asyncio.create_task(_remind_job(
+            bot=bot,
+            timer_id=timer_id,
+            chat_id=message.chat.id,
+            reply_to_id=message.message_id,
+            user_id=message.from_user.id,
+            user_name=message.from_user.first_name,
+            note=note,
+            total_sec=total_sec,
+            dur_str=dur_str,
+        ))
 
     text = (
         f"⏰ ✨ <b>ТАЙМЕР УСПЕШНО ЗАПУЩЕН!</b> ✨ ⏰\n"
         f"✦ ══ • ⊰ ⏳ 📝 🔔 ⊱ • ══ ✦\n\n"
         f"⏳ <b>Время ожидания:</b> <b>{dur_str}</b>\n"
-        f"📝 <b>Заметка:</b> «<i>{html.escape(note)}</i>»\n\n"
-        f"🔔 <i>Мокси обязательно позовёт вас, когда время истечёт!</i>"
+        f"📝 <b>Заметка:</b> «<i>{html.escape(note)}</i>»\n"
+        f"🆔 <b>Номер таймера:</b> <code>#{timer_id}</code>\n\n"
+        f"🔔 <i>Мокси обязательно позовёт вас, когда время истечёт!</i>\n"
+        f"💡 <i>Проверить: <code>мои таймеры</code> | Отменить: <code>отменить таймер {timer_id}</code></i>"
     )
     await message.reply(text)
 

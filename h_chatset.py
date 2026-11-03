@@ -207,7 +207,7 @@ async def rules_show(message: Message, **kw):
         await message.reply(txt, reply_markup=kb, disable_web_page_preview=True)
 
 
-@router.message(Cmd("+правила", "установить правила", "сохранить правила", "задать правила", "изменить правила",
+@router.message(Cmd("+правила", "+правило", "установить правила", "установить правило", "сохранить правила", "сохранить правило", "задать правила", "задать правило", "изменить правила", "изменить правило",
                     section=S_CHAT, rank=3, group_only=True,
                     usage="+правила {текст}", desc="Установить текст правил чата"))
 async def rules_set(message: Message, bot: Bot, args: str = "", **kw):
@@ -279,7 +279,7 @@ async def cmd_auto_rules(message: Message, bot: Bot, args: str = "", **kw):
     )
 
 
-@router.message(Cmd("изучить правила", "запомнить правила", "проанализировать правила", "проверить правила",
+@router.message(Cmd("изучить правила", "изучить правило", "запомнить правила", "запомнить правило", "запомни правила", "запомни правило", "проанализировать правила", "проверить правила",
                     section=S_CHAT, rank=3, group_only=True,
                     usage="изучить правила", desc="Автоматически найти, изучить и активировать правила чата"))
 async def rules_learn(message: Message, bot: Bot, args: str = "", **kw):
@@ -365,7 +365,7 @@ async def rules_learn(message: Message, bot: Bot, args: str = "", **kw):
     )
 
 
-@router.message(Cmd("-правила", "сбросить правила", "удалить правила",
+@router.message(Cmd("-правила", "-правило", "сбросить правила", "сбросить правило", "удалить правила", "удалить правило",
                     section=S_CHAT, rank=3, group_only=True,
                     usage="-правила", desc="Сбросить правила чата до стандартных"))
 async def rules_reset(message: Message, bot: Bot, **kw):
