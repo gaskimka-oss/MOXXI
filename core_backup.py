@@ -50,7 +50,7 @@ def backup_chat() -> int:
     return backup_chats()[0]
 
 
-def schedule_quick_backup(bot: Bot, delay_sec: float = 5.0) -> None:
+def schedule_quick_backup(bot: Bot, delay_sec: float = 1.0) -> None:
     """Запускает быстрый бэкап через N секунд с дебаунсом (после покупки бизнеса и т.д.)."""
     global _quick_backup_task
     if _quick_backup_task and not _quick_backup_task.done():

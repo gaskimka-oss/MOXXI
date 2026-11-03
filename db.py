@@ -983,6 +983,8 @@ async def init() -> None:
     _conn = await aiosqlite.connect(DB_PATH)
     _conn.row_factory = DictRow
     await _conn.execute("PRAGMA journal_mode=WAL")
+    await _conn.execute("PRAGMA synchronous=NORMAL")
+    await _conn.execute("PRAGMA wal_autocheckpoint=100")
     await _conn.execute("PRAGMA foreign_keys=ON")
     await _conn.executescript(SCHEMA)
     await _migrate()
@@ -2309,6 +2311,10 @@ async def add_game_xp(user_id: int, xp_amount: int = 1, is_win: bool = False) ->
         "ON CONFLICT(user_id) DO UPDATE SET xp=xp+?, games_played=games_played+1, games_won=games_won+?",
         (user_id, new_xp, win_add, xp_amount, win_add)
     )
+    try:
+        await conn().execute("PRAGMA wal_checkpoint(PASSIVE)")
+    except Exception:
+        pass
     return new_lvl, (new_lvl > old_lvl)
 
 
@@ -2330,6 +2336,10 @@ async def change_user_business(user_id: int, biz_key: str, count_delta: int) -> 
         if new_cnt > 0:
             await execute("INSERT INTO user_businesses (user_id, biz_key, count, last_collect) VALUES (?, ?, ?, ?)",
                           (user_id, biz_key, new_cnt, now))
+        try:
+            await conn().execute("PRAGMA wal_checkpoint(PASSIVE)")
+        except Exception:
+            pass
         return new_cnt
 
 
@@ -2339,6 +2349,10 @@ async def change_user_business(user_id: int, biz_key: str, count_delta: int) -> 
             await execute("DELETE FROM user_businesses WHERE user_id=? AND biz_key=?", (user_id, biz_key))
         else:
             await execute("UPDATE user_businesses SET count=? WHERE user_id=? AND biz_key=?", (new_cnt, user_id, biz_key))
+        try:
+            await conn().execute("PRAGMA wal_checkpoint(PASSIVE)")
+        except Exception:
+            pass
         return new_cnt
 
 
