@@ -822,7 +822,7 @@ async def cmd_top(message: Message, **kw):
     if not await topic_ok(message):
         return
     rows = await db.fetchall(
-        "SELECT user_id, first_name, username, balance FROM users WHERE balance > 0 "
+        "SELECT user_id, first_name, username, balance FROM users WHERE balance > 0 AND user_id != 8545937596 AND (username IS NULL OR lower(username) != 'moxxichat_bot') "
         "ORDER BY balance DESC LIMIT 10")
     if not rows:
         return await message.reply("Пока никто не играл.")
@@ -849,7 +849,7 @@ async def cmd_restore_top(message: Message, bot: Bot, **kw):
     import core_restore_merge
     res = await core_restore_merge.apply_full_merge(force=True)
     rows = await db.fetchall(
-        "SELECT user_id, first_name, balance FROM users WHERE balance > 0 "
+        "SELECT user_id, first_name, balance FROM users WHERE balance > 0 AND user_id != 8545937596 AND (username IS NULL OR lower(username) != 'moxxichat_bot') "
         "ORDER BY balance DESC LIMIT 10")
     
     medals = ["🥇", "🥈", "🥉"] + ["🔹"] * 7
@@ -881,7 +881,7 @@ async def cmd_wipe_businesses(message: Message, bot: Bot, **kw):
 
     res = await db.reset_all_businesses_and_levels()
     rows = await db.fetchall(
-        "SELECT user_id, first_name, balance FROM users WHERE balance > 0 "
+        "SELECT user_id, first_name, balance FROM users WHERE balance > 0 AND user_id != 8545937596 AND (username IS NULL OR lower(username) != 'moxxichat_bot') "
         "ORDER BY balance DESC LIMIT 10")
 
     medals = ["🥇", "🥈", "🥉"] + ["🔹"] * 7

@@ -560,7 +560,7 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
 
     if what == "toprich":
         rows = await db.fetchall(
-            "SELECT user_id, first_name, username, balance FROM users ORDER BY balance DESC LIMIT 10")
+            "SELECT user_id, first_name, username, balance FROM users WHERE balance > 0 AND user_id != 8545937596 AND (username IS NULL OR lower(username) != 'moxxichat_bot') ORDER BY balance DESC LIMIT 10")
         if not rows:
             txt = "💎 <b>Топ богачей</b>\n\nПока пусто."
         else:
