@@ -90,6 +90,11 @@ def parse_amount(text: str, balance: int, minimum: int = 1) -> Optional[int]:
     return res if res >= minimum else None
 
 
+def parse_money(text: str, balance: int = 100_000_000_000, minimum: int = 1) -> Optional[int]:
+    """Универсальный парсер денежных сумм (1кк, 500к, все, числа)."""
+    return parse_amount(text, balance, minimum)
+
+
 def hms(seconds: int) -> str:
     h, rem = divmod(max(0, seconds), 3600)
     m, s = divmod(rem, 60)

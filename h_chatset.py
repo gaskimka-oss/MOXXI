@@ -138,20 +138,40 @@ async def get_rules_topic(chat_id: int) -> int:
 
 
 def render_rules_card(chat_title: str, raw_rules: str, is_forum: bool = False, chat_id: int = 0, rules_topic: int = 0) -> tuple[str, InlineKeyboardMarkup | None]:
-    """Форматирует любой пользовательский текст правил в стильную эстетичную карточку."""
+    """Форматирует любой пользовательский текст правил в стильную эстетичную карточку с темой чата."""
     title = html.escape(chat_title or "Беседа")
     content = (raw_rules or "").strip()
 
     if len(content) > 3400:
         content = content[:3400] + "…\n<i>(текст правил сокращён)</i>"
 
+    # Динамическая изоляция темы оформления чата
+    import core_themes
+    theme_id = "rainbow"
+    if chat_id:
+        try:
+            import sqlite3
+            from config import DB_PATH
+            conn = sqlite3.connect(DB_PATH)
+            r = conn.execute("SELECT theme FROM chat_themes WHERE chat_id=?", (chat_id,)).fetchone()
+            if r and r[0] in core_themes.ALL_THEMES:
+                theme_id = r[0]
+            conn.close()
+        except Exception:
+            pass
+
+    t = core_themes.ALL_THEMES.get(theme_id, core_themes.ALL_THEMES["rainbow"])
+    banner = t["banner"]
+    footer_banner = t["footer_banner"]
+    badge = t["badge"]
+
     card = (
-        f"📜 ✨ <b>ПРАВИЛА БЕСЕДЫ · {title}</b> ✨ 📜\n"
-        f"✦ ══ • ⊰ 💖 🔮 💙 🩵 💚 💛 🟣 🧡 ❤️ 🤍 ⊱ • ══ ✦\n\n"
+        f"{badge} ✨ <b>ПРАВИЛА БЕСЕДЫ · {title}</b> ✨ {badge}\n"
+        f"{banner}\n\n"
         f"<blockquote>✨ <b>Настоящие правила обязательны к исполнению всеми участниками сообщества.</b>\n"
         f"Незнание правил не освобождает от ответственности!</blockquote>\n\n"
         f"<blockquote expandable>{content}</blockquote>\n\n"
-        f"✦ ══════════════════════════════ ✦\n"
+        f"{footer_banner}\n"
         f"👑 <i>Соблюдайте правила и проявляйте уважение ко всем участникам!</i>"
     )
 

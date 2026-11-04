@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS users (
     banned      INTEGER NOT NULL DEFAULT 0,
     verified    INTEGER NOT NULL DEFAULT 0,
     grams       INTEGER NOT NULL DEFAULT 0,
+    crystals    INTEGER NOT NULL DEFAULT 0,
     created_at  INTEGER NOT NULL DEFAULT 0
 );
 
@@ -1042,7 +1043,8 @@ async def _migrate() -> None:
                     ("ai_reason", "TEXT"), ("ai_advice", "TEXT")],
         "users": [("verified", "INTEGER NOT NULL DEFAULT 0"),
                   ("grams", "INTEGER NOT NULL DEFAULT 0"),
-                  ("coins", "INTEGER NOT NULL DEFAULT 0")],
+                  ("coins", "INTEGER NOT NULL DEFAULT 0"),
+                  ("crystals", "INTEGER NOT NULL DEFAULT 0")],
         "relations": [("count", "INTEGER NOT NULL DEFAULT 1")],
         "profiles": [("gender", "TEXT"), ("custom", "TEXT"), ("custom_by", "INTEGER"),
                      ("custom_ts", "INTEGER"),
@@ -1694,6 +1696,43 @@ async def set_balance(user_id: int, amount: int) -> int:
     val = max(0, int(amount))
     await execute("UPDATE users SET balance=? WHERE user_id=?", (val, user_id))
     return val
+
+async def get_crystals(user_id: int) -> int:
+    """Возвращает баланс кристаллов пользователя."""
+    row = await fetchone("SELECT crystals FROM users WHERE user_id=?", (user_id,))
+    if not row:
+        await get_user(user_id)
+        row = await fetchone("SELECT crystals FROM users WHERE user_id=?", (user_id,))
+    return int(row["crystals"]) if (row and "crystals" in row and row["crystals"] is not None) else 0
+
+
+async def add_crystals(user_id: int, amount: int, action: str = "", meta: str = "") -> int:
+    """Безопасно пополняет или списывает кристаллы (не уходит в минус)."""
+    await get_user(user_id)
+    try:
+        amt = int(amount)
+    except Exception:
+        amt = 0
+    await execute("UPDATE users SET crystals = MAX(0, crystals + ?) WHERE user_id=?", (amt, user_id))
+    if action:
+        try:
+            await execute(
+                "INSERT INTO log (user_id, action, amount, meta, ts) VALUES (?,?,?,?,?)",
+                (user_id, f"crystal:{action}", amt, meta, int(time.time())),
+            )
+        except Exception:
+            pass
+    row = await fetchone("SELECT crystals FROM users WHERE user_id=?", (user_id,))
+    return int(row["crystals"]) if (row and "crystals" in row and row["crystals"] is not None) else 0
+
+
+async def set_crystals(user_id: int, amount: int) -> int:
+    """Устанавливает точное число кристаллов."""
+    await get_user(user_id)
+    val = max(0, int(amount))
+    await execute("UPDATE users SET crystals=? WHERE user_id=?", (val, user_id))
+    return val
+
 
 
 REFERENCE_TOP = [

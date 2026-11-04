@@ -79,6 +79,9 @@ import h_social_fun as social_fun
 import h_owner_panel as owner_panel
 import h_player_features as player_features
 import h_update_2_2 as update_2_2
+import h_currency_exchange as currency_exchange
+import h_vip_plus as vip_plus
+import h_moxxi_3_0 as moxxi_3_0
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s")
@@ -436,7 +439,7 @@ async def main() -> None:
         automod.router, nightmode.router, boss.router, items.router,
         duels.router, clan_wars.router, fishing_craft.router, achievements.router,
         quests.router, social_fun.router, grams.router, nav.router,
-        adminpanel.router, owner_panel.router, start.router, update_2_2.router,
+        adminpanel.router, owner_panel.router, start.router, update_2_2.router, currency_exchange.router, vip_plus.router, moxxi_3_0.router,
     )
     for r in command_routers:
         r.message.middleware(access_middleware)
@@ -490,6 +493,9 @@ async def main() -> None:
     dp.include_router(botinfo.router)
     dp.include_router(userinfo.router)
     dp.include_router(update_2_2.router)
+    dp.include_router(currency_exchange.router)
+    dp.include_router(vip_plus.router)
+    dp.include_router(moxxi_3_0.router)
     dp.include_router(passive.router)
 
     me = None

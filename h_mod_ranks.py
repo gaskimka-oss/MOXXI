@@ -208,78 +208,8 @@ async def _staff_rows(chat_id: int, bot: Bot | None = None) -> dict[int, list[tu
     return out
 
 
-STAFF_THEMES = {
-    "rainbow": {
-        "id": "rainbow",
-        "name": "🌈 Радужный VIP (Diamond Rainbow)",
-        "badge": "🌈",
-        "desc": "Фирменный градиентный стиль с кристаллами, алмазами и цветными акцентами",
-        "banner": "✦ ══ • ⊰ 💖 🔮 💙 🩵 💚 💛 🟣 🧡 ❤️ 🤍 ⊱ • ══ ✦",
-        "header_title": "👑 ✨ <b>{title}</b> ✨ 👑",
-        "group_box": "┌ <b>{head}</b>",
-        "branch_mid": "├─▸",
-        "branch_last": "└─▸",
-        "footer_banner": "✦ ══════════════════════════════ ✦",
-        "footer_fmt": "📊 <i>Всего в администрации: <b>{total}</b></i>",
-        "bullets": {10: "👑", 9: "🔱", 8: "🔮", 7: "💎", 6: "⭐", 5: "🛡️", 4: "⚔️", 3: "🗡️", 2: "🔹", 1: "▫️"}
-    },
-    "cyber_sakura": {
-        "id": "cyber_sakura",
-        "name": "🌸 Сакура & Киберпанк (Tokyo Neo-Samurai)",
-        "badge": "🌸",
-        "desc": "Японский кибер-стиль с цветущей сакурой, неоновыми разделителями и катанами",
-        "banner": "🌸 ════════ • ⛩️ • ════════ 🌸",
-        "header_title": "🏮 🌸 <b>{title}</b> 🌸 🏮",
-        "group_box": "┏━ 🌸 <b>{head}</b>",
-        "branch_mid": "┣━▸",
-        "branch_last": "┗━▸",
-        "footer_banner": "🌸 ════════ • ⛩️ • ════════ 🌸",
-        "footer_fmt": "⛩️ <i>Мастеров самурайского совета: <b>{total}</b></i>",
-        "bullets": {10: "⛩️", 9: "🏮", 8: "⚡", 7: "🥷", 6: "🗡️", 5: "⚔️", 4: "🎋", 3: "🌸", 2: "🏮", 1: "🥋"}
-    },
-    "dark_order": {
-        "id": "dark_order",
-        "name": "⚔️ Тёмный Орден (Gothic Castle / Dark Souls)",
-        "badge": "⚔️",
-        "desc": "Готический средневековый стиль с рыцарскими щитами, клинками и гербами",
-        "banner": "⚜️ ━━━━━━━━ • ⚔️ • ━━━━━━━━ ⚜️",
-        "header_title": "🏰 ⚔️ <b>{title}</b> ⚔️ 🏰",
-        "group_box": "╔══ ⚜️ <b>{head}</b>",
-        "branch_mid": "╠══▸",
-        "branch_last": "╚══▸",
-        "footer_banner": "⚜️ ━━━━━━━━ • ⚔️ • ━━━━━━━━ ⚜️",
-        "footer_fmt": "🛡️ <i>Рыцарей круглого стола: <b>{total}</b></i>",
-        "bullets": {10: "👑", 9: "⚜️", 8: "🦅", 7: "⚔️", 6: "🛡️", 5: "🗡️", 4: "🏹", 3: "⚖️", 2: "🛡️", 1: "🗡️"}
-    },
-    "minimal_slate": {
-        "id": "minimal_slate",
-        "name": "💎 Минимализм (Modern Executive Slate)",
-        "badge": "💎",
-        "desc": "Строгий современный моноширинный дизайн для деловых и технологичных бесед",
-        "banner": "──────────────────────────────",
-        "header_title": "┌────────────────────────────┐\n│   <b>{title}</b>   │\n└────────────────────────────┘",
-        "group_box": "■ <b>{head}</b>",
-        "branch_mid": "  ├─",
-        "branch_last": "  └─",
-        "footer_banner": "──────────────────────────────",
-        "footer_fmt": "• <i>Руководящий состав: <b>{total}</b></i>",
-        "bullets": {10: "◈", 9: "◈", 8: "✦", 7: "✦", 6: "✦", 5: "▫️", 4: "▫️", 3: "▪️", 2: "▪️", 1: "▫️"}
-    },
-    "cosmic_galaxy": {
-        "id": "cosmic_galaxy",
-        "name": "🌌 Космос & Галактика (Cosmic Starfleet)",
-        "badge": "🌌",
-        "desc": "Глубокий космический вайб со звёздами, кометами, орбитами и туманностями",
-        "banner": "✨ ⋆ ★ ━━━━━━━ • 🛸 • ━━━━━━━ ★ ⋆ ✨",
-        "header_title": "🪐 🚀 <b>{title}</b> 🚀 🪐",
-        "group_box": "┏━ 🪐 <b>{head}</b>",
-        "branch_mid": "┣━💫",
-        "branch_last": "┗━💫",
-        "footer_banner": "✨ ⋆ ★ ━━━━━━━ • 🛸 • ━━━━━━━ ★ ⋆ ✨",
-        "footer_fmt": "🛰️ <i>Экипаж командного мостика: <b>{total}</b></i>",
-        "bullets": {10: "🪐", 9: "🚀", 8: "🛸", 7: "🌟", 6: "🌠", 5: "☄️", 4: "🛰️", 3: "💫", 2: "✨", 1: "🔭"}
-    }
-}
+import core_themes
+STAFF_THEMES = core_themes.ALL_THEMES
 
 
 def _render_staff(groups: dict[int, list[tuple[str, bool]]], title: str = "А Д М И Н И С Т Р А Ц И Я   Б Е С Е Д Ы", theme: str = "rainbow") -> str:
@@ -1174,8 +1104,8 @@ def _make_theme_menu_kb(cur_theme: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
 
-@router.message(Cmd("дизайн чата", "тема чата", "дизайн состава", "тема состава",
-                    "стиль состава", "стиль чата", "оформление состава",
+@router.message(Cmd("дизайн", "дизайн чата", "дизайн группы", "тема", "темы", "тема чата", "дизайн состава", "тема состава",
+                    "стиль состава", "стиль чата", "оформление состава", "оформление чата",
                     section=34, group_only=True,
                     usage="дизайн чата", desc="🎨 Настройка дизайна оформления состава и чата"))
 async def cmd_chat_design(message: Message, bot: Bot, **kw):
