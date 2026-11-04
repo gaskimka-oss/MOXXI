@@ -1109,9 +1109,11 @@ def _make_theme_menu_kb(cur_theme: str) -> InlineKeyboardMarkup:
                     section=34, group_only=True,
                     usage="дизайн чата", desc="🎨 Настройка дизайна оформления состава и чата"))
 async def cmd_chat_design(message: Message, bot: Bot, **kw):
+    from config import is_bot_owner
+    uid = message.from_user.id if message.from_user else 0
     me = await effective_rank(message, bot)
-    if me < 4:
-        return await message.reply("⛔️ Настраивать дизайн чата могут только администраторы от <b>4 ранга (Главный модератор)</b> и выше!")
+    if me < 3 and not is_bot_owner(uid):
+        return await message.reply("⛔️ Настраивать дизайн чата могут администраторы беседы (от <b>3 ранга</b>) и выше!")
 
     await db.execute(
         "CREATE TABLE IF NOT EXISTS chat_themes ("

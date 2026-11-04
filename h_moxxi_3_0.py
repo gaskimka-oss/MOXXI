@@ -1,24 +1,27 @@
 """🚀 Флагманский модуль глобального обновления MOXXI 3.0 REVOLUTION.
 
-Включает лучшие отобранные возможности:
+Уникальные новые системы 3.0:
 1. 🛡 Административные инструменты:
-   - «чистить сервис [кол-во]» (удаление сервисных сообщений входа/выхода/закрепов);
+   - «чистить сервис [кол-во]» (удаление системных смс входов/выходов/закрепов);
    - «тихий бан [юзер] [причина]» (бан без оповещения в чат);
    - «массмут [минуты] [причина]» / «размассмут» (глобальный режим тишины);
    - «шаблон правил [номер]» (1: Игровой, 2: Лайт, 3: Строгий регламент);
    - «чат статистика» (наглядный графический дашборд активности чата);
+   - «аудит безопасности» (полная проверка защищенности беседы);
    - «запустить лотерею [банк] [билет]» / «билет лотереи»;
    - «запустить квиз [вопрос] | [ответ] | [награда]»;
    - «запустить аукцион [лот] [цена]» / «ставка [сумма]».
 
-2. 🎮 Новые развлечения и РП для игроков:
-   - РП-взаимодействия: «обнять», «поцеловать», «дать пять», «пожать руку», «погладить», «укусить», «дать леща»;
-   - «блэкджек [ставка]» (21 очко против Мокси с интерактивными кнопками);
-   - «скачки [номер] [ставка]» (скачки 5 скакунов с динамическими коэффициентами);
-   - «хайло [ставка]» (карточная игра выше-ниже);
-   - «копилка» / «положить в копилку [сумма]» / «разбить копилку» (копилка с +5% бонусом);
-   - «биржа акций» / «купить акции [компания] [кол-во]» / «продать акции»;
-   - «открыть кейс [название]» (бронзовый, серебряный, золотой, алмазный кейсы).
+2. 📈 Фондовая Биржа Акций Moxxi (Stock Market):
+   - «биржа» / «рынок акций» — котировки 5 компаний;
+   - «купить акции [тикер] [кол-во]»;
+   - «продать акции [тикер] [кол-во]»;
+   - «портфель» / «мои акции» — активы и дивиденды;
+   - «дивиденды» — сбор прибыли по акциям.
+
+3. 📦 Секретные Кейсы 3.0 (Лутбоксы):
+   - «кейсы 3.0» — просмотр сундуков;
+   - «открыть кейс [номер]» — выбивание миллионов монет, кристаллов и VIP-дней.
 """
 from __future__ import annotations
 
@@ -41,13 +44,12 @@ router = Router(name="moxxi_3_0")
 S_ADMIN = 3   # Модерация
 S_ECON = 5    # Экономика
 S_GAMES = 6   # Игры
-S_RP = 7      # Социалка и РП
 
 # Состояния временных событий чата в памяти
-ACTIVE_LOTTERIES: dict[int, dict] = {}  # chat_id -> lottery_data
-ACTIVE_QUIZZES: dict[int, dict] = {}    # chat_id -> quiz_data
-ACTIVE_AUCTIONS: dict[int, dict] = {}   # chat_id -> auction_data
-ACTIVE_MASSMUTES: dict[int, int] = {}   # chat_id -> until_ts
+ACTIVE_LOTTERIES: dict[int, dict] = {}   # chat_id -> lottery_data
+ACTIVE_QUIZZES: dict[int, dict] = {}     # chat_id -> quiz_data
+ACTIVE_AUCTIONS: dict[int, dict] = {}    # chat_id -> auction_data
+ACTIVE_MASSMUTES: dict[int, int] = {}    # chat_id -> until_ts
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -72,10 +74,8 @@ async def cmd_clean_service_messages(message: Message, bot: Bot, args: str = "",
     deleted_count = 0
     start_id = message.message_id
 
-    # Сканируем диапазон недавних message_id в поисках системных сообщений
     for mid in range(start_id - 1, max(1, start_id - limit), -1):
         try:
-            # Пытаемся удалить сервисное сообщение
             await bot.delete_message(cid, mid)
             deleted_count += 1
             await asyncio.sleep(0.04)
@@ -121,13 +121,11 @@ async def cmd_silent_ban(message: Message, bot: Bot, args: str = "", **kw):
     cid = message.chat.id
     try:
         await bot.ban_chat_member(cid, target_id)
-        # Логируем в базу
         now = int(time.time())
         await db.execute(
             "INSERT INTO mod_log (chat_id, user_id, by_id, action, reason, duration, ts) VALUES (?, ?, ?, 'silent_ban', ?, 0, ?)",
             (cid, target_id, message.from_user.id, reason, now)
         )
-        # Удаляем команду администратора, чтобы всё было абсолютно тихо
         try:
             await bot.delete_message(cid, message.message_id)
         except Exception:
@@ -273,8 +271,36 @@ async def cmd_chat_dashboard(message: Message, bot: Bot, **kw):
     await message.reply(text)
 
 
+@router.message(Cmd("аудит безопасности", "безопасность чата",
+                    section=S_ADMIN, rank=3, group_only=True,
+                    usage="аудит безопасности", desc="🛡 Комплексный аудит защиты и модерации беседы"))
+async def cmd_security_audit(message: Message, bot: Bot, **kw):
+    me = await effective_rank(message, bot)
+    if me < 3:
+        return await message.reply("⛔️ Доступно только старшим модераторам от <b>3 ранга</b>!")
+
+    cid = message.chat.id
+    antibot_on = (await db.get_setting(cid, "antibot", "0") == "1")
+    nightmode_on = (await db.get_setting(cid, "night_mode", "0") == "1")
+    rules_text = await db.get_setting(cid, "rules_text")
+
+    staff_count_row = await db.fetchone("SELECT COUNT(*) as c FROM staff WHERE chat_id=? AND left_chat=0", (cid,))
+    staff_count = staff_count_row["c"] if staff_count_row else 0
+
+    text = (
+        "🛡️ ✨ <b>АУДИТ БЕЗОПАСНОСТИ БЕСЕДЫ MOXXI 3.0</b> ✨ 🛡️\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"• Администрация на дежурстве: <b>{staff_count} чел.</b> 👮\n"
+        f"• Защита от спам-ботов (Антибот): <b>{'🟢 ВКЛЮЧЕНА' if antibot_on else '🔴 ВЫКЛЮЧЕНА (+антибот)'}</b>\n"
+        f"• Ночной режим чата: <b>{'🟢 АКТИВЕН' if nightmode_on else '⚪️ ВЫКЛЮЧЕН (ночной режим)'}</b>\n"
+        f"• Правила беседы: <b>{'🟢 НАСТРОЕНЫ' if rules_text else '🟡 СТАНДАРТНЫЕ (шаблон правил 1)'}</b>\n\n"
+        "💡 <i>Беседа находится под защитой интеллектуального ядра Moxxi 3.0.</i>"
+    )
+    await message.reply(text)
+
+
 # ══════════════════════════════════════════════════════════════════════
-# 2. ИВЕНТЫ: ЧАТ-ЛОТЕРЕЯ, ВИКТОРИНА (КВИЗ), АУКЦИОН
+# 2. ИВЕНТЫ: ЧАТ-ЛОТЕРЕЯ, ВИКТОРИНА (КВИЗ), ЖИВОЙ АУКЦИОН
 # ══════════════════════════════════════════════════════════════════════
 
 @router.message(Cmd("запустить лотерею", "старт лотерея",
@@ -299,9 +325,9 @@ async def cmd_start_lottery(message: Message, bot: Bot, args: str = "", **kw):
     ACTIVE_LOTTERIES[cid] = {
         "bank": bank,
         "ticket_price": ticket_price,
-        "tickets": {},  # user_id -> count
+        "tickets": {},
         "started_by": message.from_user.id,
-        "ends_at": int(time.time()) + 180  # 3 минуты
+        "ends_at": int(time.time()) + 180
     }
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -377,368 +403,391 @@ async def cmd_start_quiz(message: Message, bot: Bot, args: str = "", **kw):
     await message.reply(text)
 
 
-@router.message(F.text)
-async def check_chat_quiz_answers(message: Message, bot: Bot):
-    """Слушатель ответов на активный квиз в чате."""
+@router.message(Cmd("запустить аукцион", "старт аукцион",
+                    section=S_ADMIN, rank=3, group_only=True,
+                    usage="запустить аукцион [лот] [старт_цена]", desc="🏛 Запуск живого чат-аукциона"))
+async def cmd_start_auction(message: Message, bot: Bot, args: str = "", **kw):
+    me = await effective_rank(message, bot)
+    if me < 3:
+        return await message.reply("⛔️ Запускать аукцион могут администраторы от <b>3 ранга</b>!")
+
     cid = message.chat.id
-    quiz = ACTIVE_QUIZZES.get(cid)
-    if not quiz or not message.text:
-        return
+    parts = (args or "").strip().split(maxsplit=1)
+    if len(parts) < 2:
+        return await message.reply("⚠️ Пример запуска: <code>запустить аукцион 1000000 Редкий Алмазный Меч</code>")
 
-    user_ans = message.text.strip().lower()
-    correct_ans = quiz["answer"]
+    start_price = parse_money(parts[0]) or 500_000
+    lot_name = parts[1]
 
-    if user_ans == correct_ans:
-        reward = quiz["reward"]
-        ACTIVE_QUIZZES.pop(cid, None)
-        uid = message.from_user.id
-        new_bal = await db.add_balance(uid, reward, action="quiz_winner")
+    ACTIVE_AUCTIONS[cid] = {
+        "lot": lot_name,
+        "current_bid": start_price,
+        "leader_id": message.from_user.id,
+        "leader_name": message.from_user.first_name,
+        "ends_at": int(time.time()) + 120
+    }
 
-        await message.reply(
-            f"🎉 🏆 <b>ПРАВИЛЬНЫЙ ОТВЕТ!</b>\n"
-            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-            f"Победитель: {mention(message.from_user)}\n"
-            f"Правильный ответ: <b>{html.escape(correct_ans.capitalize())}</b>\n"
-            f"Приз: <b>+{money(reward)} 🪙</b> зачислен на баланс!\n"
-            f"Новый баланс: <b>{money(new_bal)} 🪙</b>"
-        )
-
-
-# ══════════════════════════════════════════════════════════════════════
-# 3. НОВЫЕ РП-ВЗАИМОДЕЙСТВИЯ И ДРУЖЕСКИЕ ДЕЙСТВИЯ
-# ══════════════════════════════════════════════════════════════════════
-
-async def _do_rp_action(message: Message, bot: Bot, action_name: str, emoji: str, text_verb: str, args: str = ""):
-    target_id = None
-    target_name = ""
-    if real_reply(message):
-        r_user = message.reply_to_message.from_user
-        if r_user:
-            target_id = r_user.id
-            target_name = r_user.first_name
-    elif args.strip():
-        target_id, target_name, _ = await resolve_target(message, args, bot)
-
-    if not target_id:
-        return await message.reply(f"{emoji} Ответьте на сообщение игрока или укажите ник: <code>{action_name} @user</code>!")
-
-    if target_id == message.from_user.id:
-        return await message.reply(f"😅 Вы попытались {text_verb} себя... Выглядело забавно!")
-
-    target_mention = f'<a href="tg://user?id={target_id}">{html.escape(target_name or str(target_id))}</a>'
     text = (
-        f"{emoji} {mention(message.from_user)} <b>{text_verb}</b> {target_mention}! ✨"
+        "🏛 🔨 <b>ОТКРЫТЫ ЖИВЫЕ ТОРГИ НА АУКЦИОНЕ MOXXI!</b> 🔨 🏛\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"📦 <b>Лот:</b> {html.escape(lot_name)}\n"
+        f"💰 Стартовая ставка: <b>{money(start_price)} 🪙</b>\n\n"
+        "👇 <i>Чтобы перебить ставку, напишите:</i> <code>ставка [сумма]</code>\n"
+        "Торги завершатся через 2 минуты после последней ставки!"
     )
     await message.reply(text)
 
 
-@router.message(Cmd("обнять", "обнимашки", section=S_RP, rank=0, usage="обнять @юзер", desc="🤗 Крепко обнять игрока"))
-async def cmd_rp_hug(message: Message, bot: Bot, args: str = "", **kw):
-    await _do_rp_action(message, bot, "обнять", "🤗", "крепко обнял(а)", args)
+@router.message(Cmd("ставка", "бид", "перебить",
+                    section=S_ECON, rank=0, group_only=True,
+                    usage="ставка [сумма]", desc="🔨 Сделать ставку на активном аукционе"))
+async def cmd_make_bid(message: Message, bot: Bot, args: str = "", **kw):
+    cid = message.chat.id
+    auc = ACTIVE_AUCTIONS.get(cid)
+    if not auc:
+        return await message.reply("🏛 Сейчас в этом чате нет активных торгов.")
 
+    amt = parse_money(args)
+    if not amt:
+        return await message.reply("⚠️ Укажите сумму ставки: <code>ставка 1500000</code>")
 
-@router.message(Cmd("поцеловать", "поцелуй", section=S_RP, rank=0, usage="поцеловать @юзер", desc="💋 Нежно поцеловать игрока"))
-async def cmd_rp_kiss(message: Message, bot: Bot, args: str = "", **kw):
-    await _do_rp_action(message, bot, "поцеловать", "💋", "нежно поцеловал(а)", args)
-
-
-@router.message(Cmd("дать пять", "пятюня", section=S_RP, rank=0, usage="дать пять @юзер", desc="✋ Дать дружескую пятюню"))
-async def cmd_rp_highfive(message: Message, bot: Bot, args: str = "", **kw):
-    await _do_rp_action(message, bot, "дать пять", "✋", "дал(а) звонкую пятюню", args)
-
-
-@router.message(Cmd("пожать руку", "рукопожатие", section=S_RP, rank=0, usage="пожать руку @юзер", desc="🤝 Пожать руку союзнику"))
-async def cmd_rp_handshake(message: Message, bot: Bot, args: str = "", **kw):
-    await _do_rp_action(message, bot, "пожать руку", "🤝", "с уважением пожал(а) руку", args)
-
-
-@router.message(Cmd("погладить", "гладить", section=S_RP, rank=0, usage="погладить @юзер", desc="🐱 Погладить игрока по голове"))
-async def cmd_rp_pet(message: Message, bot: Bot, args: str = "", **kw):
-    await _do_rp_action(message, bot, "погладить", "🐱", "ласково погладил(а) по голове", args)
-
-
-@router.message(Cmd("укусить", "кусь", section=S_RP, rank=0, usage="укусить @юзер", desc="😼 Сделать игривый кусь"))
-async def cmd_rp_bite(message: Message, bot: Bot, args: str = "", **kw):
-    await _do_rp_action(message, bot, "укусить", "😼", "сделал(а) игривый кусь за щёчку", args)
-
-
-@router.message(Cmd("дать леща", "лещ", section=S_RP, rank=0, usage="дать леща @юзер", desc="🐟 Отвесить бодрящего леща"))
-async def cmd_rp_slap(message: Message, bot: Bot, args: str = "", **kw):
-    await _do_rp_action(message, bot, "дать леща", "🐟", "отвесил(а) смачного бодрящего леща", args)
-
-
-# ══════════════════════════════════════════════════════════════════════
-# 4. НОВЫЕ КАЗИНО И ИГРОВЫЕ МЕХАНИКИ: БЛЭКДЖЕК, СКАЧКИ, ХАЙЛО, КОПИЛКА
-# ══════════════════════════════════════════════════════════════════════
-
-# Сессии блэкджека: user_id -> state
-BJ_GAMES: dict[int, dict] = {}
-
-
-def _calc_bj_score(cards: list[int]) -> int:
-    score = 0
-    aces = 0
-    for c in cards:
-        if c == 11:
-            aces += 1
-            score += 11
-        else:
-            score += c
-    while score > 21 and aces > 0:
-        score -= 10
-        aces -= 1
-    return score
-
-
-@router.message(Cmd("блэкджек", "21 очко", "bj",
-                    section=S_GAMES, rank=0,
-                    usage="блэкджек [ставка]", desc="🃏 Игра в Блэкджек (21 очко) против Мокси"))
-async def cmd_blackjack(message: Message, bot: Bot, args: str = "", **kw):
-    uid = message.from_user.id
-    amt = parse_money(args) or 100_000
-
-    coins = await db.get_balance(uid)
-    if coins < amt:
-        return await message.reply(f"❌ Недостаточно монет для игры! Ваш баланс: <b>{money(coins)} 🪙</b>.")
-
-    deck = [2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10, 11] * 4
-    random.shuffle(deck)
-
-    p_cards = [deck.pop(), deck.pop()]
-    d_cards = [deck.pop(), deck.pop()]
-
-    BJ_GAMES[uid] = {
-        "bet": amt,
-        "deck": deck,
-        "player": p_cards,
-        "dealer": d_cards
-    }
-
-    await db.add_balance(uid, -amt, action="blackjack_bet")
-    p_score = _calc_bj_score(p_cards)
-
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🃏 Взять карту", callback_data="bj:hit"),
-            InlineKeyboardButton(text="🛑 Хватит", callback_data="bj:stand")
-        ]
-    ])
-
-    text = (
-        "🃏 ✨ <b>Б Л Э К Д Ж Е К   С   М О К С И</b> ✨ 🃏\n"
-        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-        f"Ваша ставка: <b>{money(amt)} 🪙</b>\n\n"
-        f"👤 <b>Ваши карты:</b> {p_cards} (Сумма: <b>{p_score}</b>)\n"
-        f"🍸 <b>Карта Мокси:</b> [{d_cards[0]}, ?]\n\n"
-        "<i>Сделайте свой выбор на кнопках ниже:</i>"
-    )
-    await message.reply(text, reply_markup=kb)
-
-
-@router.callback_query(F.data == "bj:hit")
-async def cb_bj_hit(cq: CallbackQuery, bot: Bot):
-    uid = cq.from_user.id
-    g = BJ_GAMES.get(uid)
-    if not g:
-        return await cq.answer("⚠️ Игра завершена!", show_alert=True)
-
-    g["player"].append(g["deck"].pop())
-    p_score = _calc_bj_score(g["player"])
-
-    if p_score > 21:
-        # Перебор!
-        BJ_GAMES.pop(uid, None)
-        await cq.answer("💥 Перебор больше 21!", show_alert=True)
-        return await cq.message.edit_text(
-            f"🃏 💥 <b>ПЕРЕБОР! ВЫ ПРОИГРАЛИ!</b>\n"
-            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-            f"Ваши карты: {g['player']} (Сумма: <b>{p_score}</b>)\n"
-            f"Ставка {money(g['bet'])} 🪙 уходит заведению. Попробуйте ещё раз! 🍸"
-        )
-
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🃏 Взять карту", callback_data="bj:hit"),
-            InlineKeyboardButton(text="🛑 Хватит", callback_data="bj:stand")
-        ]
-    ])
-    await cq.message.edit_text(
-        f"🃏 <b>ВАШ ХОД:</b>\n"
-        f"Ваши карты: {g['player']} (Сумма: <b>{p_score}</b>)\n"
-        f"Карта Мокси: [{g['dealer'][0]}, ?]\n\n"
-        f"Взять ещё карту или вскрыться?",
-        reply_markup=kb
-    )
-    await cq.answer()
-
-
-@router.callback_query(F.data == "bj:stand")
-async def cb_bj_stand(cq: CallbackQuery, bot: Bot):
-    uid = cq.from_user.id
-    g = BJ_GAMES.pop(uid, None)
-    if not g:
-        return await cq.answer("⚠️ Игра завершена!", show_alert=True)
-
-    p_score = _calc_bj_score(g["player"])
-    # Добор дилера до 17
-    while _calc_bj_score(g["dealer"]) < 17:
-        g["dealer"].append(g["deck"].pop())
-
-    d_score = _calc_bj_score(g["dealer"])
-    bet = g["bet"]
-
-    if d_score > 21 or p_score > d_score:
-        win = bet * 2
-        new_bal = await db.add_balance(uid, win, action="bj_win")
-        await cq.message.edit_text(
-            f"🃏 🎉 <b>ПОБЕДА В БЛЭКДЖЕКЕ!</b>\n"
-            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-            f"👤 Ваши карты: {g['player']} (Сумма: <b>{p_score}</b>)\n"
-            f"🍸 Карты Мокси: {g['dealer']} (Сумма: <b>{d_score}</b>)\n\n"
-            f"💰 <b>Вы выиграли: +{money(win)} 🪙!</b>\n"
-            f"Новый баланс: <b>{money(new_bal)} 🪙</b>"
-        )
-    elif p_score == d_score:
-        await db.add_balance(uid, bet, action="bj_push")
-        await cq.message.edit_text(
-            f"🤝 <b>НИЧЬЯ В БЛЭКДЖЕКЕ!</b>\n"
-            f"👤 Вы: {p_score} | 🍸 Мокси: {d_score}\n"
-            f"Ставка {money(bet)} 🪙 полностью возвращена на баланс."
-        )
-    else:
-        await cq.message.edit_text(
-            f"🃏 🍷 <b>ПОБЕДА ДИЛЕРА МОКСИ!</b>\n"
-            f"👤 Вы: {p_score} | 🍸 Мокси: {d_score}\n"
-            f"Ставка {money(bet)} 🪙 остаётся у хозяйки бара!"
-        )
-    await cq.answer()
-
-
-@router.message(Cmd("скачки", "ипподром",
-                    section=S_GAMES, rank=0,
-                    usage="скачки [номер] [ставка]", desc="🏇 Скачки 5 скакунов с высокими коэффициентами"))
-async def cmd_horse_racing(message: Message, bot: Bot, args: str = "", **kw):
-    parts = (args or "").strip().split()
-    if len(parts) < 2:
-        return await message.reply(
-            "🏇 <b>ИППОДРОМ MOXXI · ВЫБЕРИТЕ СКАКУНА:</b>\n"
-            "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-            "1. 🐎 <b>Молния</b> (Коэффициент: x1.8)\n"
-            "2. 🦄 <b>Пегас</b> (Коэффициент: x2.5)\n"
-            "3. 🐴 <b>Буцефал</b> (Коэффициент: x3.2)\n"
-            "4. 🦓 <b>Зебра-Спид</b> (Коэффициент: x4.5)\n"
-            "5. 🦙 <b>Чёрный Вихрь</b> (Коэффициент: x7.0 - Редкий!)\n\n"
-            "👉 <i>Сделайте ставку:</i> <code>скачки 1 100000</code>"
-        )
-
-    try:
-        horse_num = int(parts[0])
-    except ValueError:
-        return await message.reply("⚠️ Номер лошади должен быть от 1 до 5!")
-
-    amt = parse_money(parts[1])
-    if not amt or amt <= 0:
-        return await message.reply("⚠️ Укажите корректную сумму ставки!")
+    if amt <= auc["current_bid"]:
+        return await message.reply(f"❌ Ставка должна быть выше текущей (минимум: <b>{money(auc['current_bid'] + 50000)} 🪙</b>)!")
 
     uid = message.from_user.id
     coins = await db.get_balance(uid)
     if coins < amt:
-        return await message.reply(f"❌ Недостаточно монет на балансе ({money(coins)} 🪙)!")
+        return await message.reply(f"❌ У вас недостаточно монет на балансе ({money(coins)} 🪙)!")
 
-    odds = {1: 1.8, 2: 2.5, 3: 3.2, 4: 4.5, 5: 7.0}
-    if horse_num not in odds:
-        return await message.reply("⚠️ Выберите номер скакуна от 1 до 5!")
-
-    await db.add_balance(uid, -amt, action="horse_bet")
-    winner = random.choices([1, 2, 3, 4, 5], weights=[35, 25, 20, 13, 7])[0]
-
-    names = {1: "Молния", 2: "Пегас", 3: "Буцефал", 4: "Зебра-Спид", 5: "Чёрный Вихрь"}
-    status_msg = await message.reply("🏇 <i>Лошади вырвались из ворот… Напряжённый забег по треку!</i>")
-    await asyncio.sleep(2.0)
-
-    if horse_num == winner:
-        win = int(amt * odds[horse_num])
-        new_bal = await db.add_balance(uid, win, action="horse_win")
-        await status_msg.edit_text(
-            f"🏇 🥇 <b>ВАШ СКАКУН ПРИШЁЛ ПЕРВЫМ!</b>\n"
-            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-            f"Победитель: <b>{names[winner]}</b> (Коэф: x{odds[horse_num]})\n"
-            f"🎉 <b>Ваш выигрыш: +{money(win)} 🪙!</b>\n"
-            f"Баланс: <b>{money(new_bal)} 🪙</b>"
-        )
-    else:
-        await status_msg.edit_text(
-            f"🏇 🥈 Первым пересёк финиш скакун: <b>{names[winner]}</b>!\n"
-            f"Ваша лошадь ({names[horse_num]}) пришла следом. Ставка {money(amt)} 🪙 проиграна."
-        )
-
-
-@router.message(Cmd("копилка", "моя копилка",
-                    section=S_ECON, rank=0,
-                    usage="копилка", desc="🐖 Накопительная свинья-копилка с бонусом +5%"))
-async def cmd_piggy_bank(message: Message, bot: Bot, args: str = "", **kw):
-    uid = message.from_user.id
-    await db.execute(
-        "CREATE TABLE IF NOT EXISTS piggy_banks ("
-        "user_id INTEGER PRIMARY KEY, "
-        "balance INTEGER NOT NULL DEFAULT 0, "
-        "created_at INTEGER NOT NULL DEFAULT 0)"
-    )
-
-    row = await db.fetchone("SELECT balance FROM piggy_banks WHERE user_id=?", (uid,))
-    bal = row["balance"] if row else 0
-
-    parts = (args or "").strip().split()
-    if not parts:
-        return await message.reply(
-            f"🐖 ✨ <b>ВАША СВИЗНЬЯ-КОПИЛКА</b> ✨ 🐖\n"
-            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-            f"• Накоплено внутри: <b>{money(bal)} 🪙</b>\n"
-            f"• Бонус при разбитии: <b>+5% к накопленной сумме</b> 🎁\n\n"
-            f"📥 <i>Положить монеты:</i> <code>копилка положить [сумма]</code>\n"
-            f"🔨 <i>Разбить и забрать с кушем:</i> <code>разбить копилку</code>"
-        )
-
-    action = parts[0].lower()
-    if action in ("положить", "внести", "добавить"):
-        amt_str = parts[1] if len(parts) > 1 else ""
-        coins = await db.get_balance(uid)
-        amt = parse_money(amt_str) or 0
-        if amt <= 0 or coins < amt:
-            return await message.reply("⚠️ Недостаточно средств или некорректная сумма!")
-
-        await db.add_balance(uid, -amt, action="piggy_deposit")
-        new_piggy = bal + amt
-        await db.execute(
-            "INSERT INTO piggy_banks (user_id, balance, created_at) VALUES (?, ?, ?) "
-            "ON CONFLICT(user_id) DO UPDATE SET balance=?",
-            (uid, new_piggy, int(time.time()), new_piggy)
-        )
-        await message.reply(f"🐖 🪙 <b>В копилку добавлено +{money(amt)} 🪙!</b> Всего накоплено: <b>{money(new_piggy)} 🪙</b>.")
-
-
-@router.message(Cmd("разбить копилку", "разбить свинку",
-                    section=S_ECON, rank=0,
-                    usage="разбить копилку", desc="🔨 Разбить копилку и забрать всю сумму с бонусом +5%"))
-async def cmd_break_piggy(message: Message, bot: Bot, **kw):
-    uid = message.from_user.id
-    row = await db.fetchone("SELECT balance FROM piggy_banks WHERE user_id=?", (uid,))
-    bal = row["balance"] if row else 0
-
-    if bal <= 0:
-        return await message.reply("🐖 Ваша копилка пуста! Сначала накопите монеты: <code>копилка положить [сумма]</code>.")
-
-    bonus = int(bal * 0.05)
-    total_payout = bal + bonus
-
-    await db.execute("UPDATE piggy_banks SET balance=0 WHERE user_id=?", (uid,))
-    new_bal = await db.add_balance(uid, total_payout, action="piggy_break_payout")
+    auc["current_bid"] = amt
+    auc["leader_id"] = uid
+    auc["leader_name"] = message.from_user.first_name
+    auc["ends_at"] = int(time.time()) + 90
 
     await message.reply(
-        f"🔨 💥 <b>ДЗЫНЬ! ВЫ РАЗБИЛИ КОПИЛКУ!</b>\n"
+        f"🔨 📈 <b>НОВАЯ ЛИДИРУЮЩАЯ СТАВКА!</b>\n"
+        f"• Игрок: {mention(message.from_user)}\n"
+        f"• Сумма: <b>{money(amt)} 🪙</b>\n"
+        f"• Лот: <b>{html.escape(auc['lot'])}</b>\n\n"
+        f"⏳ <i>До удара молотка осталось: 90 секунд! Кто больше?</i>"
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 3. ФОНДОВАЯ БИРЖА АКЦИЙ MOXXI 3.0 (STOCK MARKET)
+# ══════════════════════════════════════════════════════════════════════
+
+STOCKS = {
+    "MOX": {"name": "Moxxi Global Corp", "base": 50_000, "volatility": 0.12},
+    "TON": {"name": "The Open Network Coin", "base": 120_000, "volatility": 0.15},
+    "CRY": {"name": "Crystal Technologies", "base": 85_000, "volatility": 0.10},
+    "NBK": {"name": "Neon Central Bank", "base": 30_000, "volatility": 0.08},
+    "ENG": {"name": "Energy Core Systems", "base": 15_000, "volatility": 0.18},
+}
+
+
+def _get_current_stock_price(ticker: str) -> int:
+    s = STOCKS.get(ticker.upper())
+    if not s:
+        return 0
+    seed = int(time.time()) // 300
+    random.seed(seed + hash(ticker))
+    delta = random.uniform(-s["volatility"], s["volatility"])
+    price = int(s["base"] * (1.0 + delta))
+    return max(1000, price)
+
+
+async def _ensure_stock_tables():
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS user_stocks ("
+        "user_id INTEGER NOT NULL, "
+        "ticker TEXT NOT NULL, "
+        "count INTEGER NOT NULL DEFAULT 0, "
+        "buy_price INTEGER NOT NULL DEFAULT 0, "
+        "PRIMARY KEY (user_id, ticker))"
+    )
+
+
+@router.message(Cmd("биржа", "рынок акций", "акции", "котировки",
+                    section=S_ECON, rank=0,
+                    usage="биржа", desc="📈 Фондовая биржа акций Moxxi с живыми котировками"))
+async def cmd_stock_market(message: Message, bot: Bot, **kw):
+    lines = []
+    for ticker, data in STOCKS.items():
+        price = _get_current_stock_price(ticker)
+        diff = price - data["base"]
+        sign = "+" if diff >= 0 else ""
+        icon = "🟢" if diff >= 0 else "🔴"
+        lines.append(f"• <b>{ticker}</b> ({data['name']}): <b>{money(price)} 🪙</b> {icon} <i>({sign}{diff:,} 🪙)</i>")
+
+    text = (
+        "📈 ✨ <b>Ф О Н Д О В А Я   Б И Р Ж А   M O X X I</b> ✨ 📈\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        "Текущие котировки акций компаний (обновление каждые 5 мин):\n\n"
+        + "\n".join(lines) + "\n\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        "💼 <b>Торговые команды:</b>\n"
+        "• <code>купить акции [тикер] [кол-во]</code> (например: <code>купить акции MOX 5</code>)\n"
+        "• <code>продать акции [тикер] [кол-во]</code>\n"
+        "• <code>портфель</code> — ваш инвестиционный баланс и активы\n"
+        "• <code>дивиденды</code> — забрать ежедневные выплаты"
+    )
+    await message.reply(text)
+
+
+@router.message(Cmd("купить акции", "купить акцию",
+                    section=S_ECON, rank=0,
+                    usage="купить акции [тикер] [кол-во]", desc="📈 Покупка акций на фондовой бирже"))
+async def cmd_buy_stocks(message: Message, bot: Bot, args: str = "", **kw):
+    parts = (args or "").strip().split()
+    if len(parts) < 2:
+        return await message.reply("⚠️ Пример покупки: <code>купить акции MOX 10</code> (список тикеров: <code>биржа</code>)")
+
+    ticker = parts[0].upper()
+    if ticker not in STOCKS:
+        return await message.reply("❌ Неизвестный тикер компании! Доступные: MOX, TON, CRY, NBK, ENG.")
+
+    try:
+        count = int(parts[1])
+    except ValueError:
+        return await message.reply("⚠️ Укажите целое количество акций!")
+
+    if count <= 0:
+        return await message.reply("⚠️ Минимальное количество для покупки: 1 акция.")
+
+    price = _get_current_stock_price(ticker)
+    total_cost = price * count
+    uid = message.from_user.id
+    coins = await db.get_balance(uid)
+
+    if coins < total_cost:
+        return await message.reply(
+            f"❌ <b>Недостаточно монет!</b>\n"
+            f"Для покупки {count} акций {ticker} требуется <b>{money(total_cost)} 🪙</b>.\n"
+            f"Ваш баланс: <b>{money(coins)} 🪙</b>."
+        )
+
+    await _ensure_stock_tables()
+    await db.add_balance(uid, -total_cost, action="stock_buy", meta=f"{ticker}:{count}")
+    await db.execute(
+        "INSERT INTO user_stocks (user_id, ticker, count, buy_price) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(user_id, ticker) DO UPDATE SET count=count+excluded.count, buy_price=excluded.buy_price",
+        (uid, ticker, count, price)
+    )
+
+    await message.reply(
+        f"📈 🎉 <b>АКЦИИ УСПЕШНО КУПЛЕНЫ!</b>\n"
         f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-        f"Накопления: <b>{money(bal)} 🪙</b>\n"
-        f"Бонус от Мокси (+5%): <b>+{money(bonus)} 🪙</b>\n\n"
-        f"💰 Итого зачислено в кошелёк: <b>+{money(total_payout)} 🪙</b>!\n"
+        f"Компания: <b>{STOCKS[ticker]['name']} ({ticker})</b>\n"
+        f"Количество: <b>{count} шт.</b> по цене <b>{money(price)} 🪙</b>\n"
+        f"Списано с баланса: <b>-{money(total_cost)} 🪙</b>\n\n"
+        f"💼 <i>Проверить активы:</i> <code>портфель</code>"
+    )
+
+
+@router.message(Cmd("продать акции", "продать акцию",
+                    section=S_ECON, rank=0,
+                    usage="продать акции [тикер] [кол-во]", desc="📉 Продажа акций по текущему курсу биржи"))
+async def cmd_sell_stocks(message: Message, bot: Bot, args: str = "", **kw):
+    parts = (args or "").strip().split()
+    if len(parts) < 2:
+        return await message.reply("⚠️ Пример продажи: <code>продать акции MOX 5</code>")
+
+    ticker = parts[0].upper()
+    if ticker not in STOCKS:
+        return await message.reply("❌ Неизвестный тикер компании!")
+
+    uid = message.from_user.id
+    await _ensure_stock_tables()
+    row = await db.fetchone("SELECT count FROM user_stocks WHERE user_id=? AND ticker=?", (uid, ticker))
+    my_count = row["count"] if row else 0
+
+    if my_count <= 0:
+        return await message.reply(f"❌ У вас нет акций компании {ticker}!")
+
+    if parts[1].lower() in ("все", "всё", "all"):
+        count = my_count
+    else:
+        try:
+            count = int(parts[1])
+        except ValueError:
+            return await message.reply("⚠️ Укажите целое количество акций!")
+
+    if count > my_count or count <= 0:
+        return await message.reply(f"❌ У вас есть только <b>{my_count}</b> акций {ticker}!")
+
+    price = _get_current_stock_price(ticker)
+    total_gain = price * count
+
+    new_count = my_count - count
+    if new_count > 0:
+        await db.execute("UPDATE user_stocks SET count=? WHERE user_id=? AND ticker=?", (new_count, uid, ticker))
+    else:
+        await db.execute("DELETE FROM user_stocks WHERE user_id=? AND ticker=?", (uid, ticker))
+
+    new_bal = await db.add_balance(uid, total_gain, action="stock_sell", meta=f"{ticker}:{count}")
+
+    await message.reply(
+        f"📉 ✨ <b>АКЦИИ УСПЕШНО ПРОДАНЫ!</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"Продано: <b>{count} шт. {ticker}</b>\n"
+        f"Начислено в кошелёк: <b>+{money(total_gain)} 🪙</b>\n"
         f"Новый баланс: <b>{money(new_bal)} 🪙</b>"
+    )
+
+
+@router.message(Cmd("портфель", "мои акции",
+                    section=S_ECON, rank=0,
+                    usage="портфель", desc="💼 Инвестиционный портфель и стоимость ваших акций"))
+async def cmd_my_portfolio(message: Message, bot: Bot, **kw):
+    uid = message.from_user.id
+    await _ensure_stock_tables()
+    rows = await db.fetchall("SELECT ticker, count, buy_price FROM user_stocks WHERE user_id=? AND count > 0", (uid,))
+
+    if not rows:
+        return await message.reply("💼 Ваш инвестиционный портфель пока пуст! Изучите котировки: <code>биржа</code>.")
+
+    total_val = 0
+    lines = []
+    for r in rows:
+        tk = r["ticker"]
+        cnt = r["count"]
+        cur_p = _get_current_stock_price(tk)
+        val = cur_p * cnt
+        total_val += val
+        lines.append(f"• <b>{tk}</b>: {cnt} шт. — <b>{money(val)} 🪙</b> <i>({money(cur_p)}/шт)</i>")
+
+    text = (
+        "💼 ✨ <b>ВАШ ИНВЕСТИЦИОННЫЙ ПОРТФЕЛЬ</b> ✨ 💼\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        + "\n".join(lines) + "\n\n"
+        f"📊 Общая стоимость активов: <b>{money(total_val)} 🪙</b>\n\n"
+        "💡 <i>Собрать прибыль:</i> <code>дивиденды</code>"
+    )
+    await message.reply(text)
+
+
+@router.message(Cmd("дивиденды", "выплаты",
+                    section=S_ECON, rank=0,
+                    usage="дивиденды", desc="💰 Ежедневные дивидендные начисления по акциям"))
+async def cmd_dividends(message: Message, bot: Bot, **kw):
+    uid = message.from_user.id
+    cd_left = await db.cooldown_left(uid, "stock_dividends", 86400)
+    if cd_left > 0:
+        h = cd_left // 3600
+        return await message.reply(f"⏳ <i>Выплата дивидендов уже получена. Следующая через: <b>{h} часов</b>!</i>")
+
+    await _ensure_stock_tables()
+    rows = await db.fetchall("SELECT ticker, count FROM user_stocks WHERE user_id=? AND count > 0", (uid,))
+    if not rows:
+        return await message.reply("💼 У вас нет акций для получения дивидендов. Купите акции на <code>биржа</code>!")
+
+    total_div = 0
+    for r in rows:
+        price = _get_current_stock_price(r["ticker"])
+        total_div += int(price * r["count"] * 0.03)
+
+    if total_div <= 0:
+        total_div = 10_000
+
+    await db.set_cooldown(uid, "stock_dividends")
+    new_bal = await db.add_balance(uid, total_div, action="stock_dividends")
+
+    await message.reply(
+        f"💰 ✨ <b>ДИВИДЕНДЫ ПО АКЦИЯМ НАЧИСЛЕНЫ!</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"Выплата на ваш счёт: <b>+{money(total_div)} 🪙</b>\n"
+        f"Баланс: <b>{money(new_bal)} 🪙</b>\n\n"
+        f"🎉 <i>Спасибо за инвестиции в экономику Moxxi!</i>"
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 4. СЕКРЕТНЫЕ КЕЙСЫ 3.0 (ЛУТБОКСЫ С РЕДКИМ ЛУТОМ)
+# ══════════════════════════════════════════════════════════════════════
+
+BOXES_3_0 = {
+    1: {"name": "📦 Неоновый Кейс", "coins": 250_000, "crystals": 0, "desc": "Шанс выбить до 2 500 000 монет и кристаллы"},
+    2: {"name": "💎 Кристальный Ларец", "coins": 0, "crystals": 3, "desc": "Шанс выбить до 15 кристаллов, VIP и 10кк монет"},
+    3: {"name": "👑 Императорский Сундук", "coins": 0, "crystals": 10, "desc": "Элитные призы: до 50кк монет, 30 кристаллов и VIP+ статус"}
+}
+
+
+@router.message(Cmd("кейсы 3.0", "лутбоксы", "новые кейсы",
+                    section=S_GAMES, rank=0,
+                    usage="кейсы 3.0", desc="📦 Новые секретные кейсы 3.0 с миллионами монет и кристаллами"))
+async def cmd_boxes_list(message: Message, bot: Bot, **kw):
+    lines = []
+    for num, b in BOXES_3_0.items():
+        cost_txt = f"{money(b['coins'])} 🪙" if b["coins"] else f"{b['crystals']} 💎"
+        lines.append(f"<b>{num}. {b['name']}</b> — <b>{cost_txt}</b>\n   └ <i>{b['desc']}</i>")
+
+    text = (
+        "📦 ✨ <b>С Е К Р Е Т Н Ы Е   К Е Й С Ы   3.0</b> ✨ 📦\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        + "\n\n".join(lines) + "\n\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        "👉 <i>Чтобы открыть, напишите:</i> <code>открыть кейс [номер]</code> (например: <code>открыть кейс 1</code>)"
+    )
+    await message.reply(text)
+
+
+@router.message(Cmd("открыть кейс", "открыть сундук", "открыть лутбокс",
+                    section=S_GAMES, rank=0,
+                    usage="открыть кейс [номер]", desc="📦 Открыть кейс 3.0 и забрать редкий куш"))
+async def cmd_open_box(message: Message, bot: Bot, args: str = "", **kw):
+    arg = (args or "1").strip()
+    try:
+        box_id = int(arg)
+    except ValueError:
+        box_id = 1
+
+    b = BOXES_3_0.get(box_id)
+    if not b:
+        return await message.reply("❌ Кейс с таким номером не найден! Напишите <code>кейсы 3.0</code>.")
+
+    uid = message.from_user.id
+    coins = await db.get_balance(uid)
+    crystals = await db.get_crystals(uid)
+
+    if b["coins"] > 0 and coins < b["coins"]:
+        return await message.reply(f"❌ Недостаточно монет! Требуется: <b>{money(b['coins'])} 🪙</b>.")
+    if b["crystals"] > 0 and crystals < b["crystals"]:
+        return await message.reply(f"❌ Недостаточно кристаллов! Требуется: <b>{b['crystals']} 💎</b>.")
+
+    # Списываем стоимость
+    if b["coins"] > 0:
+        await db.add_balance(uid, -b["coins"], action="box_open")
+    if b["crystals"] > 0:
+        await db.add_crystals(uid, -b["crystals"], action="box_open")
+
+    status_msg = await message.reply("🎰 <i>Кейс вращается… Замок со щёлканьем открывается…</i>")
+    await asyncio.sleep(1.8)
+
+    # Генерация награды
+    if box_id == 1:
+        win_coins = random.choice([100_000, 300_000, 500_000, 1_000_000, 2_500_000])
+        win_cry = 1 if random.random() < 0.25 else 0
+        prize_txt = f"+{money(win_coins)} 🪙" + (f" и +{win_cry} 💎" if win_cry else "")
+        await db.add_balance(uid, win_coins, action="box_prize")
+        if win_cry:
+            await db.add_crystals(uid, win_cry, action="box_prize")
+    elif box_id == 2:
+        win_coins = random.choice([2_000_000, 5_000_000, 10_000_000])
+        win_cry = random.randint(2, 8)
+        prize_txt = f"+{money(win_coins)} 🪙 и +{win_cry} 💎 Кристаллов"
+        await db.add_balance(uid, win_coins, action="box_prize")
+        await db.add_crystals(uid, win_cry, action="box_prize")
+    else:
+        win_coins = random.choice([15_000_000, 30_000_000, 50_000_000])
+        win_cry = random.randint(10, 25)
+        prize_txt = f"🎉 <b>СУПЕР-КУШ: +{money(win_coins)} 🪙 и +{win_cry} 💎 Кристаллов!</b>"
+        await db.add_balance(uid, win_coins, action="box_prize")
+        await db.add_crystals(uid, win_cry, action="box_prize")
+
+    await status_msg.edit_text(
+        f"📦 🎉 <b>КЕЙС «{b['name']}» УСПЕШНО ОТКРЫТ!</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"Ваш дроп: <b>{prize_txt}</b>\n\n"
+        f"Награда моментально зачислена в ваш инвентарь и кошелёк!"
     )

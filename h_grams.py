@@ -544,37 +544,68 @@ async def casino_enabled(chat_id: int) -> bool:
 
 async def topic_ok(message: Message) -> bool:
     """Проверяет тему для игр, казино, заработка, ограблений и монет."""
-    if message.chat.type != "private":
-        from h_chatset import get_effective_chat_mode
-        mode = await get_effective_chat_mode(message.chat.id, getattr(message.chat, "is_forum", False))
+    if message.chat.type == "private":
+        return True
 
-        if not await casino_enabled(message.chat.id):
-            await message.reply(
-                "🎰 <b>Казино и игры отключены в этом чате администрацией.</b>\n"
-                "Включить: <code>+казино</code> (доступно администрации)",
-                disable_web_page_preview=True
-            )
-            return False
+    from config import is_bot_owner
+    uid = message.from_user.id if message.from_user else 0
+    if uid and is_bot_owner(uid):
+        return True
 
-        # В одиночной группе или в режиме 'all' (все команды везде) — разрешаем играть прямо здесь
-        if mode in ("single", "all"):
-            return True
+    from h_chatset import get_effective_chat_mode
+    mode = await get_effective_chat_mode(message.chat.id, getattr(message.chat, "is_forum", False))
 
-        tid = _tid(message)
-        ft = await get_gram_topic(message.chat.id)
-        if ft and tid != ft:
-            chat_id = message.chat.id
-            text = (
-                f"❌ {mention(message.from_user)}, здесь нельзя играть и совершать операции с валютой!\n\n"
-                f"🎰 <b>Игры, казино, работа, ограбления и монеты</b> — только в этой теме:\n"
-                f"{_tlink(chat_id, ft)}"
-            )
-            try:
-                await message.reply(text, disable_web_page_preview=True)
-            except Exception:
-                pass
-            return False
-    return True
+    if not await casino_enabled(message.chat.id):
+        await message.reply(
+            "🎰 <b>Казино и игры отключены в этом чате администрацией.</b>\n"
+            "Включить: <code>+казино</code> (доступно администрации)",
+            disable_web_page_preview=True
+        )
+        return False
+
+    # В одиночной группе или в режиме 'all' — разрешаем играть везде
+    if mode in ("single", "all"):
+        return True
+
+    tid = _tid(message)
+    ft = await get_gram_topic(message.chat.id)
+
+    # Если тема для игр не привязана (0) — игры разрешены во всех темах!
+    if not ft:
+        return True
+
+    # Игрок в привязанной игровой теме — полный доступ!
+    if tid == ft:
+        return True
+
+    # Игрок в другой теме:
+    chat_id = message.chat.id
+    from core_ranks import effective_rank
+    is_admin = False
+    try:
+        r = await effective_rank(message, message.bot)
+        is_admin = (r >= 3)
+    except Exception:
+        pass
+
+    kb = None
+    if is_admin and tid:
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎰 Сделать эту тему игровой", callback_data=f"set_gram_topic:{tid}")],
+            [InlineKeyboardButton(text="🌐 Разрешить игры во всех темах", callback_data="set_gram_topic:0")]
+        ])
+
+    text = (
+        f"❌ {mention(message.from_user)}, здесь нельзя играть и совершать операции с валютой!\n\n"
+        f"🎰 <b>Игры, казино, работа, ограбления и монеты</b> — только в этой теме:\n"
+        f"{_tlink(chat_id, ft)}\n\n"
+        f"💡 <i>Администратор может перенести казино сюда:</i> <code>тема казик</code> <i>или разрешить везде:</i> <code>игры везде</code>"
+    )
+    try:
+        await message.reply(text, reply_markup=kb, disable_web_page_preview=True)
+    except Exception:
+        pass
+    return False
 
 
 @router.message(Cmd("+казино", "+казик", "+игры", "вкл казино", "вкл казик", "вкл игры",
@@ -3112,26 +3143,33 @@ async def cmd_take_admin(message: Message, bot: Bot, args: str = "", **kw):
 
 # ═══════════════ ПРИВЯЗКА ТЕМЫ ДЛЯ ИГР ═══════════════
 @router.message(Cmd("тема игр", "тема монет", "тема коинов", "тема казино", "тема казик", "тема граммов", "тема комет",
-                    "+тема игр", "+тема монет", "+тема казино", "+тема казик", section=S, rank=4,
-                    usage="тема игр [ссылка]",
-                    desc="Тема, где работают игры, казино и валюта"))
+                    "+тема игр", "+тема монет", "+тема казино", "+тема казик",
+                    "казик тема", "казино тема", "игры здесь", "казик здесь", "казино здесь",
+                    "игры тут", "казик тут", "казино тут",
+                    "игры везде", "казик везде", "казино везде",
+                    "тема игр сброс", "тема казик сброс", "тема казино сброс",
+                    section=S, rank=0, group_only=True,
+                    usage="тема казик",
+                    desc="Привязать текущую тему для игр, казино и валюты"))
 async def cmd_gram_topic(message: Message, bot: Bot, args: str = "", **kw):
-    from core_ranks import require
-    if not await require(message, bot, 4):
-        return
+    from config import is_bot_owner
+    from core_ranks import effective_rank
+    uid = message.from_user.id if message.from_user else 0
+    have = await effective_rank(message, bot)
+    if have < 3 and not is_bot_owner(uid):
+        return await message.reply("🔒 Настройка игровой темы доступна администраторам беседы (от 3 ранга).")
 
-    if not getattr(message.chat, "is_forum", False):
-        return await message.reply(
-            "⚠️ <b>Привязка тем доступна только в группах с включенными Темами (Форум)!</b>\n\n"
-            "В обычном чате без тем игры и казино работают прямо в основном чате.\n"
-            "Чтобы включить темы, откройте: <i>Настройки группы → Темы</i>."
-        )
+    cmd_raw = (message.text or message.caption or "").strip().lower()
+    a = (args or "").strip().lower()
 
-    a = (args or "").strip()
-
-    if a.lower() in {"сброс", "убрать", "выкл", "off"}:
+    # Сброс привязки — разрешить везде
+    if a in {"сброс", "убрать", "выкл", "off", "везде", "все", "отмена"} or any(w in cmd_raw for w in ("везде", "сброс")):
         await db.set_setting(message.chat.id, "gram_topic", "0")
-        return await message.reply("✅ Привязка снята — игры работают везде.")
+        return await message.reply(
+            "🌐 ✨ <b>ИГРЫ И КАЗИНО ТЕПЕРЬ РАЗРЕШЕНЫ ВО ВСЕХ ТЕМАХ!</b> ✨ 🌐\n"
+            "✦ ══════════════════════════════════ ✦\n\n"
+            "Все игроки могут свободно запускать слоты, мины, краш, блэкджек, рулетку и ставки в любой ветке чата."
+        )
 
     import re as _re
     tid = 0
@@ -3140,25 +3178,51 @@ async def cmd_gram_topic(message: Message, bot: Bot, args: str = "", **kw):
         tid = int(m.group(1))
     elif a.isdigit():
         tid = int(a)
-    elif not a:
+    else:
         tid = _tid(message)
 
     if not tid:
         cur = await get_gram_topic(message.chat.id)
-        cur_txt = (f"Сейчас: {_tlink(message.chat.id, cur)}" if cur else "Сейчас: не задана")
+        cur_txt = (f"Сейчас: {_tlink(message.chat.id, cur)}" if cur else "Сейчас: разрешено во всех темах (не ограничено)")
         return await message.reply(
-            f"🌑 <b>Тема для игр и валюты</b>\n\n{cur_txt}\n\n"
-            f"Установить — напишите команду <b>в нужной теме</b>:\n"
-            f"<code>тема игр</code>\n\n"
-            f"Или ссылкой:\n<code>тема игр https://t.me/c/123456/789</code>\n\n"
-            f"Снять: <code>тема игр сброс</code>",
+            f"🎰 <b>Настройка игровой темы (Казино)</b>\n\n"
+            f"📍 {cur_txt}\n\n"
+            f"👉 <b>Чтобы привязать текущую ветку:</b> напишите прямо в ней: <code>тема казик</code> или <code>казик здесь</code>\n"
+            f"👉 <b>Или ссылкой:</b> <code>тема игр https://t.me/c/123456/789</code>\n"
+            f"👉 <b>Разрешить везде:</b> <code>игры везде</code> или <code>тема казик сброс</code>",
             disable_web_page_preview=True)
 
     await db.set_setting(message.chat.id, "gram_topic", str(tid))
     await message.reply(
-        f"✅ <b>Тема для игр и валюты установлена</b>\n\n🌑 {_tlink(message.chat.id, tid)}\n\n"
-        f"Все игры и команды валюты теперь работают <b>только там</b>.",
+        f"🎰 ✨ <b>ТЕМА КАЗИНО И ИГР УСПЕШНО ПРИВЯЗАНА!</b> ✨ 🎰\n"
+        f"✦ ══════════════════════════════════ ✦\n\n"
+        f"📍 <b>Игровая зона:</b> {_tlink(message.chat.id, tid)}\n"
+        f"🎮 Теперь слоты, мины, краш, блэкджек, рулетка, скачки и заработок работают <b>в этой теме</b>!\n\n"
+        f"💡 <i>Чтобы разрешить игры во всех темах беседы:</i> <code>игры везде</code>",
         disable_web_page_preview=True)
+
+
+@router.callback_query(F.data.startswith("set_gram_topic:"))
+async def cb_set_gram_topic(call: CallbackQuery, bot: Bot):
+    from config import is_bot_owner
+    from core_ranks import effective_rank
+    uid = call.from_user.id
+    cid = call.message.chat.id
+    have = await effective_rank(call.message, bot)
+    if have < 3 and not is_bot_owner(uid):
+        return await call.answer("🔒 Доступно только администрации беседы!", show_alert=True)
+    
+    target_tid = call.data.split(":")[1]
+    await db.set_setting(cid, "gram_topic", target_tid)
+    if target_tid == "0":
+        await call.message.edit_text("🌐 ✅ <b>Игры, казино и ставки теперь разрешены во ВСЕХ темах этой группы!</b>")
+    else:
+        await call.message.edit_text(
+            f"🎰 ✅ <b>Тема успешно привязана для Казино и Игр!</b>\n"
+            f"Все игры теперь работают в этой теме: {_tlink(cid, int(target_tid))}",
+            disable_web_page_preview=True
+        )
+    await call.answer("Настройка сохранена!")
 
 
 # ═══════════════ ИНФОРМАЦИЯ О ЕДИНОЙ ВАЛЮТЕ ═══════════════

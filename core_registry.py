@@ -199,6 +199,12 @@ def _norm(s: str) -> str:
     return s.lower().replace("ё", "е").strip()
 
 
+NEED_TARGET_ACTIONS = {
+    "бан", "кик", "мут", "варн", "пред", "разбан", "размут", "снять пред",
+    "повысить", "понизить", "снять", "чек", "ограничить", "амнистия"
+}
+
+
 class Cmd(Filter):
     """Фильтр команды в стиле Ириса.
 
@@ -314,7 +320,7 @@ class Cmd(Filter):
                     args_val = body[len(name):].lstrip(" ,:\n").strip()
                     # Для команд модерации и администрирования (rank >= 1) без префикса в группе:
                     # требуем явный реплай или наличие аргументов-целей (@юзер, ID, настройки)
-                    if self.base_rank >= 1 and in_group and not addressed:
+                    if (self.key in NEED_TARGET_ACTIONS or name in NEED_TARGET_ACTIONS) and in_group and not addressed:
                         if not replied and not args_val:
                             return False
                     return {"args": args_val,

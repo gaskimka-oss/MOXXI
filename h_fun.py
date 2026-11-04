@@ -313,15 +313,25 @@ async def _bet_of(message: Message, raw: str) -> int | None:
     except Exception:
         pass
     u = await db.get_user(message.from_user.id)
+    raw_str = (raw or "").strip()
+    limit_max = 50_000_000  # Максимальная ставка в казино 50 000 000
     bet = parse_amount(raw, u["balance"], MIN_BET)
-    if not bet or bet < MIN_BET:
-        await message.reply(f"Ставка от {money(MIN_BET)}.")
+    if not raw_str:
+        await message.reply(
+            f"🎲 <b>Укажите ставку!</b>\n"
+            f"Минимальная ставка — <b>{money(MIN_BET)}</b>\n"
+            f"Ваш баланс: <b>{money(u['balance'])}</b>\n\n"
+            f"👉 Пример: <code>казик 1000</code> · <code>слоты 5к</code> · <code>казик все</code>"
+        )
         return None
-    if bet > MAX_BET:
-        await message.reply(f"Максимум {money(MAX_BET)}.")
+    if not bet or bet < MIN_BET:
+        await message.reply(f"⚠️ Минимальная ставка от <b>{money(MIN_BET)}</b>.")
+        return None
+    if bet > limit_max:
+        await message.reply(f"⚠️ Максимальная ставка: <b>{money(limit_max)}</b>.")
         return None
     if bet > u["balance"]:
-        await message.reply(f"Недостаточно средств: {money(u['balance'])}.")
+        await message.reply(f"⚠️ Недостаточно средств: ваш баланс <b>{money(u['balance'])}</b>.")
         return None
     return bet
 
