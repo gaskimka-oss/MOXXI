@@ -876,7 +876,7 @@ async def spam_add(message: Message, bot: Bot, args: str = "", **kw):
                         f"Причина: {html.escape(rest or 'спам')}")
 
 
-@router.message(Cmd("проверить", "чек", "scam", section=S_SPAM, usage="проверить {ссылка}",
+@router.message(Cmd("проверить спам", "проверить на спам", "спам чек", "scam check", "scam", section=S_SPAM, usage="проверить {ссылка}",
                     desc="Проверить по базе спамеров"))
 async def spam_check(message: Message, bot: Bot, args: str = "", **kw):
     uid, name, _ = await resolve_target(message, args, bot)

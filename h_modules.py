@@ -550,7 +550,7 @@ async def market(message: Message, **kw):
     await message.reply("💱 <b>Ирис-биржа</b>\n" + "\n".join(lines))
 
 
-@router.message(Cmd("продать", section=S_MARKET, usage="продать {кол-во} за {цена}",
+@router.message(Cmd("продать на бирже", "биржа продать", "маркет продать", section=S_MARKET, usage="биржа продать {кол-во} за {цена}",
                     desc="Выставить заявку на бирже"))
 async def market_sell(message: Message, args: str = "", **kw):
     m = (args or "").replace(" за ", " ").split()
@@ -569,7 +569,7 @@ async def market_sell(message: Message, args: str = "", **kw):
     await message.reply(f"💱 Заявка создана: {money(amount)} за {money(price)}")
 
 
-@router.message(Cmd("купить", section=S_MARKET, usage="купить {id}", desc="Купить заявку"))
+@router.message(Cmd("купить на бирже", "биржа купить", "маркет купить", "купить заявку", section=S_MARKET, usage="биржа купить {id}", desc="Купить заявку на бирже"))
 async def market_buy(message: Message, args: str = "", **kw):
     if not args.strip().isdigit():
         return await message.reply("Формат: <code>купить 3</code> (id из списка «биржа»)")

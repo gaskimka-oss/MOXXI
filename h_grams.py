@@ -3053,7 +3053,7 @@ async def start_quick_race(call: CallbackQuery, bet: int, horse_idx: int):
 
 
 # ═══════════════ АДМИНСКИЕ КОМАНДЫ ДЛЯ ВАЛЮТЫ ═══════════════
-@router.message(Cmd("монеты выдать", "выдать монеты", "начислить монеты", "coin give", "coins give", "выдать коины", "выдать граммы", "выдать кометы", "дать монеты", "дать коины", "кометы выдать", "выдать", "начислить", "p give", section=S, rank=6,
+@router.message(Cmd("монеты выдать", "выдать монеты", "начислить монеты", "coin give", "coins give", "выдать коины", "выдать граммы", "выдать кометы", "кометы выдать", "выдать", "начислить", "p give", section=S, rank=6,
                     usage="выдать {ссылка} {сумма}",
                     desc="Начислить валюту 🌑 (техадмин / 6+ ранг)"))
 async def cmd_give_admin(message: Message, bot: Bot, args: str = "", **kw):

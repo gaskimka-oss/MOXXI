@@ -791,3 +791,417 @@ async def cmd_open_box(message: Message, bot: Bot, args: str = "", **kw):
         f"Ваш дроп: <b>{prize_txt}</b>\n\n"
         f"Награда моментально зачислена в ваш инвентарь и кошелёк!"
     )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 5. СИНДИКАТЫ И ВОЙНЫ ЗА РАЙОНЫ (SYNDICATE WARS 3.0)
+# ══════════════════════════════════════════════════════════════════════
+
+DISTRICT_NAMES = {
+    1: ("Центральный Неон", "🌆", 1_000_000),
+    2: ("Финансовый Квартал", "💎", 2_500_000),
+    3: ("Портовый Док", "🚢", 800_000),
+    4: ("Подземный Бункер", "🚇", 1_500_000),
+    5: ("Квартал Казино", "🎰", 3_000_000),
+}
+
+async def _init_syndicate_tables():
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS syndicates ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "name TEXT UNIQUE, "
+        "tag TEXT, "
+        "owner_id INTEGER, "
+        "balance INTEGER DEFAULT 0, "
+        "rating INTEGER DEFAULT 0, "
+        "created_at INTEGER"
+        ")"
+    )
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS syndicate_members ("
+        "user_id INTEGER PRIMARY KEY, "
+        "syndicate_id INTEGER, "
+        "role TEXT DEFAULT 'member', "
+        "joined_at INTEGER"
+        ")"
+    )
+    await db.execute(
+        "CREATE TABLE IF NOT EXISTS syndicate_districts ("
+        "id INTEGER PRIMARY KEY, "
+        "name TEXT, "
+        "owner_syndicate_id INTEGER DEFAULT 0, "
+        "daily_bonus INTEGER DEFAULT 1000000, "
+        "updated_at INTEGER DEFAULT 0"
+        ")"
+    )
+    for did, (dname, dicon, dbonus) in DISTRICT_NAMES.items():
+        await db.execute(
+            "INSERT OR IGNORE INTO syndicate_districts (id, name, owner_syndicate_id, daily_bonus, updated_at) "
+            "VALUES (?, ?, 0, ?, ?)",
+            (did, f"{dicon} {dname}", dbonus, int(time.time()))
+        )
+
+
+@router.message(Cmd("синдикаты", "топ синдикатов", "районы города", "карта районов",
+                    section=S_ECON, rank=0,
+                    usage="синдикаты", desc="🏙 Синдикаты, альянсы и контроль над 5 районами города"))
+async def cmd_syndicates_list(message: Message, bot: Bot, **kw):
+    await _init_syndicate_tables()
+    synds = await db.fetchall("SELECT * FROM syndicates ORDER BY rating DESC, balance DESC LIMIT 10")
+    districts = await db.fetchall("SELECT * FROM syndicate_districts ORDER BY id ASC")
+
+    # Формируем карту районов
+    d_lines = []
+    for d in districts:
+        owner_str = "<i>Свободен</i>"
+        if d["owner_syndicate_id"]:
+            s_row = await db.fetchone("SELECT name, tag FROM syndicates WHERE id=?", (d["owner_syndicate_id"],))
+            if s_row:
+                owner_str = f"<b>[{s_row['tag']}] {s_row['name']}</b>"
+        d_lines.append(f"• <b>Район {d['id']}:</b> {d['name']} — {owner_str} (+{money(d['daily_bonus'])} 🪙/день)")
+
+    s_lines = []
+    if synds:
+        for idx, s in enumerate(synds, 1):
+            count_row = await db.fetchone("SELECT COUNT(*) as c FROM syndicate_members WHERE syndicate_id=?", (s["id"],))
+            m_count = count_row["c"] if count_row else 1
+            s_lines.append(f"<b>{idx}. [{s['tag']}] {s['name']}</b> • 👥 {m_count} чел. • 🏆 {s['rating']} PTS • 💰 {money(s['balance'])} 🪙")
+    else:
+        s_lines.append("<i>Пока не создано ни одного синдиката. Создайте свой первым!</i>")
+
+    text = (
+        "🏙 ⚔️ <b>СИНДИКАТЫ И КАРТА ГОРОДА MOXXI 3.0</b> ⚔️ 🏙\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        "<b>Контроль городских районов:</b>\n"
+        + "\n".join(d_lines) + "\n\n"
+        "🏆 <b>Топ сильнейших синдикатов:</b>\n"
+        + "\n".join(s_lines) + "\n\n"
+        "💡 <b>Команды синдикатов:</b>\n"
+        "• <code>создать синдикат [название] | [ТЕГ]</code> (цена: 10кк)\n"
+        "• <code>мой синдикат</code> — ваш клан, казна и бойцы\n"
+        "• <code>захват района [номер 1-5]</code> — объявить войну за район\n"
+        "• <code>синдикат казна положить [сумма]</code> — пополнить казну"
+    )
+    await message.reply(text)
+
+
+@router.message(Cmd("создать синдикат", "новый синдикат",
+                    section=S_ECON, rank=0,
+                    usage="создать синдикат [название] | [ТЕГ]", desc="🏙 Основать свой собственный синдикат за 10 000 000 🪙"))
+async def cmd_create_syndicate(message: Message, bot: Bot, args: str = "", **kw):
+    await _init_syndicate_tables()
+    uid = message.from_user.id
+    existing = await db.fetchone("SELECT * FROM syndicate_members WHERE user_id=?", (uid,))
+    if existing:
+        return await message.reply("❌ Вы уже состоите в синдикате! Чтобы создать новый, сначала напишите <code>покинуть синдикат</code>.")
+
+    cost = 10_000_000
+    coins = await db.get_balance(uid)
+    if coins < cost:
+        return await message.reply(f"❌ Для создания синдиката требуется <b>{money(cost)} 🪙</b>! У вас: {money(coins)} 🪙.")
+
+    parts = [p.strip() for p in args.split("|") if p.strip()]
+    if len(parts) < 2:
+        return await message.reply("Укажите название и тег синдиката через черту:\n<code>создать синдикат Ночные Волки | WOLVES</code>")
+
+    s_name = parts[0][:32]
+    s_tag = parts[1][:6].upper()
+
+    check_name = await db.fetchone("SELECT id FROM syndicates WHERE lower(name)=lower(?) OR lower(tag)=lower(?)", (s_name, s_tag))
+    if check_name:
+        return await message.reply("❌ Синдикат с таким названием или тегом уже существует!")
+
+    await db.add_balance(uid, -cost, action="create_syndicate")
+    now = int(time.time())
+    res = await db.execute(
+        "INSERT INTO syndicates (name, tag, owner_id, balance, rating, created_at) VALUES (?, ?, ?, 0, 100, ?)",
+        (s_name, s_tag, uid, now)
+    )
+    synd_id = res.lastrowid
+    await db.execute(
+        "INSERT INTO syndicate_members (user_id, syndicate_id, role, joined_at) VALUES (?, ?, 'leader', ?)",
+        (uid, synd_id, now)
+    )
+
+    await message.reply(
+        f"🏙 🎉 <b>СИНДИКАТ [{s_tag}] «{s_name}» УСПЕШНО ОСНОВАН!</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"👑 Лидер: <b>{message.from_user.first_name}</b>\n"
+        f"🏆 Стартовый рейтинг: <b>100 PTS</b>\n"
+        f"💵 Списано на регистрацию: <b>-{money(cost)} 🪙</b>\n\n"
+        f"💡 Набирайте бойцов и захватывайте районы города: <code>захват района [1-5]</code>!"
+    )
+
+
+@router.message(Cmd("мой синдикат", "инфо синдиката",
+                    section=S_ECON, rank=0,
+                    usage="мой синдикат", desc="🏙 Просмотр информации о вашем синдикате"))
+async def cmd_my_syndicate(message: Message, bot: Bot, **kw):
+    await _init_syndicate_tables()
+    uid = message.from_user.id
+    mem = await db.fetchone("SELECT * FROM syndicate_members WHERE user_id=?", (uid,))
+    if not mem:
+        return await message.reply("❌ Вы не состоите ни в одном синдикате! Вступите по приглашению или создайте свой: <code>создать синдикат [имя] | [ТЕГ]</code>.")
+
+    synd = await db.fetchone("SELECT * FROM syndicates WHERE id=?", (mem["syndicate_id"],))
+    members_count = await db.fetchone("SELECT COUNT(*) as c FROM syndicate_members WHERE syndicate_id=?", (synd["id"],))
+    controlled = await db.fetchall("SELECT name FROM syndicate_districts WHERE owner_syndicate_id=?", (synd["id"],))
+
+    dist_str = ", ".join([c["name"] for c in controlled]) if controlled else "<i>Пока нет районов под контролем</i>"
+    await message.reply(
+        f"🏙 🛡 <b>СИНДИКАТ [{synd['tag']}] «{synd['name']}»</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"👥 Состав: <b>{members_count['c']} бойцов</b>\n"
+        f"🏆 Боевой рейтинг: <b>{synd['rating']} PTS</b>\n"
+        f"💰 Казна синдиката: <b>{money(synd['balance'])} 🪙</b>\n"
+        f"🌆 Подконтрольные районы: {dist_str}\n\n"
+        f"📌 Ваша должность: <b>{'👑 Лидер' if mem['role'] == 'leader' else '⚔️ Боец'}</b>"
+    )
+
+
+@router.message(Cmd("захват района", "атаковать район", "захватить район",
+                    section=S_ECON, rank=0,
+                    usage="захват района [номер 1-5]", desc="⚔️ Война за городской район между синдикатами"))
+async def cmd_capture_district(message: Message, bot: Bot, args: str = "", **kw):
+    await _init_syndicate_tables()
+    uid = message.from_user.id
+    mem = await db.fetchone("SELECT * FROM syndicate_members WHERE user_id=?", (uid,))
+    if not mem:
+        return await message.reply("❌ Захватывать районы могут только члены синдикатов!")
+
+    synd = await db.fetchone("SELECT * FROM syndicates WHERE id=?", (mem["syndicate_id"],))
+    if not args.strip().isdigit() or not (1 <= int(args.strip()) <= 5):
+        return await message.reply("Укажите номер района от 1 до 5: <code>захват района 1</code>.")
+
+    did = int(args.strip())
+    dist = await db.fetchone("SELECT * FROM syndicate_districts WHERE id=?", (did,))
+    if dist["owner_syndicate_id"] == synd["id"]:
+        return await message.reply("✅ Этот район уже находится под полным контролем вашего синдиката!")
+
+    # Проверка КД
+    now = int(time.time())
+    if now - dist["updated_at"] < 3600:
+        left_m = int((3600 - (now - dist["updated_at"])) / 60)
+        return await message.reply(f"⏳ Район укреплён и находится под защитой перемирия ещё <b>{left_m} мин.</b>!")
+
+    # Боевой расчет победы
+    roll_attacker = random.randint(1, 100)
+    roll_defender = random.randint(1, 80) if dist["owner_syndicate_id"] else 30
+
+    status_msg = await message.reply(f"⚔️ <i>Синдикат [{synd['tag']}] начинает штурм района «{dist['name']}»…</i>")
+    await asyncio.sleep(2.0)
+
+    if roll_attacker >= roll_defender:
+        await db.execute(
+            "UPDATE syndicate_districts SET owner_syndicate_id=?, updated_at=? WHERE id=?",
+            (synd["id"], now, did)
+        )
+        bonus_pts = random.randint(25, 50)
+        await db.execute("UPDATE syndicates SET rating=rating+?, balance=balance+? WHERE id=?",
+                         (bonus_pts, dist["daily_bonus"], synd["id"]))
+        await status_msg.edit_text(
+            f"🎉 ⚔️ <b>РАЙОН «{dist['name']}» УСПЕШНО ЗАХВАЧЕН!</b>\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"Победу одержал синдикат: <b>[{synd['tag']}] {synd['name']}</b>!\n"
+            f"🏆 Рейтинг синдиката: <b>+{bonus_pts} PTS</b>\n"
+            f"💰 Трофей в казну: <b>+{money(dist['daily_bonus'])} 🪙</b>\n\n"
+            f"Каждые 24 часа район будет приносить пассивный доход в казну синдиката!"
+        )
+    else:
+        await status_msg.edit_text(
+            f"💀 <b>ШТУРМ ОТБИТ!</b>\n"
+            f"Оборона района оказалась сильнее атаки. Перегруппируйте силы и попробуйте снова!"
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 6. ЭМОДЗИ-ИГРЫ КАЗИНО TELEGRAM (DICE API С РЕАЛЬНОЙ ФИЗИКОЙ)
+# ══════════════════════════════════════════════════════════════════════
+
+@router.message(Cmd("дартс", "дартс кометы", "дартс монеты",
+                    section=S_GAMES, rank=0,
+                    usage="дартс [ставка]", desc="🎯 Настоящий бросок дротика в Telegram (х1.5 - х3.5)"))
+async def cmd_tg_darts(message: Message, bot: Bot, args: str = "", **kw):
+    uid = message.from_user.id
+    bet = parse_money(args) if args else 500
+    if not bet or bet < 100:
+        return await message.reply("Минимальная ставка в Дартс: <b>100 🪙</b>. Пример: <code>дартс 1000</code>")
+
+    coins = await db.get_balance(uid)
+    if coins < bet:
+        return await message.reply(f"❌ Недостаточно монет! Ваш баланс: <b>{money(coins)} 🪙</b>.")
+
+    await db.add_balance(uid, -bet, action="darts_bet")
+    dice_msg = await bot.send_dice(message.chat.id, emoji="🎯", reply_to_message_id=message.message_id)
+    score = dice_msg.dice.value
+    await asyncio.sleep(2.5)
+
+    if score == 6:
+        win = int(bet * 3.5)
+        await db.add_balance(uid, win, action="darts_win")
+        await message.reply(f"🎯 💥 <b>В ЯБЛОЧКО! Точнейший бросок в центр!</b>\nВыигрыш (х3.5): <b>+{money(win)} 🪙</b>")
+    elif score == 5:
+        win = int(bet * 2.0)
+        await db.add_balance(uid, win, action="darts_win")
+        await message.reply(f"🎯 ✨ <b>Красное кольцо!</b> Выигрыш (х2.0): <b>+{money(win)} 🪙</b>")
+    elif score == 4:
+        win = int(bet * 1.5)
+        await db.add_balance(uid, win, action="darts_win")
+        await message.reply(f"🎯 Белое кольцо! Выигрыш (х1.5): <b>+{money(win)} 🪙</b>")
+    else:
+        await message.reply(f"🎯 Мимо мишени… Вы потеряли <b>-{money(bet)} 🪙</b>.")
+
+
+@router.message(Cmd("баскетбол", "баскет",
+                    section=S_GAMES, rank=0,
+                    usage="баскетбол [ставка]", desc="🏀 Бросок мяча в баскетбольную корзину (х2.5)"))
+async def cmd_tg_basketball(message: Message, bot: Bot, args: str = "", **kw):
+    uid = message.from_user.id
+    bet = parse_money(args) if args else 500
+    if not bet or bet < 100:
+        return await message.reply("Минимальная ставка: <b>100 🪙</b>. Пример: <code>баскетбол 1000</code>")
+
+    coins = await db.get_balance(uid)
+    if coins < bet:
+        return await message.reply(f"❌ Недостаточно монет! Ваш баланс: <b>{money(coins)} 🪙</b>.")
+
+    await db.add_balance(uid, -bet, action="basket_bet")
+    dice_msg = await bot.send_dice(message.chat.id, emoji="🏀", reply_to_message_id=message.message_id)
+    score = dice_msg.dice.value
+    await asyncio.sleep(3.0)
+
+    # В баскетболе 4 и 5 - попадания
+    if score >= 4:
+        mult = 2.5 if score == 5 else 2.0
+        win = int(bet * mult)
+        await db.add_balance(uid, win, action="basket_win")
+        await message.reply(f"🏀 💥 <b>ГОООЛ! Точный бросок прямо в кольцо!</b>\nВыигрыш (х{mult}): <b>+{money(win)} 🪙</b>")
+    else:
+        await message.reply(f"🏀 Мяч отскочил от щита! Проигрыш <b>-{money(bet)} 🪙</b>.")
+
+
+@router.message(Cmd("боулинг",
+                    section=S_GAMES, rank=0,
+                    usage="боулинг [ставка]", desc="🎳 Бросок шара в боулинге: страйк x4.0, полустрайк x2.0"))
+async def cmd_tg_bowling(message: Message, bot: Bot, args: str = "", **kw):
+    uid = message.from_user.id
+    bet = parse_money(args) if args else 500
+    if not bet or bet < 100:
+        return await message.reply("Минимальная ставка: <b>100 🪙</b>. Пример: <code>боулинг 1000</code>")
+
+    coins = await db.get_balance(uid)
+    if coins < bet:
+        return await message.reply(f"❌ Недостаточно монет! Ваш баланс: <b>{money(coins)} 🪙</b>.")
+
+    await db.add_balance(uid, -bet, action="bowling_bet")
+    dice_msg = await bot.send_dice(message.chat.id, emoji="🎳", reply_to_message_id=message.message_id)
+    score = dice_msg.dice.value
+    await asyncio.sleep(2.8)
+
+    if score == 6:
+        win = int(bet * 4.0)
+        await db.add_balance(uid, win, action="bowling_win")
+        await message.reply(f"🎳 💥 <b>СТРАЙК! Все кегли разлетелись в щепки!</b>\nВыигрыш (х4.0): <b>+{money(win)} 🪙</b>")
+    elif score >= 4:
+        win = int(bet * 2.0)
+        await db.add_balance(uid, win, action="bowling_win")
+        await message.reply(f"🎳 ✨ <b>Сбито большинство кеглей!</b> Выигрыш (х2.0): <b>+{money(win)} 🪙</b>")
+    else:
+        await message.reply(f"🎳 Шар ушёл в желоб… Проигрыш <b>-{money(bet)} 🪙</b>.")
+
+
+@router.message(Cmd("футбол", "пенальти",
+                    section=S_GAMES, rank=0,
+                    usage="футбол [ставка]", desc="⚽️ Пробитие пенальти по воротам (х2.0 - х2.5)"))
+async def cmd_tg_football(message: Message, bot: Bot, args: str = "", **kw):
+    uid = message.from_user.id
+    bet = parse_money(args) if args else 500
+    if not bet or bet < 100:
+        return await message.reply("Минимальная ставка: <b>100 🪙</b>. Пример: <code>футбол 1000</code>")
+
+    coins = await db.get_balance(uid)
+    if coins < bet:
+        return await message.reply(f"❌ Недостаточно монет! Ваш баланс: <b>{money(coins)} 🪙</b>.")
+
+    await db.add_balance(uid, -bet, action="football_bet")
+    dice_msg = await bot.send_dice(message.chat.id, emoji="⚽️", reply_to_message_id=message.message_id)
+    score = dice_msg.dice.value
+    await asyncio.sleep(2.8)
+
+    # 3, 4, 5 — голы
+    if score >= 3:
+        mult = 2.5 if score == 5 else 2.0
+        win = int(bet * mult)
+        await db.add_balance(uid, win, action="football_win")
+        await message.reply(f"⚽️ 💥 <b>ГОООООЛ! Мяч вонзается в сетку ворот!</b>\nВыигрыш (х{mult}): <b>+{money(win)} 🪙</b>")
+    else:
+        await message.reply(f"⚽️ Вратарь парирует удар! Проигрыш <b>-{money(bet)} 🪙</b>.")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 7. АДМИН-КАРАНТИН НОВИЧКОВ И АНТИ-РЕЙД ЩИТ 3.0
+# ══════════════════════════════════════════════════════════════════════
+
+@router.message(Cmd("карантин", "песочница новичков",
+                    section=S_ADMIN, rank=4, group_only=True,
+                    usage="карантин [минуты/выкл]", desc="🛡 Режим карантина для новичков (ограничение ссылок и медиа)"))
+async def cmd_admin_quarantine(message: Message, bot: Bot, args: str = "", **kw):
+    me = await effective_rank(message, bot)
+    if me < 4:
+        return await message.reply("⛔️ Команда доступна администраторам от <b>4 ранга (Старший админ)</b>.")
+
+    cid = message.chat.id
+    raw = args.strip().lower()
+    if raw in {"выкл", "0", "off", "disable"}:
+        await db.set_setting(cid, "quarantine_min", "0")
+        return await message.reply("✅ <b>Карантин новичков выключен.</b> Новые участники сразу получают полный доступ.")
+
+    if not raw.isdigit() or int(raw) < 1 or int(raw) > 1440:
+        cur = await db.get_setting(cid, "quarantine_min", "0")
+        return await message.reply(
+            f"🛡 <b>Карантин новичков:</b> {'активен (' + cur + ' мин.)' if cur != '0' else 'выключен'}\n\n"
+            f"Укажите время в минутах: <code>карантин 15</code> (или <code>карантин выкл</code>)."
+        )
+
+    mins = int(raw)
+    await db.set_setting(cid, "quarantine_min", str(mins))
+    await message.reply(
+        f"🛡 ✅ <b>КАРАНТИН НОВИЧКОВ ВКЛЮЧЕН НА {mins} МИНУТ!</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"Все вступившие в группу участники в течение первых <b>{mins} мин.</b> не смогут отправлять ссылки и пересылать сообщения, защищая чат от спам-волн!"
+    )
+
+
+@router.message(Cmd("лог модерации", "журнал действий", "стафф лог",
+                    section=S_ADMIN, rank=2, group_only=True,
+                    usage="лог модерации [кол-во=10]", desc="📋 Детальный дашборд последних действий модераторов чата"))
+async def cmd_mod_action_log(message: Message, bot: Bot, args: str = "", **kw):
+    me = await effective_rank(message, bot)
+    if me < 2:
+        return await message.reply("⛔️ Доступно модераторам от <b>2 ранга</b>.")
+
+    limit = min(25, max(5, int(args.strip()) if args.strip().isdigit() else 10))
+    cid = message.chat.id
+    rows = await db.fetchall(
+        "SELECT * FROM rank_log WHERE chat_id=? ORDER BY ts DESC LIMIT ?",
+        (cid, limit)
+    )
+
+    if not rows:
+        return await message.reply("📋 <i>В журнале пока нет записанных действий модерации для этой беседы.</i>")
+
+    lines = []
+    for r in rows:
+        t_str = time.strftime("%d.%m %H:%M", time.localtime(r["ts"]))
+        by_user = await db.get_user(r["by_id"]) if r["by_id"] else None
+        target_user = await db.get_user(r["user_id"])
+        by_name = by_user["first_name"] if by_user else "Система/Владелец"
+        tgt_name = target_user["first_name"] if target_user else f"ID {r['user_id']}"
+        lines.append(f"• <code>[{t_str}]</code> <b>{by_name}</b> ➔ <b>{tgt_name}</b> (Ранг: <b>{r['rank']}</b>)")
+
+    await message.reply(
+        f"📋 🛡 <b>ПОСЛЕДНИЕ ДЕЙСТВИЯ СТАФФА ({len(lines)} зап.)</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        + "\n".join(lines)
+    )
+

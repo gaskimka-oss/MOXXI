@@ -496,7 +496,7 @@ async def cmd_quick_demote(message: Message, bot: Bot, args: str = "", **kw):
     await cmd_remove_rank(message, bot, args=args, **kw)
 
 
-@router.message(Cmd("+модер", "+админ", "модер", "админ", "ранг", "+ранг", "!ранг", "+ра", "!ра", "+ra", "!ra", "ра", "ra", "дать ранг", "выдать ранг", "назначить", section=S, rank=6,
+@router.message(Cmd("+модер", "+админ", "+ранг", "+ра", "+ra", "дать ранг", "выдать ранг", "назначить ранг", "назначить", section=S, rank=6,
                     usage="+ра {ссылка} [1-10 / должность]",
                     desc="Назначить ранг модератора (1–10)"))
 async def cmd_promote_rank(message: Message, bot: Bot, args: str = "", **kw):
@@ -574,7 +574,7 @@ async def cmd_promote(message: Message, bot: Bot, args: str = "", **kw):
     await _grant(message, bot, str(uid), cur + 1, **kw)
 
 
-@router.message(Cmd("понизить", "разжаловать", "снизить", "-понизить", "!понизить", "-ра", "!ра", "-ra", "!ra", "-ранг", "!ранг", section=S, rank=6,
+@router.message(Cmd("понизить", "разжаловать", "снизить", "-понизить", "-ра", "-ra", "-ранг", section=S, rank=6,
                     usage="понизить {ссылка}", desc="Понизить на один ранг"))
 async def cmd_demote(message: Message, bot: Bot, args: str = "", **kw):
     me = await effective_rank(message, bot)
@@ -1107,7 +1107,7 @@ def _make_theme_menu_kb(cur_theme: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
 
-@router.message(Cmd("дизайн", "дизайн чата", "дизайн группы", "тема", "темы", "тема чата", "дизайн состава", "тема состава",
+@router.message(Cmd("дизайн", "дизайн чата", "дизайн группы", "стиль оформления", "тема оформления", "дизайн состава", "тема состава",
                     "стиль состава", "стиль чата", "оформление состава", "оформление чата",
                     section=34, group_only=True,
                     usage="дизайн чата", desc="🎨 Настройка дизайна оформления состава и чата"))
