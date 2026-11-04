@@ -149,15 +149,19 @@ def _transcribe_gemini_sync(audio: bytes, mime_type: str = "audio/ogg") -> str |
         body = json.dumps(payload).encode("utf-8")
         headers = {"Content-Type": "application/json"}
 
-        # Пробуем доступные ключи с ротацией
-        max_tries = min(len(ai.KEYS), 4)
+        # Пробуем доступные ключи с ротацией по рабочим моделям GEMINI_MODELS
+        max_tries = min(len(ai.KEYS), 5)
+        stt_models = [m for m in getattr(ai, "GEMINI_MODELS", []) if m not in {"gemini-2.0-flash", "gemini-1.5-flash"}]
+        if not stt_models:
+            stt_models = ["gemini-flash-lite-latest", "gemini-2.5-flash-lite", "gemini-flash-latest"]
+
         for _ in range(max_tries):
             current_key = ai.get_next_key()
-            for m in ["gemini-flash-lite-latest", "gemini-flash-latest", "gemini-2.0-flash"]:
+            for m in stt_models:
                 endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={current_key}"
                 req = urllib.request.Request(endpoint, data=body, headers=headers)
                 try:
-                    with urllib.request.urlopen(req, timeout=15) as resp:
+                    with urllib.request.urlopen(req, timeout=9) as resp:
                         res_data = json.loads(resp.read().decode("utf-8"))
                         cand = res_data.get("candidates") or []
                         if not cand:

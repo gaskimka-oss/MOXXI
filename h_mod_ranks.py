@@ -715,6 +715,9 @@ async def cmd_demote_left(message: Message, bot: Bot, **kw):
 @router.message(Cmd("снять", "разжаловать ранг", section=S, rank=8, usage="снять {ссылка}",
                     desc="Полностью снять ранг"))
 async def cmd_remove_rank(message: Message, bot: Bot, args: str = "", **kw):
+    # Защита от перехвата банковских/экономических команд (снять вклад, снять депозит)
+    if args and args.lower().split()[0] in {"вклад", "депозит", "банк", "монеты", "деньги", "кассу"}:
+        return
     me = await effective_rank(message, bot)
     import config
     is_tech = bool(

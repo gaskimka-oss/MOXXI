@@ -128,8 +128,22 @@ async def require(message: Message, bot: Bot, need: int, key: str = "") -> bool:
         if not (low.startswith("ирис") or low.startswith("ириска")):
             return False
 
+    cmd_name = (key or "").strip()
+    if not cmd_name:
+        txt = (message.text or message.caption or "").strip()
+        if txt:
+            cmd_name = txt.split()[0].lstrip("!./").lower()
+    if not cmd_name:
+        cmd_name = "этой команды"
+
     await message.reply(
-        f"⛔️ Недостаточно прав.\n"
-        f"Нужен ранг: <b>{rank_label(need)}</b>\n"
-        f"Ваш ранг: <b>{rank_label(r) if r else 'Участник'}</b>")
+        f"⛔️ <b>Недостаточно прав для команды «{cmd_name}»!</b>\n\n"
+        f"🔒 Требуемый ранг: <b>{rank_label(need)}</b> (Ранг {need})\n"
+        f"👤 Ваш текущий ранг: <b>{rank_label(r) if r else 'Участник'}</b> (Ранг {r})\n\n"
+        f"💡 <b>Как настроить доступ к этой команде:</b>\n"
+        f"• Разрешить команду всем: <code>дк {cmd_name} 0</code>\n"
+        f"• Изменить ранг доступа: <code>дк {cmd_name} {need}</code>\n"
+        f"• Выдать личный доступ игроку: <code>+пдк @юзер {cmd_name}</code>\n\n"
+        f"ℹ️ <i>Если вы участник — обратитесь к администрации чата с просьбой открыть команду:</i> <code>дк {cmd_name} 0</code>"
+    )
     return False

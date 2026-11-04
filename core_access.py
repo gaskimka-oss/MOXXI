@@ -101,9 +101,17 @@ async def check(message, bot, key: str, base_rank: int,
     if quiet and key not in ADMIN_KEYS:
         return ""
 
-    return (f"⛔️ Недостаточно прав для этой команды.\n"
-            f"Нужен ранг: <b>{rank_label(need)}</b>\n"
-            f"Ваш ранг: <b>{rank_label(have) if have else 'Участник'}</b>")
+    cmd_name = (key or "этой команды").strip()
+    return (
+        f"⛔️ <b>Недостаточно прав для команды «{cmd_name}»!</b>\n\n"
+        f"🔒 Требуемый ранг: <b>{rank_label(need)}</b> (Ранг {need})\n"
+        f"👤 Ваш текущий ранг: <b>{rank_label(have) if have else 'Участник'}</b> (Ранг {have})\n\n"
+        f"💡 <b>Как настроить доступ к этой команде:</b>\n"
+        f"• Разрешить команду всем: <code>дк {cmd_name} 0</code>\n"
+        f"• Изменить ранг доступа: <code>дк {cmd_name} {need}</code>\n"
+        f"• Выдать личный доступ игроку: <code>+пдк @юзер {cmd_name}</code>\n\n"
+        f"ℹ️ <i>Если вы участник — обратитесь к администрации чата с просьбой открыть команду:</i> <code>дк {cmd_name} 0</code>"
+    )
 
 
 ALLOWED_WITHOUT_FORM = {

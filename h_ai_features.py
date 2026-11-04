@@ -64,8 +64,9 @@ async def process_voice_message(message: Message, bot: Bot) -> bool:
                 clean_text = text.strip()
                 clean_text = clean_text.strip(" \t\r\n«»\"'`“”„")
                 if clean_text:
-                    # Нативный формат SaluteSpeech / SmartSpeech: блок-цитата с закрывающей кавычкой ❞
-                    quote_block = f"<blockquote>{html.escape(clean_text)}  ❞</blockquote>"
+                    prefix_label = "🎙 <b>Голосовое сообщение:</b>" if message.voice else "📹 <b>Кружочек:</b>"
+                    quote_block = f"{prefix_label}\n<blockquote>{html.escape(clean_text)}  ❞</blockquote>"
+                    thread_id = getattr(message, "message_thread_id", None)
                     try:
                         await message.reply(
                             quote_block,
@@ -74,11 +75,20 @@ async def process_voice_message(message: Message, bot: Bot) -> bool:
                         )
                     except Exception as e_send:
                         log.warning("Ошибка отправки HTML blockquote STT: %s", e_send)
-                        await message.reply(
-                            f"💬 {html.escape(clean_text)}",
-                            parse_mode="HTML",
-                            disable_web_page_preview=True
-                        )
+                        try:
+                            await bot.send_message(
+                                chat_id=cid,
+                                text=quote_block,
+                                parse_mode="HTML",
+                                message_thread_id=thread_id,
+                                disable_web_page_preview=True
+                            )
+                        except Exception:
+                            await message.reply(
+                                f"💬 {html.escape(clean_text)}",
+                                parse_mode="HTML",
+                                disable_web_page_preview=True
+                            )
                 if message.chat.type != "private":
                     try:
                         await db.bump_chat_stat(cid, message.from_user.id, 1)
@@ -113,40 +123,13 @@ async def on_voice_or_video_note(message: Message, bot: Bot):
     except Exception:
         pass
 
-    # 2. Проверяем шлюз описаний / анкет (если включен в группе)
+    # 2. Мгновенно расшифровываем голосовое или кружочек для всех участников
     try:
-        from config import OWNER_ID
-        from core_ranks import effective_rank
-        is_staff = (uid == OWNER_ID) or (await effective_rank(message, bot) >= 1)
-        if not is_staff and not message.reply_to_message:
-            from h_userinfo import needs_form, get_form_topic, topic_link
-            if await needs_form(cid, uid):
-                try:
-                    await message.delete()
-                except Exception:
-                    pass
-                if not await db.cooldown_left(uid, "form_media", 90):
-                    await db.set_cooldown(uid, "form_media")
-                    ft = await get_form_topic(cid)
-                    link = topic_link(cid, ft) if ft else ""
-                    try:
-                        warn = await bot.send_message(
-                            cid,
-                            f"🔇 {mention(message.from_user)}, голосовые и кружочки будут доступны после заполнения описания.\n\n"
-                            + (f"✍️ Заполнить: {link}" if link else "✍️ Заполнить: команда <code>шаблон</code>"),
-                            message_thread_id=ft or None,
-                            disable_web_page_preview=True
-                        )
-                        import asyncio as _a
-                        from h_passive import _del_later
-                        _a.create_task(_del_later(warn, 60))
-                    except Exception:
-                        pass
-                return
+        thread_id = getattr(message, "message_thread_id", None)
+        await bot.send_chat_action(cid, "typing", message_thread_id=thread_id)
     except Exception:
         pass
 
-    # 3. Мгновенно расшифровываем голосовое или кружочек
     await process_voice_message(message, bot)
 
 
