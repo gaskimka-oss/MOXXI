@@ -337,11 +337,93 @@ def registry_by_section() -> dict[int, list[CmdInfo]]:
     return out
 
 
+ROOT_CONFLICTS = {
+    "бан": {"банк", "банка", "банки", "банковский", "банкомат", "банков"},
+    "баны": {"банк", "банка", "банки", "банковский", "банкомат", "банков"},
+    "банк": {"бан", "баны", "забанить", "разбанить", "банить", "разбан", "забанен"},
+    "варн": {"варка", "варить", "варенье"},
+    "мут": {"мутант", "мутация", "мутный", "муть"},
+    "кик": {"кикбоксинг"},
+}
+
+
 def find_commands(query: str) -> list[CmdInfo]:
-    """Поиск команды по подстроке — для /найти."""
-    q = _norm(query)
-    res = []
+    """Интеллектуальный поиск команд по названию, алиасам и описанию.
+    
+    - Строгая изоляция корней (поиск «бан» не путается с «банком»);
+    - Умный подсчет релевантности (прямые совпадения команд в начале списка);
+    - Дедупликация (каждая команда выводится ровно один раз).
+    """
+    q = _norm(query).strip()
+    if not q:
+        return []
+
+    conflicts = ROOT_CONFLICTS.get(q, set())
+    q_words = q.split()
+
+    scored: list[tuple[float, CmdInfo]] = []
+    seen: set[str] = set()
+
+    def has_conflict(token: str) -> bool:
+        for conf in conflicts:
+            if token == conf or token.startswith(conf):
+                return True
+        return False
+
     for c in REGISTRY:
-        if any(q in _norm(n) for n in c.names) or q in _norm(c.desc):
-            res.append(c)
-    return res
+        # Уникальный ключ команды (устраняет дублирование одинаковых команд)
+        key_id = f"{c.key}:{c.usage.strip()}"
+        if key_id in seen:
+            continue
+
+        c_names = [_norm(n) for n in c.names]
+        c_usage = _norm(c.usage)
+        c_desc = _norm(c.desc)
+
+        desc_tokens = set(re.findall(r'[a-zA-Zа-яА-Я0-9]+', c_desc))
+        usage_tokens = set(re.findall(r'[a-zA-Zа-яА-Я0-9]+', c_usage))
+
+        score = 0.0
+
+        # 1. Прямое точное совпадение с алиасом команды (высший приоритет)
+        if q in c_names:
+            score += 1000.0
+
+        # 2. Алиас команды начинается с поискового запроса или содержит его отдельным словом
+        for n in c_names:
+            n_tokens = re.findall(r'[a-zA-Zа-яА-Я0-9]+', n)
+            if q in n_tokens:
+                score += 500.0
+                break
+            elif n.startswith(q + " "):
+                score += 400.0
+                break
+            elif any(t.startswith(q) and not has_conflict(t) for t in n_tokens):
+                score += 250.0
+                break
+
+        # 3. Шаблон использования содержит поисковое слово
+        if q in usage_tokens:
+            score += 200.0
+        elif any(t.startswith(q) and not has_conflict(t) for t in usage_tokens):
+            score += 150.0
+
+        # 4. Описание команды содержит искомое действие или слово (без конфликтующих корней)
+        if q in desc_tokens:
+            score += 100.0
+        elif any(t.startswith(q) and not has_conflict(t) for t in desc_tokens):
+            score += 60.0
+        elif any(q in t and not has_conflict(t) for t in desc_tokens):
+            score += 30.0
+
+        # Полная поисковая фраза в описании
+        if len(q_words) > 1 and q in c_desc:
+            score += 80.0
+
+        if score > 0:
+            seen.add(key_id)
+            scored.append((score, c))
+
+    # Сортировка: сначала самые релевантные, затем по рангу
+    scored.sort(key=lambda x: (-x[0], x[1].rank))
+    return [c for _, c in scored]

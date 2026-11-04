@@ -25,20 +25,23 @@ DEFAULT_WEBAPP_URL = os.getenv("WEBAPP_URL", "https://gaskimka-oss.github.io/MOX
 
 def _get_webapp_kb(url: str | None = None) -> InlineKeyboardMarkup:
     target_url = url or DEFAULT_WEBAPP_URL
-    # Если URL не начинается с https://, используем постоянный GitHub Pages хостинг
     if not target_url.startswith("https://"):
         target_url = "https://gaskimka-oss.github.io/MOXXI/"
 
     if "t.me/" in target_url:
-        top_btn = InlineKeyboardButton(text="📱 Открыть Moxxi Mini App (Казино & Игры)", url=target_url)
+        top_btn = InlineKeyboardButton(text="📱 🎮 ОТКРЫТЬ КАТАЛОГ ИГР В WEB APP", url=target_url)
     else:
-        top_btn = InlineKeyboardButton(text="📱 Открыть Moxxi Mini App (Казино & Игры)", web_app=WebAppInfo(url=target_url))
+        top_btn = InlineKeyboardButton(text="📱 🎮 ОТКРЫТЬ КАТАЛОГ ИГР В WEB APP", web_app=WebAppInfo(url=target_url))
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [top_btn],
         [
-            InlineKeyboardButton(text="🎰 Слоты в чате", callback_data="jp:play_slots"),
-            InlineKeyboardButton(text="💎 Джекпот", callback_data="jp:refresh:0")
+            InlineKeyboardButton(text="🎰 Слоты 777", callback_data="jp:play_slots"),
+            InlineKeyboardButton(text="💎 Джекпот чата", callback_data="jp:refresh:0"),
+        ],
+        [
+            InlineKeyboardButton(text="🏢 Все бизнесы", callback_data="biz:page:1"),
+            InlineKeyboardButton(text="🎁 Забрать бонус", callback_data="h:send:бонус"),
         ]
     ])
 

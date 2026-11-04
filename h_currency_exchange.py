@@ -39,15 +39,20 @@ def _get_exchange_kb() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🪙 Продать 1 💎 (+1кк)", callback_data="cry:sell:1"),
         ],
         [
+            InlineKeyboardButton(text="👑 VIP за монеты/граммы", callback_data="cry:vip_menu"),
             InlineKeyboardButton(text="🛒 Кристальный магазин", callback_data="cry:shop"),
+        ],
+        [
             InlineKeyboardButton(text="🔄 Обновить", callback_data="cry:refresh"),
         ]
     ])
 
 
-@router.message(Cmd("обменник", "курс", "курс кристаллов", "криптообменник", "биржа кристаллов",
+@router.message(Cmd("обменник", "обменник грамм", "обмен грамм", "обменять граммы", "обменник граммов",
+                    "обменник монет", "обмен монет", "обменять монеты", "курс", "курс кристаллов",
+                    "криптообменник", "биржа кристаллов", "биржа монет", "обмен валют",
                     section=S, rank=0,
-                    usage="обменник", desc="💎 Курс и покупка кристаллов Moxxi (1 💎 = 1 000 000 🪙)"))
+                    usage="обменник", desc="💎 Обменник монет и граммов на кристаллы и VIP-статусы"))
 async def cmd_exchange_menu(message: Message, bot: Bot, **kw):
     uid = message.from_user.id
     coins = await db.get_balance(uid)
@@ -532,3 +537,109 @@ async def cb_open_shop(cq: CallbackQuery, bot: Bot):
         "👇 <b>Для покупки напишите:</b> <code>купить за кристаллы [номер]</code>"
     )
     await cq.message.reply(text)
+
+
+# ══════════════════ ОБМЕННИК ГРАММОВ/МОНЕТ НА VIP ══════════════════
+
+def _get_vip_exchange_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="⭐ VIP 3 дня — 50кк 🪙", callback_data="cry:buy_vip:3"),
+        ],
+        [
+            InlineKeyboardButton(text="⭐ VIP 7 дней — 150кк 🪙", callback_data="cry:buy_vip:7"),
+        ],
+        [
+            InlineKeyboardButton(text="🌟 VIP+ Diamond 30 дней — 500кк 🪙", callback_data="cry:buy_vip:30"),
+        ],
+        [
+            InlineKeyboardButton(text="◀️ Назад в обменник", callback_data="cry:refresh"),
+        ]
+    ])
+
+
+@router.message(Cmd("вип за монеты", "вип за граммы", "обменять граммы на вип", "купить вип за граммы", "купить вип за монеты",
+                    section=S, rank=0,
+                    usage="вип за монеты", desc="👑 Покупка VIP и VIP+ статуса за накопленные монеты/граммы"))
+async def cmd_vip_by_coins(message: Message, bot: Bot, **kw):
+    uid = message.from_user.id
+    coins = await db.get_balance(uid)
+    text = (
+        "👑 ✨ <b>ОБМЕННИК МОНЕТ И ГРАММОВ НА VIP</b> ✨ 👑\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        "Здесь вы можете обменять накопленные игровые миллионы на элитные статусы!\n\n"
+        f"💰 Ваш баланс: <b>{money(coins)} 🪙</b>\n\n"
+        "⭐ <b>Доступные тарифы за монеты:</b>\n"
+        "• <b>3 дня VIP:</b> 50 000 000 🪙 (50кк)\n"
+        "• <b>7 дней VIP:</b> 150 000 000 🪙 (150кк)\n"
+        "• <b>30 дней VIP+ Diamond:</b> 500 000 000 🪙 (500кк)\n\n"
+        "👇 <i>Выберите желаемый статус кнопкой ниже:</i>"
+    )
+    await message.reply(text, reply_markup=_get_vip_exchange_kb())
+
+
+@router.callback_query(F.data == "cry:vip_menu")
+async def cb_vip_menu(cq: CallbackQuery, bot: Bot):
+    uid = cq.from_user.id
+    coins = await db.get_balance(uid)
+    text = (
+        "👑 ✨ <b>ОБМЕННИК МОНЕТ И ГРАММОВ НА VIP</b> ✨ 👑\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"💰 Ваш баланс: <b>{money(coins)} 🪙</b>\n\n"
+        "⭐ <b>Тарифы за монеты:</b>\n"
+        "• <b>3 дня VIP:</b> 50 000 000 🪙\n"
+        "• <b>7 дней VIP:</b> 150 000 000 🪙\n"
+        "• <b>30 дней VIP+ Diamond:</b> 500 000 000 🪙\n\n"
+        "👇 <i>Нажмите для мгновенной активации:</i>"
+    )
+    try:
+        await cq.message.edit_text(text, reply_markup=_get_vip_exchange_kb())
+    except Exception:
+        pass
+    await cq.answer()
+
+
+@router.callback_query(F.data.startswith("cry:buy_vip:"))
+async def cb_buy_vip(cq: CallbackQuery, bot: Bot):
+    days = int(cq.data.split(":")[2])
+    uid = cq.from_user.id
+    coins = await db.get_balance(uid)
+
+    if days == 3:
+        cost = 50_000_000
+        lvl = 1
+        name = "VIP (3 дня)"
+    elif days == 7:
+        cost = 150_000_000
+        lvl = 1
+        name = "VIP (7 дней)"
+    elif days == 30:
+        cost = 500_000_000
+        lvl = 2
+        name = "VIP+ Diamond (30 дней)"
+    else:
+        return await cq.answer("Неверный тариф", show_alert=True)
+
+    if coins < cost:
+        return await cq.answer(f"❌ Недостаточно монет! Требуется {money(cost)} 🪙, а у вас {money(coins)} 🪙.", show_alert=True)
+
+    await db.add_balance(uid, -cost, action="buy_vip_coins", meta=f"days:{days}")
+    now = int(time.time())
+    _, cur_until, active = await db.get_vip_info(uid)
+    start_ts = cur_until if (active and cur_until > now) else now
+    new_until = start_ts + (days * 86400)
+
+    await db.set_vip(uid, new_until, level=lvl)
+    await cq.answer(f"🎉 Вы успешно активировали {name}!", show_alert=True)
+
+    try:
+        await cq.message.edit_text(
+            f"👑 🎉 <b>ПОЗДРАВЛЯЕМ С ПРИОБРЕТЕНИЕМ {name}!</b>\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"💵 Списано: <b>-{money(cost)} 🪙</b>\n"
+            f"⏳ Статус активен до: <b>{time.strftime('%d.%m.%Y %H:%M', time.localtime(new_until))}</b>\n\n"
+            f"💡 <i>Список всех возможностей:</i> <code>{'вип+ команды' if lvl >= 2 else 'вип команды'}</code>",
+            reply_markup=_get_exchange_kb()
+        )
+    except Exception:
+        pass

@@ -317,11 +317,14 @@ async def _bet_of(message: Message, raw: str) -> int | None:
     limit_max = 50_000_000  # Максимальная ставка в казино 50 000 000
     bet = parse_amount(raw, u["balance"], MIN_BET)
     if not raw_str:
+        from h_webapp import _get_webapp_kb
         await message.reply(
             f"🎲 <b>Укажите ставку!</b>\n"
             f"Минимальная ставка — <b>{money(MIN_BET)}</b>\n"
             f"Ваш баланс: <b>{money(u['balance'])}</b>\n\n"
-            f"👉 Пример: <code>казик 1000</code> · <code>слоты 5к</code> · <code>казик все</code>"
+            f"👉 Пример: <code>казик 1000</code> · <code>слоты 5к</code> · <code>казик все</code>\n\n"
+            f"💡 <i>Или откройте визуальный каталог игр в приложении:</i>",
+            reply_markup=_get_webapp_kb()
         )
         return None
     if not bet or bet < MIN_BET:

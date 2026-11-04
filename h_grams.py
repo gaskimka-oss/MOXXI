@@ -3122,7 +3122,7 @@ async def cmd_set_admin(message: Message, bot: Bot, args: str = "", **kw):
     await message.reply(f"✅ Баланс {mention_id(uid, name)} установлен на <b>{c(bal)}</b>")
 
 
-@router.message(Cmd("монеты снять", "снять монеты", "забрать монеты", "снять коины", "забрать коины", "кометы снять", "снять", "забрать", section=S, rank=6,
+@router.message(Cmd("монеты снять", "снять монеты", "забрать монеты", "снять коины", "забрать коины", "кометы снять", "монеты забрать", section=S, rank=6,
                     usage="снять {ссылка} {сумма}",
                     desc="Снять валюту 🌑 (техадмин / 6+ ранг)"))
 async def cmd_take_admin(message: Message, bot: Bot, args: str = "", **kw):
