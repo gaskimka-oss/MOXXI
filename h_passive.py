@@ -141,9 +141,13 @@ async def on_rights_changed(event: ChatMemberUpdated, bot: Bot):
         pass
 
 
-@router.my_chat_member(ChatMemberUpdatedFilter(IS_MEMBER >> IS_NOT_MEMBER))
-async def on_removed(event: ChatMemberUpdated):
-    await db.execute("DELETE FROM chats WHERE chat_id=?", (event.chat.id,))
+@router.my_chat_member()
+async def on_my_chat_member_change(event: ChatMemberUpdated):
+    # Если бота выгнали или он покинул чат из любого статуса (участник или админ)
+    if event.new_chat_member.status in ("left", "kicked"):
+        await db.execute("DELETE FROM chats WHERE chat_id=?", (event.chat.id,))
+        await db.execute("DELETE FROM chat_stats WHERE chat_id=?", (event.chat.id,))
+        await db.execute("DELETE FROM hidden_chats WHERE chat_id=?", (event.chat.id,))
 
 
 @router.message(F.new_chat_members)

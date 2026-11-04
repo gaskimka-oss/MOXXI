@@ -1176,14 +1176,32 @@ async def cmd_chats(message: Message, bot: Bot, **kw):
     lines = [f"📋 <b>Чаты, в которых состоит бот ({len(chats)}):</b>\n"]
     buttons = []
 
-    for i, c in enumerate(chats, 1):
+    bot_user = await bot.me()
+    active_chats = []
+
+    for c in chats:
         cid = c["chat_id"]
-        title = c["title"] or f"Чат {cid}"
-        members_cnt = "—"
-        link = None
         try:
             tg_chat = await bot.get_chat(cid)
-            title = tg_chat.title or title
+            # Проверяем реальное присутствие бота в чате
+            try:
+                chat_mem = await bot.get_chat_member(cid, bot_user.id)
+                if chat_mem.status in ("left", "kicked"):
+                    await db.execute("DELETE FROM chats WHERE chat_id=?", (cid,))
+                    continue
+            except Exception:
+                # Если не удается получить статус бота (исключен/забанен) — удаляем из базы
+                await db.execute("DELETE FROM chats WHERE chat_id=?", (cid,))
+                continue
+
+            cnt_str = "—"
+            try:
+                cnt = await bot.get_chat_member_count(cid)
+                cnt_str = str(cnt)
+            except Exception:
+                pass
+
+            link = None
             if tg_chat.username:
                 link = f"https://t.me/{tg_chat.username}"
             else:
@@ -1197,20 +1215,29 @@ async def cmd_chats(message: Message, bot: Bot, **kw):
                         cid_str = str(cid)
                         short_id = cid_str[4:] if cid_str.startswith("-100") else cid_str.lstrip("-")
                         link = f"https://t.me/c/{short_id}/1"
-            try:
-                cnt = await bot.get_chat_member_count(cid)
-                members_cnt = str(cnt)
-            except Exception:
-                pass
-        except Exception:
-            cid_str = str(cid)
-            short_id = cid_str[4:] if cid_str.startswith("-100") else cid_str.lstrip("-")
-            link = f"https://t.me/c/{short_id}/1"
 
-        lines.append(f"{i}. 💬 <b>{html.escape(title)}</b>\n   • ID: <code>{cid}</code> · 👥 Участников: <b>{members_cnt}</b>")
-        if link:
-            btn_title = title[:24] + "…" if len(title) > 24 else title
-            buttons.append([InlineKeyboardButton(text=f"🔗 {i}. {btn_title}", url=link)])
+            active_chats.append({
+                "cid": cid,
+                "title": tg_chat.title or c["title"] or f"Чат {cid}",
+                "members": cnt_str,
+                "link": link
+            })
+        except Exception:
+            # Чат не существует или бот заблокирован/удален
+            await db.execute("DELETE FROM chats WHERE chat_id=?", (cid,))
+            continue
+
+    if not active_chats:
+        return await message.reply("📋 Бот не состоит ни в одном активном чате.")
+
+    lines = [f"📋 <b>Чаты, в которых состоит бот ({len(active_chats)}):</b>\n"]
+    buttons = []
+
+    for i, ac in enumerate(active_chats, 1):
+        lines.append(f"{i}. 💬 <b>{html.escape(ac['title'])}</b>\n   • ID: <code>{ac['cid']}</code> · 👥 Участников: <b>{ac['members']}</b>")
+        if ac["link"]:
+            btn_title = ac["title"][:24] + "…" if len(ac["title"]) > 24 else ac["title"]
+            buttons.append([InlineKeyboardButton(text=f"🔗 {i}. {btn_title}", url=ac["link"])])
 
     lines.append("\n👉 <i>Нажмите на кнопку с чатом ниже, чтобы перейти в него или читать сообщения:</i>")
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)

@@ -96,24 +96,30 @@ async def _delayed_delete_msg(msg: Message, delay: float = 2.0) -> None:
         pass
 
 
+_cleared_reply_keyboard_users: set[int] = set()
+
 async def keyboard_middleware(handler, event, data: dict):
     """Нажатие кнопки старого нижнего меню = скрытие клавиатуры + вызов команды.
 
-    Если у пользователя на клиенте (ПК/телефон) осталась старая reply-клавиатура:
-    1) Отправляем удаление клавиатуры ReplyKeyboardRemove.
-    2) Подменяем текст на команду, чтобы сработал нужный хэндлер.
+    Устраняет дублирование двух меню (нижней Reply-клавиатуры и inline-меню).
+    Гарантирует, что старая нижняя клавиатура удаляется с экрана Telegram клиента.
     """
-    text = getattr(event, "text", None)
-    if text:
+    if isinstance(event, Message) and getattr(event.chat, "type", "") == "private":
+        uid = event.from_user.id if event.from_user else 0
+        text = getattr(event, "text", None) or ""
         cmd = kbd.resolve(text)
+        is_legacy = bool(cmd) or kbd.is_legacy_button(text) or text.lower().strip() in {"убрать меню", "скрыть кнопки", "удалить меню"}
+
+        # Если у пользователя еще не очищена нижняя reply-панель в этой сессии
+        if uid and (uid not in _cleared_reply_keyboard_users or is_legacy):
+            _cleared_reply_keyboard_users.add(uid)
+            try:
+                rm = await event.answer("🧹", reply_markup=kbd.hide())
+                asyncio.create_task(_delayed_delete_msg(rm, 0.4))
+            except Exception:
+                pass
+
         if cmd:
-            chat = getattr(event, "chat", None)
-            if isinstance(event, Message) and chat and getattr(chat, "type", "") == "private":
-                try:
-                    rm = await event.answer("🧹 <i>Обновление интерфейса...</i>", reply_markup=kbd.hide())
-                    asyncio.create_task(_delayed_delete_msg(rm, 2.0))
-                except Exception:
-                    pass
             try:
                 copy = event.model_copy(update={"text": cmd})
                 bot = data.get("bot") or getattr(event, "bot", None)
