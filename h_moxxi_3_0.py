@@ -1381,3 +1381,1045 @@ async def cmd_admin_captcha_toggle(message: Message, bot: Bot, args: str = "", *
             f"🛡 <b>Защита чата капчей:</b> {state_str}\n\n"
             f"Используйте: <code>капча вкл</code> или <code>капча выкл</code>."
         )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 8. МИНИ-ИГРА «КРАШ / РАКЕТА» (CRASH GAME X1.0 - X35.0)
+# ══════════════════════════════════════════════════════════════════════
+
+ACTIVE_CRASH_GAMES: dict[str, dict] = {}
+
+@router.message(Cmd("ракета", "краш", "crash",
+                    section=S_GAMES, rank=0,
+                    usage="ракета [ставка]",
+                    desc="🚀 Космическая ракета: успейте забрать куш до взрыва ракеты!"))
+async def cmd_crash_game(message: Message, bot: Bot, args: str = "", **kw):
+    bet = parse_money(args)
+    if not bet or bet <= 0:
+        return await message.reply("🚀 <b>Игра «Краш / Ракета»:</b>\n\nУкажите сумму ставки: <code>ракета 1000</code>\nРакета набирает высоту, множитель растёт до x35! Успейте нажать кнопку «Забрать», пока ракета не взорвалась.")
+
+    uid = message.from_user.id
+    u = await db.get_user(uid)
+    bal = int(u["balance"])
+    if bal < bet:
+        return await message.reply(f"❌ Недостаточно монет! Ваш баланс: <b>{money(bal)}</b> монет.")
+
+    game_id = f"{message.chat.id}_{message.message_id}_{uid}"
+    if game_id in ACTIVE_CRASH_GAMES:
+        return await message.reply("⏳ У вас уже есть активный запуск ракеты!")
+
+    await db.add_money(uid, -bet)
+
+    # Определяем точку взрыва (взвешенная случайность)
+    r = random.random()
+    if r < 0.35:
+        crash_multiplier = round(random.uniform(1.10, 1.65), 2)
+    elif r < 0.70:
+        crash_multiplier = round(random.uniform(1.70, 3.20), 2)
+    elif r < 0.90:
+        crash_multiplier = round(random.uniform(3.30, 7.50), 2)
+    else:
+        crash_multiplier = round(random.uniform(8.00, 32.00), 2)
+
+    game_data = {
+        "user_id": uid,
+        "bet": bet,
+        "crash_at": crash_multiplier,
+        "current": 1.00,
+        "cashed_out": False,
+        "chat_id": message.chat.id
+    }
+    ACTIVE_CRASH_GAMES[game_id] = game_data
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="💰 ЗАБРАТЬ ВЫИГРЫШ (x1.00)", callback_data=f"crash_cashout:{game_id}")
+    ]])
+
+    flight_msg = await message.reply(
+        f"🚀 ✨ <b>РАКЕТА MOXXI ЗАПУЩЕНА!</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"Ставка: <b>{money(bet)}</b> монет\n"
+        f"Текущий множитель: <b>x1.00</b> 📈\n"
+        f"Успейте нажать кнопку ниже до взрыва!",
+        reply_markup=kb
+    )
+
+    async def run_flight():
+        cur = 1.00
+        steps = [1.15, 1.30, 1.50, 1.75, 2.10, 2.60, 3.20, 4.00, 5.20, 7.00, 9.50, 13.00, 18.00, 25.00, 35.00]
+        for step in steps:
+            await asyncio.sleep(1.2)
+            if game_id not in ACTIVE_CRASH_GAMES or ACTIVE_CRASH_GAMES[game_id]["cashed_out"]:
+                return
+
+            if step >= crash_multiplier:
+                # Взрыв ракеты
+                ACTIVE_CRASH_GAMES.pop(game_id, None)
+                try:
+                    await flight_msg.edit_text(
+                        f"💥 💨 <b>РАКЕТА ВЗОРВАЛАСЬ НА ОТМЕТКЕ x{crash_multiplier:.2f}!</b>\n"
+                        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+                        f"Игрок: <b>{html.escape(message.from_user.first_name)}</b>\n"
+                        f"💸 Потеряно: <b>-{money(bet)}</b> монет.\n"
+                        f"В следующий раз обязательно повезёт!"
+                    )
+                except Exception:
+                    pass
+                return
+
+            cur = step
+            ACTIVE_CRASH_GAMES[game_id]["current"] = cur
+            cur_payout = int(bet * cur)
+            new_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text=f"💰 ЗАБРАТЬ +{money(cur_payout)} (x{cur:.2f})", callback_data=f"crash_cashout:{game_id}")
+            ]])
+            try:
+                await flight_msg.edit_text(
+                    f"🚀 🔥 <b>РАКЕТА НАБИРАЕТ ВЫСОТУ!</b>\n"
+                    f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+                    f"Ставка: <b>{money(bet)}</b> монет\n"
+                    f"Текущий множитель: <b>x{cur:.2f}</b> 📈\n"
+                    f"💰 Возможный куш: <b>+{money(cur_payout)}</b> монет",
+                    reply_markup=new_kb
+                )
+            except Exception:
+                pass
+
+    asyncio.create_task(run_flight())
+
+
+@router.callback_query(F.data.startswith("crash_cashout:"))
+async def on_crash_cashout(call: CallbackQuery):
+    game_id = call.data.split(":", 1)[1]
+    game = ACTIVE_CRASH_GAMES.get(game_id)
+    if not game:
+        return await call.answer("❌ Ракета уже завершила полет!", show_alert=True)
+
+    if call.from_user.id != game["user_id"]:
+        return await call.answer("⛔️ Это не ваш запуск ракеты!", show_alert=True)
+
+    if game["cashed_out"]:
+        return await call.answer("Вы уже забрали выигрыш!", show_alert=True)
+
+    game["cashed_out"] = True
+    ACTIVE_CRASH_GAMES.pop(game_id, None)
+
+    mult = game["current"]
+    bet = game["bet"]
+    win = int(bet * mult)
+    profit = win - bet
+
+    await db.add_money(call.from_user.id, win)
+    await call.answer(f"🎉 Вы забрали +{money(win)} монет (x{mult:.2f})!", show_alert=True)
+
+    try:
+        await call.message.edit_text(
+            f"🎉 🚀 <b>ВЫ УСПЕШНО ЗАБРАЛИ КУШ!</b>\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"Игрок: <b>{html.escape(call.from_user.first_name)}</b>\n"
+            f"Зафиксированный множитель: <b>x{mult:.2f}</b> 🏆\n"
+            f"💰 Выигрыш: <b>+{money(win)}</b> монет (+{money(profit)} чистыми)!"
+        )
+    except Exception:
+        pass
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 9. СИСТЕМА КОРПОРАЦИЙ И БИЗНЕС-ИМПЕРИЙ (MEGA CORPORATIONS)
+# ══════════════════════════════════════════════════════════════════════
+
+BRANCH_CATALOG = {
+    1: {"name": "Сеть кофеен Moxxi Coffee", "cost": 250_000, "income": 18_000, "icon": "☕️"},
+    2: {"name": "IT-Холдинг и Финтех", "cost": 1_000_000, "income": 85_000, "icon": "💻"},
+    3: {"name": "Логистический Порт", "cost": 4_500_000, "income": 420_000, "icon": "🚢"},
+    4: {"name": "Нефтедобывающий Комплекс", "cost": 18_000_000, "income": 1_900_000, "icon": "🛢"},
+    5: {"name": "Квантовый Дата-Центр", "cost": 75_000_000, "income": 8_500_000, "icon": "🔮"},
+    6: {"name": "Орбитальный Космодром", "cost": 280_000_000, "income": 38_000_000, "icon": "🛰"}
+}
+
+@router.message(Cmd("создать корпорацию", "новая корпорация",
+                    section=S_ECON, rank=0,
+                    usage="создать корпорацию [название]",
+                    desc="🏢 Основать собственную корпорацию и бизнес-сеть (от 500k)"))
+async def cmd_create_corporation(message: Message, bot: Bot, args: str = "", **kw):
+    name = args.strip()
+    if not name or len(name) < 3:
+        return await message.reply("🏢 Укажите название корпорации: <code>создать корпорацию CyberTech</code> (от 3 до 24 символов).")
+
+    uid = message.from_user.id
+    row = await db.fetchone("SELECT id FROM moxxi_corporations WHERE owner_id=?", (uid,))
+    if row:
+        return await message.reply("❌ Вы уже владеете корпорацией! Используйте <code>моя корпорация</code>.")
+
+    cost = 500_000
+    u = await db.get_user(uid)
+    bal = int(u["balance"])
+    if bal < cost:
+        return await message.reply(f"❌ Для основания корпорации требуется <b>{money(cost)}</b> монет! Ваш баланс: {money(bal)}.")
+
+    await db.add_money(uid, -cost)
+    now = int(time.time())
+    import json
+    await db.execute(
+        "INSERT INTO moxxi_corporations (owner_id, name, balance, level, branches, last_collect, created_ts) VALUES (?,?,?,?,?,?,?)",
+        (uid, name[:24], 0, 1, json.dumps([]), now, now)
+    )
+
+    await message.reply(
+        f"🏢 🥂 <b>ПОЗДРАВЛЯЕМ С ОСНОВАНИЕМ КОРПОРАЦИИ!</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"Название: <b>«{html.escape(name[:24])}»</b>\n"
+        f"Генеральный директор: <b>{html.escape(message.from_user.first_name)}</b>\n"
+        f"💡 Теперь покупайте филиалы: <code>купить филиал [1-6]</code> и собирайте пассивную прибыль!"
+    )
+
+
+@router.message(Cmd("моя корпорация", "корпорация", "корпорация инфо",
+                    section=S_ECON, rank=0,
+                    desc="🏢 Просмотр состояния корпорации, казны и открытых филиалов"))
+async def cmd_my_corporation(message: Message, bot: Bot, args: str = "", **kw):
+    uid = message.from_user.id
+    corp = await db.fetchone("SELECT * FROM moxxi_corporations WHERE owner_id=?", (uid,))
+    if not corp:
+        return await message.reply(
+            "🏢 <b>У вас пока нет корпорации!</b>\n\n"
+            "Основать бизнес-империю: <code>создать корпорацию [название]</code> (500,000 монет)."
+        )
+
+    import json
+    branches = json.loads(corp["branches"]) if corp["branches"] else []
+    
+    total_hourly = sum(BRANCH_CATALOG[b]["income"] for b in branches if b in BRANCH_CATALOG)
+    now = int(time.time())
+    hours_passed = max(0, (now - int(corp["last_collect"])) / 3600.0)
+    unclaimed = int(total_hourly * hours_passed)
+
+    branch_lines = []
+    for bid, binfo in BRANCH_CATALOG.items():
+        status = "✅ Открыт" if bid in branches else f"🔒 <code>купить филиал {bid}</code>"
+        branch_lines.append(f"{binfo['icon']} {binfo['name']}: {status} (+{money(binfo['income'])}/ч)")
+
+    await message.reply(
+        f"🏢 👔 <b>КОРПОРАЦИЯ «{html.escape(corp['name'])}»</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"💰 Казна корпорации: <b>{money(int(corp['balance']))}</b> монет\n"
+        f"📈 Пассивная выручка: <b>+{money(total_hourly)}</b> монет/час\n"
+        f"📦 Несобранный доход: <b>+{money(unclaimed)}</b> монет (<code>собрать прибыль</code>)\n\n"
+        f"🏭 <b>Филиалы корпорации ({len(branches)}/6):</b>\n"
+        + "\n".join(branch_lines) + "\n\n"
+        f"💡 Команды: <code>собрать прибыль</code>, <code>снять из корпорации [сумма]</code>"
+    )
+
+
+@router.message(Cmd("купить филиал", "открыть филиал",
+                    section=S_ECON, rank=0,
+                    usage="купить филиал [1-6]",
+                    desc="🏭 Приобрести филиал для корпорации (пассивный доход)"))
+async def cmd_buy_branch(message: Message, bot: Bot, args: str = "", **kw):
+    if not args.strip().isdigit() or int(args.strip()) not in BRANCH_CATALOG:
+        return await message.reply("🏭 Укажите номер филиала от 1 до 6: <code>купить филиал 1</code> (список доступен в <code>моя корпорация</code>).")
+
+    bid = int(args.strip())
+    binfo = BRANCH_CATALOG[bid]
+
+    uid = message.from_user.id
+    corp = await db.fetchone("SELECT * FROM moxxi_corporations WHERE owner_id=?", (uid,))
+    if not corp:
+        return await message.reply("❌ Сначала создайте корпорацию: <code>создать корпорацию [название]</code>!")
+
+    import json
+    branches = json.loads(corp["branches"]) if corp["branches"] else []
+    if bid in branches:
+        return await message.reply(f"❌ У вас уже открыт филиал <b>{binfo['name']}</b>!")
+
+    cost = binfo["cost"]
+    u = await db.get_user(uid)
+    bal = int(u["balance"])
+    if bal < cost:
+        return await message.reply(f"❌ Недостаточно средств! Стоимость филиала: <b>{money(cost)}</b> монет (ваш баланс: {money(bal)}).")
+
+    await db.add_money(uid, -cost)
+    branches.append(bid)
+    await db.execute("UPDATE moxxi_corporations SET branches=? WHERE id=?", (json.dumps(branches), corp["id"]))
+
+    await message.reply(
+        f"🏭 ✨ <b>ФИЛИАЛ УСПЕШНО ПРИОБРЕТЕН!</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"Открыт: <b>{binfo['icon']} {binfo['name']}</b>\n"
+        f"Прибавка к доходу: <b>+{money(binfo['income'])} монет/час</b>! 📈"
+    )
+
+
+@router.message(Cmd("собрать прибыль", "собрать доход",
+                    section=S_ECON, rank=0,
+                    desc="💰 Собрать накопленную прибыль филиалов в казну корпорации"))
+async def cmd_collect_corp_profit(message: Message, bot: Bot, args: str = "", **kw):
+    uid = message.from_user.id
+    corp = await db.fetchone("SELECT * FROM moxxi_corporations WHERE owner_id=?", (uid,))
+    if not corp:
+        return await message.reply("❌ У вас нет корпорации!")
+
+    import json
+    branches = json.loads(corp["branches"]) if corp["branches"] else []
+    total_hourly = sum(BRANCH_CATALOG[b]["income"] for b in branches if b in BRANCH_CATALOG)
+
+    if total_hourly <= 0:
+        return await message.reply("❌ У вас еще нет работающих филиалов! Откройте филиал: <code>купить филиал 1</code>.")
+
+    now = int(time.time())
+    hours_passed = max(0, (now - int(corp["last_collect"])) / 3600.0)
+    profit = int(total_hourly * hours_passed)
+
+    if profit < 1000:
+        return await message.reply("⏳ Прибыль пока слишком мала. Подождите еще немного!")
+
+    new_bal = int(corp["balance"]) + profit
+    await db.execute("UPDATE moxxi_corporations SET balance=?, last_collect=? WHERE id=?", (new_bal, now, corp["id"]))
+
+    await message.reply(
+        f"💰 ✨ <b>ПРИБЫЛЬ УСПЕШНО СОБРАНА!</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"В казну корпорации поступило: <b>+{money(profit)}</b> монет!\n"
+        f"Баланс казны: <b>{money(new_bal)}</b> монет.\n"
+        f"Вывести средства основателю: <code>снять из корпорации [сумма]</code>"
+    )
+
+
+@router.message(Cmd("снять из корпорации", "вывод из корпорации",
+                    section=S_ECON, rank=0,
+                    usage="снять из корпорации [сумма]",
+                    desc="💳 Вывести накопленные монеты из казны корпорации на личный баланс"))
+async def cmd_withdraw_corp(message: Message, bot: Bot, args: str = "", **kw):
+    amount = parse_money(args)
+    if not amount or amount <= 0:
+        return await message.reply("💳 Укажите сумму: <code>снять из корпорации 50000</code>.")
+
+    uid = message.from_user.id
+    corp = await db.fetchone("SELECT * FROM moxxi_corporations WHERE owner_id=?", (uid,))
+    if not corp:
+        return await message.reply("❌ У вас нет корпорации!")
+
+    corp_bal = int(corp["balance"])
+    if corp_bal < amount:
+        return await message.reply(f"❌ В казне корпорации только <b>{money(corp_bal)}</b> монет!")
+
+    await db.execute("UPDATE moxxi_corporations SET balance=balance-? WHERE id=?", (amount, corp["id"]))
+    await db.add_money(uid, amount)
+
+    await message.reply(
+        f"💳 ✅ <b>ВЫВОД ИЗ КОРПОРАЦИИ ВЫПОЛНЕН!</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"Сумма: <b>+{money(amount)}</b> монет зачислена на ваш баланс!\n"
+        f"Остаток в казне: <b>{money(corp_bal - amount)}</b> монет."
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 10. АРТЕФАКТЫ И РЕЛИКВИИ МОКСИ (ANCIENT ARTIFACTS)
+# ══════════════════════════════════════════════════════════════════════
+
+ARTIFACTS_CATALOG = {
+    1: {"name": "Око Бури", "cost": 500_000, "desc": "⚡️ +15% к выигрышам в казино и рулетке", "icon": "⚡️"},
+    2: {"name": "Щит Титана", "cost": 750_000, "desc": "🛡 50% шанс отразить карманника/ограбление", "icon": "🛡"},
+    3: {"name": "Кристалл Изобилия", "cost": 1_500_000, "desc": "💎 +25% к ежедневному бонусу и дивидендам", "icon": "💎"},
+    4: {"name": "Хроно-Сфера", "cost": 3_500_000, "desc": "⏳ Сокращает перезарядку всех игр в 2 раза", "icon": "⏳"},
+    5: {"name": "Венец Императора", "cost": 10_000_000, "desc": "👑 Эксклюзивный статус и уважение в чате", "icon": "👑"},
+    6: {"name": "Печать Дракона", "cost": 25_000_000, "desc": "🐉 Двойной урон по мировым рейд-боссам", "icon": "🐉"}
+}
+
+@router.message(Cmd("артефакты", "витрина артефактов",
+                    section=S_GAMES, rank=0,
+                    desc="🔮 Каталог древних магических артефактов Мокси"))
+async def cmd_artifacts_catalog(message: Message, bot: Bot, args: str = "", **kw):
+    lines = []
+    for aid, a in ARTIFACTS_CATALOG.items():
+        lines.append(f"<b>{aid}. {a['icon']} {a['name']}</b> — {money(a['cost'])} монет\n   └ {a['desc']}")
+
+    await message.reply(
+        "🔮 ⚡️ <b>МАГИЧЕСКИЕ АРТЕФАКТЫ MOXXI 3.0</b>\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        + "\n".join(lines) + "\n\n"
+        "Купить артефакт: <code>купить артефакт [номер]</code>\n"
+        "Ваши реликвии: <code>мои артефакты</code>"
+    )
+
+
+@router.message(Cmd("купить артефакт",
+                    section=S_GAMES, rank=0,
+                    usage="купить артефакт [номер]",
+                    desc="🔮 Приобрести магический артефакт в свою коллекцию"))
+async def cmd_buy_artifact(message: Message, bot: Bot, args: str = "", **kw):
+    if not args.strip().isdigit() or int(args.strip()) not in ARTIFACTS_CATALOG:
+        return await message.reply("🔮 Укажите номер артефакта от 1 до 6: <code>купить артефакт 1</code>.")
+
+    aid = int(args.strip())
+    art = ARTIFACTS_CATALOG[aid]
+    uid = message.from_user.id
+
+    owned = await db.fetchone("SELECT * FROM moxxi_artifacts WHERE user_id=? AND artifact_id=?", (uid, aid))
+    if owned:
+        return await message.reply(f"❌ У вас уже есть артефакт <b>{art['icon']} {art['name']}</b>!")
+
+    u = await db.get_user(uid)
+    bal = int(u["balance"])
+    if bal < art["cost"]:
+        return await message.reply(f"❌ Недостаточно средств! Стоимость: <b>{money(art['cost'])}</b> монет (ваш баланс: {money(bal)}).")
+
+    await db.add_money(uid, -art["cost"])
+    now = int(time.time())
+    await db.execute("INSERT INTO moxxi_artifacts (user_id, artifact_id, level, acquired_ts) VALUES (?,?,?,?)",
+                     (uid, aid, 1, now))
+
+    await message.reply(
+        f"🔮 ✨ <b>АРТЕФАКТ УСПЕШНО АКТИВИРОВАН!</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"Получен: <b>{art['icon']} {art['name']}</b>\n"
+        f"Эффект: <b>{art['desc']}</b>\n"
+        f"Артефакт навсегда закреплен за вашим профилем!"
+    )
+
+
+@router.message(Cmd("мои артефакты",
+                    section=S_GAMES, rank=0,
+                    desc="🔮 Список активированных артефактов в вашем профиле"))
+async def cmd_my_artifacts(message: Message, bot: Bot, args: str = "", **kw):
+    uid = message.from_user.id
+    rows = await db.fetchall("SELECT * FROM moxxi_artifacts WHERE user_id=?", (uid,))
+    if not rows:
+        return await message.reply("🔮 У вас пока нет ни одного артефакта! Посмотреть список: <code>артефакты</code>.")
+
+    lines = []
+    for r in rows:
+        aid = int(r["artifact_id"])
+        if aid in ARTIFACTS_CATALOG:
+            a = ARTIFACTS_CATALOG[aid]
+            lines.append(f"• {a['icon']} <b>{a['name']}</b> (Ур. {r['level']}) — {a['desc']}")
+
+    await message.reply(
+        f"🔮 👑 <b>ВАШИ МАГИЧЕСКИЕ АРТЕФАКТЫ ({len(lines)} шт.):</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        + "\n".join(lines)
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 11. МИРОВЫЕ РЕЙД-БОССЫ 3.0 (WORLD RAID BOSSES)
+# ══════════════════════════════════════════════════════════════════════
+
+BOSS_CATALOG = {
+    1: {"name": "Кибер-Левиафан", "max_hp": 10_000_000, "reward": 20_000_000, "icon": "👾"},
+    2: {"name": "Теневой Владыка", "max_hp": 25_000_000, "reward": 60_000_000, "icon": "🦇"},
+    3: {"name": "Древний Дракон Бездны", "max_hp": 60_000_000, "reward": 180_000_000, "icon": "🐲"}
+}
+
+ACTIVE_WORLD_BOSS: dict[str, dict] = {}   # "boss" -> boss_data
+
+@router.message(Cmd("призвать босса", "вызвать босса",
+                    section=S_GAMES, rank=2, group_only=True,
+                    usage="призвать босса [1-3]",
+                    desc="🐲 Призвать мирового босса в беседу (доступно от 2 ранга)"))
+async def cmd_summon_boss(message: Message, bot: Bot, args: str = "", **kw):
+    me = await effective_rank(message, bot)
+    if me < 2:
+        return await message.reply("⛔️ Призывать боссов могут модераторы от <b>2 ранга</b>.")
+
+    if "current" in ACTIVE_WORLD_BOSS:
+        b = ACTIVE_WORLD_BOSS["current"]
+        return await message.reply(f"❌ В чате уже бушует босс: <b>{b['icon']} {b['name']}</b> (HP: {money(b['hp'])}/{money(b['max_hp'])})! Атакуйте его: <code>ударить босса</code>.")
+
+    bid = int(args.strip()) if args.strip().isdigit() and int(args.strip()) in BOSS_CATALOG else 1
+    binfo = BOSS_CATALOG[bid]
+
+    ACTIVE_WORLD_BOSS["current"] = {
+        "id": bid,
+        "name": binfo["name"],
+        "icon": binfo["icon"],
+        "max_hp": binfo["max_hp"],
+        "hp": binfo["max_hp"],
+        "reward": binfo["reward"],
+        "attackers": {}   # user_id -> total_dmg
+    }
+
+    await message.reply(
+        f"🐲 ⚡️ <b>ПРИЗВАН МИРОВОЙ БОСС: {binfo['icon']} {binfo['name']}!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"❤️ Запас здоровья: <b>{money(binfo['max_hp'])} HP</b>\n"
+        f"💰 Призовой фонд: <b>{money(binfo['reward'])} монет</b>\n\n"
+        f"⚔️ <b>Объединяйте силы всей беседы!</b>\n"
+        f"Нанесите удар командой: <code>ударить босса</code>\n"
+        f"Награда разделится между всеми бойцами пропорционально урону!"
+    )
+
+
+@router.message(Cmd("ударить босса", "атаковать босса", "удар по боссу",
+                    section=S_GAMES, rank=0, group_only=True,
+                    desc="⚔️ Нанести мощный удар по мировому рейд-боссу"))
+async def cmd_attack_boss(message: Message, bot: Bot, args: str = "", **kw):
+    if "current" not in ACTIVE_WORLD_BOSS:
+        return await message.reply("💤 В чате сейчас нет боссов. Модераторы могут призвать босса: <code>призвать босса [1-3]</code>.")
+
+    boss = ACTIVE_WORLD_BOSS["current"]
+    uid = message.from_user.id
+
+    # Базовый урон
+    base_dmg = random.randint(75_000, 250_000)
+    crit = False
+
+    # Проверяем артефакт "Печать Дракона" (id=6)
+    has_dragon_art = await db.fetchone("SELECT 1 FROM moxxi_artifacts WHERE user_id=? AND artifact_id=6", (uid,))
+    if has_dragon_art:
+        base_dmg *= 2
+        crit = True
+
+    # 15% шанс критического удара
+    if random.random() < 0.15:
+        base_dmg = int(base_dmg * 2.5)
+        crit = True
+
+    boss["hp"] = max(0, boss["hp"] - base_dmg)
+    boss["attackers"][uid] = boss["attackers"].get(uid, 0) + base_dmg
+
+    crit_tag = " 💥 <b>КРИТИЧЕСКИЙ УДАР!</b>" if crit else ""
+
+    if boss["hp"] <= 0:
+        # Босс повержен!
+        total_dmg = sum(boss["attackers"].values())
+        reward_pool = boss["reward"]
+
+        lines = []
+        for att_id, dmg in sorted(boss["attackers"].items(), key=lambda x: x[1], reverse=True)[:5]:
+            share_pct = (dmg / total_dmg) if total_dmg else 0
+            user_reward = int(reward_pool * share_pct)
+            await db.add_money(att_id, user_reward)
+            u = await db.get_user(att_id)
+            name = u["first_name"] if u else f"ID {att_id}"
+            lines.append(f"• <b>{name}</b>: {money(dmg)} урона ➔ <b>+{money(user_reward)} монет</b>!")
+
+        boss_name = boss["name"]
+        boss_icon = boss["icon"]
+        ACTIVE_WORLD_BOSS.pop("current", None)
+
+        return await message.reply(
+            f"🏆 🐲 <b>РЕЙД-БОСС {boss_icon} {boss_name} УСПЕШНО ПОВЕРЖЕН!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"Герои беседы сокрушили чудовище! Призовой фонд разделен:\n\n"
+            + "\n".join(lines) + "\n\n"
+            f"🎉 Поздравляем всех участников эпического рейда!"
+        )
+
+    # Прогресс-бар здоровья
+    pct = max(0, min(100, int((boss["hp"] / boss["max_hp"]) * 100)))
+    filled = pct // 10
+    bar = "█" * filled + "░" * (10 - filled)
+
+    await message.reply(
+        f"⚔️ <b>{html.escape(message.from_user.first_name)}</b> наносит <b>-{money(base_dmg)}</b> урона!{crit_tag}\n"
+        f"{boss['icon']} <b>{boss['name']}:</b> [{bar}] {pct}% ({money(boss['hp'])} HP осталось)"
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 12. БАНКОВСКИЕ ДЕПОЗИТЫ И ЗАЙМЫ (CENTRAL BANK 3.0)
+# ══════════════════════════════════════════════════════════════════════
+
+DEPOSIT_RATES = {
+    1: 0.05,   # 1 день = +5%
+    3: 0.18,   # 3 дня = +18%
+    7: 0.50    # 7 дней = +50%
+}
+
+@router.message(Cmd("депозиты", "вклады",
+                    section=S_ECON, rank=0,
+                    desc="🏦 Линейка процентных депозитов Центрального Банка Moxxi"))
+async def cmd_bank_deposits_list(message: Message, bot: Bot, args: str = "", **kw):
+    await message.reply(
+        "🏦 📈 <b>ДЕПОЗИТНЫЕ СЧЕТА MOXXI CENTRAL BANK</b>\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        "Размещайте свободные монеты под высокий фиксированный процент:\n\n"
+        "• <b>1 день:</b> +5% доходности (<code>вклад открыть [сумма] 1</code>)\n"
+        "• <b>3 дня:</b> +18% доходности (<code>вклад открыть [сумма] 3</code>)\n"
+        "• <b>7 дней:</b> +50% доходности (<code>вклад открыть [сумма] 7</code>)\n\n"
+        "💡 Забрать вклад по окончании срока: <code>вклад забрать</code>"
+    )
+
+
+@router.message(Cmd("вклад открыть", "депозит открыть",
+                    section=S_ECON, rank=0,
+                    usage="вклад открыть [сумма] [1|3|7]",
+                    desc="🏦 Открыть доходный депозит на 1, 3 или 7 дней"))
+async def cmd_open_deposit(message: Message, bot: Bot, args: str = "", **kw):
+    parts = args.strip().split()
+    if len(parts) < 2:
+        return await message.reply("🏦 Используйте: <code>вклад открыть [сумма] [1|3|7]</code> (например: <code>вклад открыть 100000 3</code>).")
+
+    amount = parse_money(parts[0])
+    days_str = parts[1]
+    if not amount or amount < 10_000:
+        return await message.reply("❌ Минимальная сумма депозита: <b>10,000</b> монет!")
+
+    if not days_str.isdigit() or int(days_str) not in DEPOSIT_RATES:
+        return await message.reply("❌ Выберите срок: <code>1</code>, <code>3</code> или <code>7</code> дней!")
+
+    days = int(days_str)
+    rate = DEPOSIT_RATES[days]
+    uid = message.from_user.id
+
+    u = await db.get_user(uid)
+    bal = int(u["balance"])
+    if bal < amount:
+        return await message.reply(f"❌ Недостаточно средств! Ваш баланс: {money(bal)} монет.")
+
+    await db.add_money(uid, -amount)
+    now = int(time.time())
+    expire = now + (days * 86400)
+
+    await db.execute(
+        "INSERT INTO moxxi_deposits (user_id, amount, term_days, yield_pct, open_ts, expire_ts, claimed) VALUES (?,?,?,?,?,?,0)",
+        (uid, amount, days, rate, now, expire)
+    )
+
+    profit = int(amount * rate)
+    await message.reply(
+        f"🏦 🔒 <b>ДЕПОЗИТ УСПЕШНО ОТКРЫТ!</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"Сумма вклада: <b>{money(amount)}</b> монет\n"
+        f"Срок: <b>{days} дн.</b> (+{int(rate*100)}% доходности)\n"
+        f"💰 Ожидаемая выплата: <b>{money(amount + profit)}</b> монет (+{money(profit)} чистыми)\n"
+        f"Дата выплаты: через {days} дн. (<code>вклад забрать</code>)"
+    )
+
+
+@router.message(Cmd("мой вклад", "вклад забрать", "депозит забрать",
+                    section=S_ECON, rank=0,
+                    desc="🏦 Проверить состояние вклада и забрать выплату с процентами"))
+async def cmd_claim_deposit(message: Message, bot: Bot, args: str = "", **kw):
+    uid = message.from_user.id
+    row = await db.fetchone("SELECT * FROM moxxi_deposits WHERE user_id=? AND claimed=0 ORDER BY expire_ts ASC LIMIT 1", (uid,))
+    if not row:
+        return await message.reply("🏦 У вас нет активных депозитов! Открыть: <code>депозиты</code>.")
+
+    now = int(time.time())
+    expire = int(row["expire_ts"])
+    amount = int(row["amount"])
+    rate = float(row["yield_pct"])
+    total_payout = int(amount * (1.0 + rate))
+
+    if now < expire:
+        rem_sec = expire - now
+        hours = rem_sec // 3600
+        mins = (rem_sec % 3600) // 60
+        return await message.reply(
+            f"🏦 ⏳ <b>ДЕПОЗИТ ЕЩЕ В РАБОТЕ!</b>\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"Сумма вклада: <b>{money(amount)}</b> монет\n"
+            f"Ожидаемый доход: <b>+{money(total_payout - amount)}</b> монет\n"
+            f"Осталось ждать: <b>{hours} ч. {mins} мин.</b>"
+        )
+
+    await db.execute("UPDATE moxxi_deposits SET claimed=1 WHERE id=?", (row["id"],))
+    await db.add_money(uid, total_payout)
+
+    await message.reply(
+        f"🏦 💰 <b>ВЫПЛАТА ПО ДЕПОЗИТУ ЗАЧИСЛЕНА!</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"Возврат тела вклада: <b>{money(amount)}</b>\n"
+        f"Чистая прибыль (+{int(rate*100)}%): <b>+{money(total_payout - amount)}</b> монет\n"
+        f"Итого зачислено: <b>+{money(total_payout)}</b> монет на ваш баланс!"
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 13. БОЕВОЙ ПРОПУСК «НЕОНОВЫЙ РАССВЕТ» (BATTLE PASS)
+# ══════════════════════════════════════════════════════════════════════
+
+BP_REWARDS = {
+    1: {"free": 25_000, "prem": 100_000, "name": "Стартовый кейс"},
+    2: {"free": 50_000, "prem": 250_000, "name": "Неоновый значок"},
+    3: {"free": 100_000, "prem": 500_000, "name": "Кристаллы x10"},
+    4: {"free": 150_000, "prem": 1_000_000, "name": "Титул «Неоновый Воин»"},
+    5: {"free": 300_000, "prem": 2_500_000, "name": "VIP-статус на 7 дней"},
+    6: {"free": 500_000, "prem": 5_000_000, "name": "Секретный лутбокс 3.0"},
+    7: {"free": 1_000_000, "prem": 10_000_000, "name": "Артефакт Око Бури"},
+    8: {"free": 2_000_000, "prem": 25_000_000, "name": "Платиновый сундук"},
+    9: {"free": 5_000_000, "prem": 50_000_000, "name": "Золотой статус Императора"},
+    10: {"free": 10_000_000, "prem": 100_000_000, "name": "Легендарный кубок Сезона 1"}
+}
+
+@router.message(Cmd("боевой пропуск", "бп", "battle pass",
+                    section=S_GAMES, rank=0,
+                    desc="🏆 Сезонный Боевой Пропуск: уровни, испытания и крутые награды"))
+async def cmd_battle_pass(message: Message, bot: Bot, args: str = "", **kw):
+    uid = message.from_user.id
+    row = await db.fetchone("SELECT * FROM moxxi_battle_pass WHERE user_id=?", (uid,))
+    if not row:
+        await db.execute("INSERT INTO moxxi_battle_pass (user_id, points, level, has_premium, claimed_levels) VALUES (?,?,?,?,?)",
+                         (uid, 50, 1, 0, "[]"))
+        row = {"user_id": uid, "points": 50, "level": 1, "has_premium": 0, "claimed_levels": "[]"}
+
+    pts = int(row["points"])
+    lvl = min(10, max(1, (pts // 100) + 1))
+    has_prem = bool(row["has_premium"])
+
+    import json
+    claimed = json.loads(row["claimed_levels"]) if row["claimed_levels"] else []
+
+    status_tag = "👑 PREMIUM PASS" if has_prem else "⚪️ БЕСПЛАТНЫЙ PASS"
+
+    lines = []
+    for l, r in BP_REWARDS.items():
+        state = "✅ Забран" if l in claimed else ("🎁 Доступен" if lvl >= l else "🔒 Заблокирован")
+        prem_mark = f" [+{money(r['prem'])}]" if has_prem else ""
+        lines.append(f"Ур. {l}: <b>{r['name']}</b> ➔ {money(r['free'])}{prem_mark} ({state})")
+
+    await message.reply(
+        f"🏆 ⚡️ <b>БОЕВОЙ ПРОПУСК: СЕЗОН 1 «НЕОНОВЫЙ РАССВЕТ»</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"Статус: <b>{status_tag}</b>\n"
+        f"Ваш уровень: <b>{lvl}/10</b> (Очков: {pts % 100}/100)\n\n"
+        + "\n".join(lines[:6]) + "\n…\n\n"
+        f"💡 Забрать открытые награды: <code>забрать бп</code>\n"
+        f"Купить Premium (+x10 наград): <code>купить бп</code> (1,000,000 монет)"
+    )
+
+
+@router.message(Cmd("купить бп", "купить премиум бп",
+                    section=S_GAMES, rank=0,
+                    desc="🏆 Активировать Premium Battle Pass (+x10 к наградам сезона)"))
+async def cmd_buy_premium_bp(message: Message, bot: Bot, args: str = "", **kw):
+    uid = message.from_user.id
+    row = await db.fetchone("SELECT * FROM moxxi_battle_pass WHERE user_id=?", (uid,))
+    if row and row["has_premium"]:
+        return await message.reply("❌ У вас уже активирован Premium Battle Pass!")
+
+    cost = 1_000_000
+    u = await db.get_user(uid)
+    bal = int(u["balance"])
+    if bal < cost:
+        return await message.reply(f"❌ Недостаточно средств! Стоимость Premium BP: <b>{money(cost)}</b> монет.")
+
+    await db.add_money(uid, -cost)
+    await db.execute(
+        "INSERT INTO moxxi_battle_pass (user_id, points, level, has_premium, claimed_levels) VALUES (?,50,1,1,'[]') "
+        "ON CONFLICT(user_id) DO UPDATE SET has_premium=1",
+        (uid,)
+    )
+
+    await message.reply(
+        "🏆 👑 <b>PREMIUM BATTLE PASS УСПЕШНО АКТИВИРОВАН!</b>\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        "Теперь на каждом уровне вы получаете увеличенные в 10 раз награды, уникальные титулы и кристаллы! 🌟"
+    )
+
+
+@router.message(Cmd("забрать бп", "награды бп",
+                    section=S_GAMES, rank=0,
+                    desc="🎁 Забрать все открытые награды уровней Боевого Пропуска"))
+async def cmd_claim_bp_rewards(message: Message, bot: Bot, args: str = "", **kw):
+    uid = message.from_user.id
+    row = await db.fetchone("SELECT * FROM moxxi_battle_pass WHERE user_id=?", (uid,))
+    if not row:
+        return await message.reply("❌ Сначала откройте боевой пропуск командой: <code>бп</code>.")
+
+    pts = int(row["points"])
+    current_lvl = min(10, max(1, (pts // 100) + 1))
+    has_prem = bool(row["has_premium"])
+
+    import json
+    claimed = set(json.loads(row["claimed_levels"]) if row["claimed_levels"] else [])
+
+    total_reward = 0
+    new_claimed = []
+
+    for l in range(1, current_lvl + 1):
+        if l not in claimed and l in BP_REWARDS:
+            r = BP_REWARDS[l]
+            rew = r["free"] + (r["prem"] if has_prem else 0)
+            total_reward += rew
+            claimed.add(l)
+            new_claimed.append(l)
+
+    if total_reward <= 0:
+        return await message.reply("⏳ Нет доступных наград! Повышайте уровень БП активностью в чате.")
+
+    await db.execute("UPDATE moxxi_battle_pass SET claimed_levels=? WHERE user_id=?",
+                     (json.dumps(list(claimed)), uid))
+    await db.add_money(uid, total_reward)
+
+    await message.reply(
+        f"🎁 🏆 <b>НАГРАДЫ БОЕВОГО ПРОПУСКА ПОЛУЧЕНЫ!</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"Забраны уровни: <b>{', '.join(map(str, new_claimed))}</b>\n"
+        f"💰 Зачислено: <b>+{money(total_reward)}</b> монет на ваш баланс!"
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 14. СИСТЕМА РОСКОШНЫХ ПОДАРКОВ (LUXURY GIFTS)
+# ══════════════════════════════════════════════════════════════════════
+
+GIFTS_SHOP = {
+    1: {"name": "Букет алых роз", "cost": 50_000, "icon": "🌹"},
+    2: {"name": "Кольцо с сапфиром", "cost": 250_000, "icon": "💍"},
+    3: {"name": "Спорткар Cyber-GT", "cost": 1_200_000, "icon": "🏎"},
+    4: {"name": "Неоновый Особняк", "cost": 6_000_000, "icon": "🏰"},
+    5: {"name": "Корона Монарха", "cost": 25_000_000, "icon": "👑"}
+}
+
+@router.message(Cmd("подарки магазин", "каталог подарков",
+                    section=S_GAMES, rank=0,
+                    desc="🎁 Магазин роскошных подарков для друзей и участников"))
+async def cmd_gifts_shop(message: Message, bot: Bot, args: str = "", **kw):
+    lines = []
+    for gid, g in GIFTS_SHOP.items():
+        lines.append(f"<b>{gid}. {g['icon']} {g['name']}</b> — {money(g['cost'])} монет")
+
+    await message.reply(
+        "🎁 ✨ <b>МАГАЗИН РОСКОШНЫХ ПОДАРКОВ MOXXI</b>\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        + "\n".join(lines) + "\n\n"
+        "Отправить подарок: <code>подарить [номер] @юзер [сообщение]</code>\n"
+        "Посмотреть подарки: <code>подарки @юзер</code>"
+    )
+
+
+@router.message(Cmd("подарить", "сделать подарок",
+                    section=S_GAMES, rank=0, group_only=True,
+                    usage="подарить [номер] @юзер [текст]",
+                    desc="🎁 Отправить подарок другу или участнику беседы"))
+async def cmd_send_gift(message: Message, bot: Bot, args: str = "", **kw):
+    parts = args.strip().split(maxsplit=2)
+    if not parts or not parts[0].isdigit():
+        return await message.reply("🎁 Укажите: <code>подарить [номер] @юзер [сообщение]</code> (каталог: <code>подарки магазин</code>).")
+
+    gid = int(parts[0])
+    if gid not in GIFTS_SHOP:
+        return await message.reply("❌ Неверный номер подарка! Выберите от 1 до 5.")
+
+    gift = GIFTS_SHOP[gid]
+    target_arg = parts[1] if len(parts) > 1 else ""
+    user_msg = parts[2] if len(parts) > 2 else "От всего сердца!"
+
+    target_uid = await resolve_target(message, bot, target_arg)
+    if not target_uid:
+        return await message.reply("❌ Укажите получателя подарка: ответным сообщением или @юзернеймом!")
+
+    if target_uid == message.from_user.id:
+        return await message.reply("❌ Нельзя дарить подарки самому себе!")
+
+    uid = message.from_user.id
+    u = await db.get_user(uid)
+    bal = int(u["balance"])
+    if bal < gift["cost"]:
+        return await message.reply(f"❌ Недостаточно монет! Стоимость: <b>{money(gift['cost'])}</b> монет (ваш баланс: {money(bal)}).")
+
+    await db.add_money(uid, -gift["cost"])
+    now = int(time.time())
+    await db.execute(
+        "INSERT INTO moxxi_gifts (from_id, to_id, gift_id, gift_name, message, ts) VALUES (?,?,?,?,?,?)",
+        (uid, target_uid, gid, gift["name"], user_msg[:100], now)
+    )
+
+    tgt_user = await db.get_user(target_uid)
+    tgt_name = tgt_user["first_name"] if tgt_user else "Участник"
+
+    await message.reply(
+        f"🎁 💖 <b>ПОДАРОК УСПЕШНО ВРУЧЕН!</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"От кого: <b>{html.escape(message.from_user.first_name)}</b>\n"
+        f"Кому: <b>{html.escape(tgt_name)}</b>\n"
+        f"Подарок: <b>{gift['icon']} {gift['name']}</b>\n"
+        f"💌 Сообщение: <i>«{html.escape(user_msg[:100])}»</i>"
+    )
+
+
+@router.message(Cmd("подарки", "мои подарки",
+                    section=S_GAMES, rank=0,
+                    desc="🎁 Посмотреть витрину подарков в профиле пользователя"))
+async def cmd_view_gifts(message: Message, bot: Bot, args: str = "", **kw):
+    target_uid = await resolve_target(message, bot, args) or message.from_user.id
+    rows = await db.fetchall("SELECT * FROM moxxi_gifts WHERE to_id=? ORDER BY ts DESC LIMIT 10", (target_uid,))
+    
+    tgt_user = await db.get_user(target_uid)
+    tgt_name = tgt_user["first_name"] if tgt_user else "Участник"
+
+    if not rows:
+        return await message.reply(f"🎁 У <b>{html.escape(tgt_name)}</b> пока нет подарков. Сделайте приятное: <code>подарить [1-5] @юзер</code>!")
+
+    lines = []
+    for r in rows:
+        from_user = await db.get_user(r["from_id"])
+        sender_name = from_user["first_name"] if from_user else "Тайный поклонник"
+        gid = r["gift_id"]
+        icon = GIFTS_SHOP[gid]["icon"] if gid in GIFTS_SHOP else "🎁"
+        lines.append(f"{icon} <b>{r['gift_name']}</b> от <i>{html.escape(sender_name)}</i>: «{html.escape(r['message'])}»")
+
+    await message.reply(
+        f"🎁 🌟 <b>ВИТРИНА ПОДАРКОВ: {html.escape(tgt_name)}</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        + "\n".join(lines)
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 15. СУПЕР-ИНСТРУМЕНТЫ АДМИНИСТРАЦИИ (SLOWMODE, НЕАКТИВ, ШТРАФНИКИ)
+# ══════════════════════════════════════════════════════════════════════
+
+@router.message(Cmd("медленный режим", "слоумод", "slowmode",
+                    section=S_ADMIN, rank=3, group_only=True,
+                    usage="медленный режим [10|30|60|300|выкл]",
+                    desc="⏳ Включить официальный медленный режим Telegram в группе"))
+async def cmd_slowmode(message: Message, bot: Bot, args: str = "", **kw):
+    me = await effective_rank(message, bot)
+    if me < 3:
+        return await message.reply("⛔️ Команда доступна администраторам от <b>3 ранга</b>.")
+
+    raw = args.strip().lower()
+    cid = message.chat.id
+
+    if raw in {"выкл", "0", "off", "disable"}:
+        try:
+            await bot.set_chat_slow_mode_delay(cid, 0)
+            return await message.reply("⏳ 🟢 <b>Медленный режим выключен!</b> Участники могут писать без задержек.")
+        except Exception as e:
+            return await message.reply(f"❌ Ошибка настройки медленного режима: {e}")
+
+    valid_delays = {10, 30, 60, 300, 900, 3600}
+    if not raw.isdigit() or int(raw) not in valid_delays:
+        return await message.reply(
+            "⏳ <b>Настройка медленного режима группы:</b>\n\n"
+            "Доступные задержки: <code>10</code>, <code>30</code>, <code>60</code>, <code>300</code> сек.\n"
+            "Пример: <code>медленный режим 30</code> или <code>медленный режим выкл</code>."
+        )
+
+    delay = int(raw)
+    try:
+        await bot.set_chat_slow_mode_delay(cid, delay)
+        await message.reply(
+            f"⏳ 🛡 <b>МЕДЛЕННЫЙ РЕЖИМ ВКЛЮЧЕН НА {delay} СЕК!</b>\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"Теперь каждый участник может отправлять одно сообщение не чаще, чем раз в <b>{delay} секунд</b>.\n"
+            f"Флуд и спам-атаки остановлены! Выключить: <code>медленный режим выкл</code>."
+        )
+    except Exception as e:
+        await message.reply(f"❌ Не удалось изменить режим (проверьте права бота на управление чатом): {e}")
+
+
+@router.message(Cmd("вайп неактива", "чистка неактива", "неактив",
+                    section=S_ADMIN, rank=4, group_only=True,
+                    usage="вайп неактива [дни=30]",
+                    desc="🧹 Аналитический отчёт об участниках без активности в чате"))
+async def cmd_inactive_wipe(message: Message, bot: Bot, args: str = "", **kw):
+    me = await effective_rank(message, bot)
+    if me < 4:
+        return await message.reply("⛔️ Команда доступна старшим администраторам от <b>4 ранга</b>.")
+
+    days = int(args.strip()) if args.strip().isdigit() and 1 <= int(args.strip()) <= 365 else 30
+    cutoff = int(time.time()) - (days * 86400)
+    cid = message.chat.id
+
+    rows = await db.fetchall(
+        "SELECT user_id, updated_at FROM chat_members WHERE chat_id=? AND updated_at < ? LIMIT 20",
+        (cid, cutoff)
+    )
+
+    if not rows:
+        return await message.reply(f"🧹 <b>Неактивных участников не найдено!</b>\nВсе активны за последние {days} дней.")
+
+    lines = []
+    for r in rows:
+        u = await db.get_user(r["user_id"])
+        name = u["first_name"] if u else f"ID {r['user_id']}"
+        lines.append(f"• <b>{name}</b> (ID: <code>{r['user_id']}</code>)")
+
+    await message.reply(
+        f"🧹 📊 <b>ОТЧЕТ ПО НЕАКТИВУ (более {days} дн.):</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"Обнаружено неактивных участников: <b>{len(rows)}</b> чел.\n\n"
+        + "\n".join(lines[:12]) + "\n\n"
+        f"💡 Администрация может удалить их из группы вручную или воспользоваться киком."
+    )
+
+
+@router.message(Cmd("топ нарушителей", "штрафники", "антитоп",
+                    section=S_ADMIN, rank=2, group_only=True,
+                    desc="📋 Топ участников с наибольшим количеством наказаний в беседе"))
+async def cmd_top_violators(message: Message, bot: Bot, args: str = "", **kw):
+    cid = message.chat.id
+    rows = await db.fetchall(
+        "SELECT user_id, COUNT(*) as cnt FROM punishments WHERE chat_id=? GROUP BY user_id ORDER BY cnt DESC LIMIT 10",
+        (cid,)
+    )
+
+    if not rows:
+        return await message.reply("😇 <b>В этой беседе царит идеальный порядок!</b> Нарушений не зафиксировано.")
+
+    lines = []
+    for i, r in enumerate(rows, 1):
+        u = await db.get_user(r["user_id"])
+        name = u["first_name"] if u else f"ID {r['user_id']}"
+        lines.append(f"{i}. <b>{html.escape(name)}</b> ➔ <b>{r['cnt']}</b> нарушений")
+
+    await message.reply(
+        f"📋 🚨 <b>ТОП НАРУШИТЕЛЕЙ БЕСЕДЫ ({len(rows)} чел.)</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        + "\n".join(lines)
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 16. ОФИЦИАЛЬНЫЙ СПИСОК ОБНОВЛЕНИЯ MOXXI 3.0 REVOLUTION
+# ══════════════════════════════════════════════════════════════════════
+
+@router.message(Cmd("обновление 3.0", "обнова 3.0", "релиз 3.0", "обновление", "обнова", "что нового", "патчноут",
+                    section=S_ADMIN, rank=0,
+                    desc="🚀 Официальный манифест и полный список глобального обновления MOXXI 3.0"))
+async def cmd_global_update_3_0_manifest(message: Message, bot: Bot, args: str = "", **kw):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🎮 Открыть Web App 3.0", web_app={"url": config.WEBAPP_URL} if hasattr(config, "WEBAPP_URL") and config.WEBAPP_URL else None) if hasattr(config, "WEBAPP_URL") and config.WEBAPP_URL else InlineKeyboardButton(text="🎮 Игры и Казино", callback_data="nav_games"),
+            InlineKeyboardButton(text="🏢 Корпорации", callback_data="nav_corp")
+        ],
+        [
+            InlineKeyboardButton(text="🛡 Защита и Карантин", callback_data="nav_shield"),
+            InlineKeyboardButton(text="🏆 Боевой Пропуск", callback_data="nav_bp")
+        ]
+    ])
+
+    text = (
+        "🚀 🌟 <b>ГЛОБАЛЬНОЕ ОБНОВЛЕНИЕ MOXXI 3.0 REVOLUTION!</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Встречайте масштабнейший релиз в истории бота! Добавлены десятки новых механик, "
+        "игры, масштабная экономика корпораций и непробиваемая защита бесед:\n\n"
+        "🎮 <b>РАЗВЛЕЧЕНИЯ И КАЗИНО 3.0:</b>\n"
+        "• <b>Европейская Рулетка:</b> ставки на цвет, четность, зеро и точные числа до x36! (<code>рулетка 1000 красное</code>)\n"
+        "• <b>Мини-игра «Краш / Ракета»:</b> космический взлёт множителя до x35 с живой кнопкой кэшаута! (<code>ракета [ставка]</code>)\n"
+        "• <b>Telegram Dice Казино:</b> <code>дартс</code>, <code>баскетбол</code>, <code>футбол</code>, <code>боулинг</code> с реальными ставками!\n"
+        "• <b>Moxxi Mini App 3.0:</b> обновленный каталог с 15 предприятиями, выбором бомб в Минах и синхронизацией КД.\n\n"
+        "🏢 <b>БИЗНЕС-ИМПЕРИИ И КОРПОРАЦИИ:</b>\n"
+        "• <b>Мега-Корпорации:</b> основание корпораций от 500k монет (<code>создать корпорацию [название]</code>).\n"
+        "• <b>6 уровней филиалов:</b> от кофейни до квантового дата-центра и космодрома (<code>купить филиал [1-6]</code>).\n"
+        "• <b>Сбор и вывод казны:</b> <code>собрать прибыль</code> и <code>снять из корпорации</code>.\n\n"
+        "🏙 <b>СИНДИКАТЫ И ВОЙНЫ ЗА РАЙОНЫ:</b>\n"
+        "• <b>Битва за 5 районов города:</b> Центр, Казино, Доки, Финансы, Бункер (<code>синдикаты</code>).\n"
+        "• <b>Ежедневная дань:</b> миллионные отчисления прямо в казну сильнейших (<code>захват района [1-5]</code>).\n\n"
+        "🔮 <b>АРТЕФАКТЫ И РЕЙД-БОССЫ:</b>\n"
+        "• <b>6 древних артефактов:</b> Око Бури, Щит Титана, Кристалл Изобилия, Хроно-Сфера, Венец, Печать Дракона (<code>артефакты</code>).\n"
+        "• <b>Мировые рейд-боссы:</b> Кибер-Левиафан, Теневой Владыка, Дракон Бездны (<code>призвать босса</code> / <code>ударить босса</code>).\n\n"
+        "🏦 <b>БАНК, ДЕПОЗИТЫ И БОЕВОЙ ПРОПУСК:</b>\n"
+        "• <b>Фиксированные депозиты:</b> до +50% доходности за 7 дней (<code>депозиты</code>, <code>вклад открыть</code>).\n"
+        "• <b>Боевой Пропуск Сезон 1:</b> 10 уровней с ценными наградами и Free/Premium Pass (<code>боевой пропуск</code>).\n"
+        "• <b>Магазин роскошных подарков:</b> розы, спорткары, особняки с витриной в профиле (<code>подарки магазин</code>).\n\n"
+        "🛡 <b>АДМИНИСТРАЦИЯ И ЗАЩИТА:</b>\n"
+        "• <b>Умные подсказки ДК:</b> при нехватке прав бот выводит готовую команду разблокировки в 1 клик.\n"
+        "• <b>Карантин новичков:</b> авто-ограничение ссылок и медиа при входе (<code>карантин [минуты/выкл]</code>).\n"
+        "• <b>Антирейд капча:</b> обязательная кнопка подтверждения человека (<code>капча [вкл/выкл]</code>).\n"
+        "• <b>Официальные объявления:</b> публикация баннеров с автозакрепом (<code>объявление [текст]</code>).\n"
+        "• <b>Медленный режим:</b> официальный Slowmode от 10 до 3600 сек (<code>медленный режим [сек]</code>).\n"
+        "• <b>Чистка сервисных смс:</b> удаление оповещений входов и выходов (<code>чистить сервис [кол-во]</code>).\n\n"
+        "🎙 <b>МУЛЬТИМОДАЛЬНЫЙ ИИ И STT:</b>\n"
+        "• <b>Мгновенная расшифровка кружочков и ГС:</b> авто-перевод видео-заметок и аудио в текст на лету!\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "<i>MOXXI 3.0 REVOLUTION — мощь, комфорт и безопасность вашей беседы!</i>"
+    )
+
+    await message.reply(text, reply_markup=kb)

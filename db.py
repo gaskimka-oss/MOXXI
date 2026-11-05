@@ -974,6 +974,63 @@ CREATE TABLE IF NOT EXISTS user_battlepass (
     claimed_levels TEXT NOT NULL DEFAULT '',
     is_premium INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS moxxi_corporations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id INTEGER UNIQUE,
+    name TEXT,
+    balance INTEGER DEFAULT 0,
+    level INTEGER DEFAULT 1,
+    branches TEXT DEFAULT '[]',
+    last_collect INTEGER DEFAULT 0,
+    created_ts INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS moxxi_deposits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    amount INTEGER,
+    term_days INTEGER,
+    yield_pct REAL,
+    open_ts INTEGER,
+    expire_ts INTEGER,
+    claimed INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS moxxi_artifacts (
+    user_id INTEGER,
+    artifact_id INTEGER,
+    level INTEGER DEFAULT 1,
+    acquired_ts INTEGER,
+    PRIMARY KEY (user_id, artifact_id)
+);
+
+CREATE TABLE IF NOT EXISTS moxxi_battle_pass (
+    user_id INTEGER PRIMARY KEY,
+    season INTEGER DEFAULT 1,
+    points INTEGER DEFAULT 0,
+    level INTEGER DEFAULT 1,
+    has_premium INTEGER DEFAULT 0,
+    claimed_levels TEXT DEFAULT '[]'
+);
+
+CREATE TABLE IF NOT EXISTS moxxi_gifts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_id INTEGER,
+    to_id INTEGER,
+    gift_id INTEGER,
+    gift_name TEXT,
+    message TEXT,
+    ts INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS moxxi_loans (
+    user_id INTEGER PRIMARY KEY,
+    amount INTEGER,
+    due_amount INTEGER,
+    due_ts INTEGER,
+    status TEXT DEFAULT 'active'
+);
 """
 
 
