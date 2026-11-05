@@ -131,7 +131,7 @@ def _extract_audio_from_video(video_bytes: bytes) -> tuple[bytes, str, str]:
             if res.returncode == 0 and os.path.exists(out_path) and os.path.getsize(out_path) > 100:
                 with open(out_path, "rb") as out_f:
                     extracted_audio = out_f.read()
-                return extracted_audio, "voice.mp3", "audio/mp3"
+                return extracted_audio, "voice.mp3", "audio/mpeg"
         finally:
             for p in (in_path, out_path):
                 if os.path.exists(p):
@@ -153,6 +153,8 @@ def _transcribe_gemini_sync(audio: bytes, mime_type: str = "audio/ogg") -> str |
             return None
 
         clean_mime = (mime_type or "audio/ogg").split(";")[0].strip()
+        if clean_mime in ("audio/mp3", "audio/mpeg3", "audio/x-mp3"):
+            clean_mime = "audio/mpeg"
 
         prompt_instruction = (
             "Транскрибируй эту речь человека дословно на русском языке. "
@@ -186,9 +188,7 @@ def _transcribe_gemini_sync(audio: bytes, mime_type: str = "audio/ogg") -> str |
         headers = {"Content-Type": "application/json"}
 
         max_tries = min(len(ai.KEYS), 5)
-        stt_models = [m for m in getattr(ai, "GEMINI_MODELS", []) if m not in {"gemini-2.0-flash", "gemini-1.5-flash"}]
-        if not stt_models:
-            stt_models = ["gemini-flash-lite-latest", "gemini-2.5-flash-lite", "gemini-flash-latest"]
+        stt_models = ["gemini-3.5-transcribe", "gemini-3.5-flash-lite", "gemini-flash-lite-latest"]
 
         for _ in range(max_tries):
             current_key = ai.get_next_key()

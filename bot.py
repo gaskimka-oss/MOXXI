@@ -122,8 +122,10 @@ async def keyboard_middleware(handler, event, data: dict):
         if uid and (uid not in _cleared_reply_keyboard_users or is_legacy):
             _cleared_reply_keyboard_users.add(uid)
             try:
-                rm = await event.answer("🧹", reply_markup=kbd.hide())
-                asyncio.create_task(_delayed_delete_msg(rm, 0.4))
+                # Отправляем один постоянный сигнал снятия Reply-клавиатуры без удаления,
+                # чтобы клиент Telegram навсегда удалил застрявшую нижнюю панель!
+                await event.answer("🧹 <i>Нижняя панель очищена. Используйте меню по кнопкам сообщений.</i>",
+                                   reply_markup=kbd.hide())
             except Exception:
                 pass
 

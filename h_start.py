@@ -206,8 +206,7 @@ async def cmd_start(message: Message, bot: Bot, **kw):
         return await message.reply(text_msg, reply_markup=kb_group)
 
     try:
-        rm = await message.answer("🧹 <i>Обновление интерфейса...</i>", reply_markup=kb.hide())
-        asyncio.create_task(_delayed_delete(rm, 1.5))
+        await message.answer("🧹 <i>Интерфейс обновлен: открыто единое интерактивное меню.</i>", reply_markup=kb.hide())
     except Exception:
         pass
     await message.answer(await main_text(message.from_user.first_name, u),
@@ -221,8 +220,7 @@ async def cmd_menu(message: Message, bot: Bot, **kw):
         return await send_captcha(message)
     me = await bot.me()
     try:
-        rm = await message.answer("🧹 <i>Обновление интерфейса...</i>", reply_markup=kb.hide())
-        asyncio.create_task(_delayed_delete(rm, 1.5))
+        await message.answer("🧹 <i>Интерфейс обновлен: открыто единое интерактивное меню.</i>", reply_markup=kb.hide())
     except Exception:
         pass
     await message.answer(await main_text(message.from_user.first_name, u),

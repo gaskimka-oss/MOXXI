@@ -318,6 +318,11 @@ class Cmd(Filter):
                     if shadowed(name):
                         return False
                     args_val = body[len(name):].lstrip(" ,:\n").strip()
+                    # Защита от перехвата банковских/экономических команд (снять вклад, снять депозит и т.д.)
+                    if self.key == "снять" or name == "снять":
+                        first_arg = (args_val.lower().split()[0] if args_val else "")
+                        if first_arg in {"вклад", "депозит", "банк", "монеты", "деньги", "кассу", "баланс", "прибыль", "выручку", "все", "всё"}:
+                            return False
                     # Для команд модерации и администрирования (rank >= 1) без префикса в группе:
                     # требуем явный реплай или наличие аргументов-целей (@юзер, ID, настройки)
                     if (self.key in NEED_TARGET_ACTIONS or name in NEED_TARGET_ACTIONS) and in_group and not addressed:

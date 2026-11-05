@@ -1729,116 +1729,6 @@ async def cmd_attack_boss(message: Message, bot: Bot, args: str = "", **kw):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# 12. БАНКОВСКИЕ ДЕПОЗИТЫ И ЗАЙМЫ (CENTRAL BANK 3.0)
-# ══════════════════════════════════════════════════════════════════════
-
-DEPOSIT_RATES = {
-    1: 0.05,   # 1 день = +5%
-    3: 0.18,   # 3 дня = +18%
-    7: 0.50    # 7 дней = +50%
-}
-
-@router.message(Cmd("депозиты", "вклады",
-                    section=S_ECON, rank=0,
-                    desc="🏦 Линейка процентных депозитов Центрального Банка Moxxi"))
-async def cmd_bank_deposits_list(message: Message, bot: Bot, args: str = "", **kw):
-    await message.reply(
-        "🏦 📈 <b>ДЕПОЗИТНЫЕ СЧЕТА MOXXI CENTRAL BANK</b>\n"
-        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-        "Размещайте свободные монеты под высокий фиксированный процент:\n\n"
-        "• <b>1 день:</b> +5% доходности (<code>вклад открыть [сумма] 1</code>)\n"
-        "• <b>3 дня:</b> +18% доходности (<code>вклад открыть [сумма] 3</code>)\n"
-        "• <b>7 дней:</b> +50% доходности (<code>вклад открыть [сумма] 7</code>)\n\n"
-        "💡 Забрать вклад по окончании срока: <code>вклад забрать</code>"
-    )
-
-
-@router.message(Cmd("вклад открыть", "депозит открыть",
-                    section=S_ECON, rank=0,
-                    usage="вклад открыть [сумма] [1|3|7]",
-                    desc="🏦 Открыть доходный депозит на 1, 3 или 7 дней"))
-async def cmd_open_deposit(message: Message, bot: Bot, args: str = "", **kw):
-    parts = args.strip().split()
-    if len(parts) < 2:
-        return await message.reply("🏦 Используйте: <code>вклад открыть [сумма] [1|3|7]</code> (например: <code>вклад открыть 100000 3</code>).")
-
-    amount = parse_money(parts[0])
-    days_str = parts[1]
-    if not amount or amount < 10_000:
-        return await message.reply("❌ Минимальная сумма депозита: <b>10,000</b> монет!")
-
-    if not days_str.isdigit() or int(days_str) not in DEPOSIT_RATES:
-        return await message.reply("❌ Выберите срок: <code>1</code>, <code>3</code> или <code>7</code> дней!")
-
-    days = int(days_str)
-    rate = DEPOSIT_RATES[days]
-    uid = message.from_user.id
-
-    u = await db.get_user(uid)
-    bal = int(u["balance"])
-    if bal < amount:
-        return await message.reply(f"❌ Недостаточно средств! Ваш баланс: {money(bal)} монет.")
-
-    await db.add_money(uid, -amount)
-    now = int(time.time())
-    expire = now + (days * 86400)
-
-    await db.execute(
-        "INSERT INTO moxxi_deposits (user_id, amount, term_days, yield_pct, open_ts, expire_ts, claimed) VALUES (?,?,?,?,?,?,0)",
-        (uid, amount, days, rate, now, expire)
-    )
-
-    profit = int(amount * rate)
-    await message.reply(
-        f"🏦 🔒 <b>ДЕПОЗИТ УСПЕШНО ОТКРЫТ!</b>\n"
-        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-        f"Сумма вклада: <b>{money(amount)}</b> монет\n"
-        f"Срок: <b>{days} дн.</b> (+{int(rate*100)}% доходности)\n"
-        f"💰 Ожидаемая выплата: <b>{money(amount + profit)}</b> монет (+{money(profit)} чистыми)\n"
-        f"Дата выплаты: через {days} дн. (<code>вклад забрать</code>)"
-    )
-
-
-@router.message(Cmd("мой вклад", "вклад забрать", "депозит забрать",
-                    section=S_ECON, rank=0,
-                    desc="🏦 Проверить состояние вклада и забрать выплату с процентами"))
-async def cmd_claim_deposit(message: Message, bot: Bot, args: str = "", **kw):
-    uid = message.from_user.id
-    row = await db.fetchone("SELECT * FROM moxxi_deposits WHERE user_id=? AND claimed=0 ORDER BY expire_ts ASC LIMIT 1", (uid,))
-    if not row:
-        return await message.reply("🏦 У вас нет активных депозитов! Открыть: <code>депозиты</code>.")
-
-    now = int(time.time())
-    expire = int(row["expire_ts"])
-    amount = int(row["amount"])
-    rate = float(row["yield_pct"])
-    total_payout = int(amount * (1.0 + rate))
-
-    if now < expire:
-        rem_sec = expire - now
-        hours = rem_sec // 3600
-        mins = (rem_sec % 3600) // 60
-        return await message.reply(
-            f"🏦 ⏳ <b>ДЕПОЗИТ ЕЩЕ В РАБОТЕ!</b>\n"
-            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-            f"Сумма вклада: <b>{money(amount)}</b> монет\n"
-            f"Ожидаемый доход: <b>+{money(total_payout - amount)}</b> монет\n"
-            f"Осталось ждать: <b>{hours} ч. {mins} мин.</b>"
-        )
-
-    await db.execute("UPDATE moxxi_deposits SET claimed=1 WHERE id=?", (row["id"],))
-    await db.add_money(uid, total_payout)
-
-    await message.reply(
-        f"🏦 💰 <b>ВЫПЛАТА ПО ДЕПОЗИТУ ЗАЧИСЛЕНА!</b>\n"
-        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-        f"Возврат тела вклада: <b>{money(amount)}</b>\n"
-        f"Чистая прибыль (+{int(rate*100)}%): <b>+{money(total_payout - amount)}</b> монет\n"
-        f"Итого зачислено: <b>+{money(total_payout)}</b> монет на ваш баланс!"
-    )
-
-
-# ══════════════════════════════════════════════════════════════════════
 # 13. БОЕВОЙ ПРОПУСК «НЕОНОВЫЙ РАССВЕТ» (BATTLE PASS)
 # ══════════════════════════════════════════════════════════════════════
 
@@ -2459,6 +2349,9 @@ async def cmd_create_poll(message: Message, bot: Bot, args: str = "", **kw):
 
 # ══════════════════════════════════════════════════════════════════════
 # 20. ОФИЦИАЛЬНЫЙ СПИСОК ОБНОВЛЕНИЯ MOXXI 3.0 REVOLUTION
+
+# ══════════════════════════════════════════════════════════════════════
+# 20. ОФИЦИАЛЬНЫЙ СПИСОК ОБНОВЛЕНИЯ MOXXI 3.0 REVOLUTION
 # ══════════════════════════════════════════════════════════════════════
 
 @router.message(Cmd("обновление 3.0", "обнова 3.0", "релиз 3.0", "обновление", "обнова", "что нового", "патчноут",
@@ -2479,24 +2372,22 @@ async def cmd_global_update_3_0_manifest(message: Message, bot: Bot, args: str =
     text = (
         "🚀 🌟 <b>ГЛОБАЛЬНОЕ ОБНОВЛЕНИЕ MOXXI 3.0 REVOLUTION!</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "Встречайте грандиозный релиз MOXXI! Добавлены десятки уникальных механик, "
-        "игры, экономика корпораций, артефакты и железобетонная защита для чатов:\n\n"
+        "Встречайте масштабный релиз MOXXI! Добавлены новые игры, "
+        "синдикаты, артефакты, боевой пропуск и непробиваемая защита чатов:\n\n"
         "🎮 <b>РАЗВЛЕЧЕНИЯ И КАЗИНО 3.0:</b>\n"
         "• <b>Европейская Рулетка:</b> ставки на цвета, четность, зеро и числа до x36! (<code>рулетка 1000 красное</code>)\n"
-        "• <b>Мини-игра «Краш / Ракета»:</b> космический взлёт множителя до x35 с кнопкой кэшаута! (<code>ракета [ставка]</code>)\n"
+        "• <b>Мини-игра «Краш / Ракета»:</b> взлёт множителя до x35 с кнопкой кэшаута! (<code>ракета [ставка]</code>)\n"
         "• <b>Колесо Фортуны:</b> бесплатный ежедневный спин раз в 24ч с джекпотом 5M! (<code>колесо фортуны</code>)\n"
-        "• <b>Ограбление Банка:</b> налёты с выбором тактики «штурм» или «взлом» (<code>ограбить банк</code>)\n"
-        "• <b>Клановые Шахты:</b> добыча золота, кристаллов и темной материи (<code>копать руду</code>)\n"
+        "• <b>Ограбление Банка:</b> налёты со скрытным взломом или штурмом хранилища (<code>ограбить банк</code>)\n"
+        "• <b>Клановые Шахты:</b> добыча редких руд, кристаллов и темной материи (<code>копать руду</code>)\n"
         "• <b>Telegram Dice Казино:</b> <code>дартс</code>, <code>баскетбол</code>, <code>футбол</code>, <code>боулинг</code>.\n\n"
-        "🏢 <b>БИЗНЕС-ИМПЕРИИ И КОРПОРАЦИИ:</b>\n"
-        "• <b>Мега-Корпорации:</b> создание корпорации от 500k монет (<code>создать корпорацию [название]</code>).\n"
-        "• <b>6 уровней филиалов:</b> от кофейни до ЦОД и орбитального космодрома (<code>купить филиал [1-6]</code>).\n"
-        "• <b>Сбор прибыли:</b> <code>собрать прибыль</code> и <code>снять из корпорации</code>.\n\n"
+        "🏙 <b>СИНДИКАТЫ И ВОЙНЫ ЗА РАЙОНЫ:</b>\n"
+        "• <b>Битва за 5 районов города:</b> Центр, Казино, Доки, Финансы, Бункер (<code>синдикаты</code>).\n"
+        "• <b>Ежедневная дань:</b> миллионные отчисления прямо в казну сильнейших (<code>захват района [1-5]</code>).\n\n"
         "🔮 <b>АРТЕФАКТЫ И РЕЙД-БОССЫ:</b>\n"
         "• <b>6 древних артефактов:</b> Око Бури, Щит Титана, Кристалл Изобилия, Хроно-Сфера, Венец, Печать Дракона (<code>артефакты</code>).\n"
         "• <b>Мировые рейд-боссы:</b> Кибер-Левиафан, Теневой Владыка, Дракон Бездны (<code>призвать босса [1-3]</code> / <code>ударить босса</code>).\n\n"
-        "🏦 <b>БАНК, ДЕПОЗИТЫ И БОЕВОЙ ПРОПУСК:</b>\n"
-        "• <b>Фиксированные депозиты:</b> до +50% доходности (<code>депозиты</code>, <code>вклад открыть</code>, <code>вклад забрать</code>).\n"
+        "🏆 <b>БОЕВОЙ ПРОПУСК И ПОДАРКИ:</b>\n"
         "• <b>Боевой Пропуск Сезон 1:</b> 10 уровней с ценными наградами Free и Premium (<code>боевой пропуск</code>).\n"
         "• <b>Магазин роскошных подарков:</b> розы, спорткары, замки с витриной в профиле (<code>подарки магазин</code>).\n\n"
         "🛡 <b>АДМИНИСТРАЦИЯ И ЗАЩИТА:</b>\n"

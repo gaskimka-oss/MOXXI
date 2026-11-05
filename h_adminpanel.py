@@ -1188,10 +1188,14 @@ async def cmd_chats(message: Message, bot: Bot, **kw):
                 chat_mem = await bot.get_chat_member(cid, bot_user.id)
                 if chat_mem.status in ("left", "kicked"):
                     await db.execute("DELETE FROM chats WHERE chat_id=?", (cid,))
+                    await db.execute("DELETE FROM chat_stats WHERE chat_id=?", (cid,))
+                    await db.execute("DELETE FROM hidden_chats WHERE chat_id=?", (cid,))
                     continue
             except Exception:
-                # Если не удается получить статус бота (исключен/забанен) — удаляем из базы
+                # Если не удается получить статус бота (исключен/забанен/чат удален) — удаляем из базы
                 await db.execute("DELETE FROM chats WHERE chat_id=?", (cid,))
+                await db.execute("DELETE FROM chat_stats WHERE chat_id=?", (cid,))
+                await db.execute("DELETE FROM hidden_chats WHERE chat_id=?", (cid,))
                 continue
 
             cnt_str = "—"
