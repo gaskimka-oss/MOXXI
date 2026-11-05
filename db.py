@@ -1031,6 +1031,21 @@ CREATE TABLE IF NOT EXISTS moxxi_loans (
     due_ts INTEGER,
     status TEXT DEFAULT 'active'
 );
+
+CREATE TABLE IF NOT EXISTS daily_wheel_spins (
+    user_id INTEGER PRIMARY KEY,
+    last_spin INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS heist_cooldowns (
+    user_id INTEGER PRIMARY KEY,
+    last_heist INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS mine_cooldowns (
+    user_id INTEGER PRIMARY KEY,
+    last_mine INTEGER NOT NULL DEFAULT 0
+);
 """
 
 

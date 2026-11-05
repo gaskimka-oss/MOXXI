@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import gzip
+import html
 import logging
 import os
 import shutil
@@ -153,9 +154,11 @@ async def save(bot: Bot, note: str = "") -> bool:
                 except Exception:
                     pass
 
+            clean_note = html.escape(note) if note else ""
             msg = await bot.send_document(
                 chat, BufferedInputFile(blob, filename=ARCHIVE_NAME),
-                caption=caption + (f"\n{note}" if note else ""),
+                caption=caption + (f"\n{clean_note}" if clean_note else ""),
+                parse_mode="HTML",
                 disable_notification=True)
             delivered += 1
             _last_backup_msgs[chat] = msg.message_id

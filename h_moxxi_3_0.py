@@ -2365,9 +2365,290 @@ async def cmd_top_violators(message: Message, bot: Bot, args: str = "", **kw):
         + "\n".join(lines)
     )
 
+# ══════════════════════════════════════════════════════════════════════
+# 16. КОЛЕСО ФОРТУНЫ (WHEEL OF FORTUNE - DAILY FREE SPIN)
+# ══════════════════════════════════════════════════════════════════════
+
+WHEEL_SECTORS = [
+    {"type": "coins", "val": 50_000, "label": "50,000 монет 💰", "weight": 35},
+    {"type": "coins", "val": 100_000, "label": "100,000 монет 💵", "weight": 25},
+    {"type": "coins", "val": 250_000, "label": "250,000 монет 💎", "weight": 18},
+    {"type": "coins", "val": 500_000, "label": "500,000 монет 🪙", "weight": 10},
+    {"type": "coins", "val": 1_000_000, "label": "1,000,000 монет 🏆", "weight": 6},
+    {"type": "vip", "val": 3, "label": "VIP-статус на 3 дня 👑", "weight": 3},
+    {"type": "artifact", "val": 1, "label": "Артефакт «Око Бури» ⚡️", "weight": 2},
+    {"type": "jackpot", "val": 5_000_000, "label": "🔥 МЕГА-ДЖЕКПОТ 5,000,000 МОНЕТ!", "weight": 1},
+]
+
+@router.message(Cmd("колесо фортуны", "крутить колесо", "рулетка фортуны",
+                    section=S_GAMES, rank=0,
+                    desc="🎡 Ежедневное Колесо Фортуны с гарантированными призами раз в 24ч"))
+async def cmd_wheel_of_fortune(message: Message, bot: Bot, args: str = "", **kw):
+    uid = message.from_user.id
+    row = await db.fetchone("SELECT last_spin FROM daily_wheel_spins WHERE user_id=?", (uid,))
+    now = int(time.time())
+    cooldown = 86400
+
+    if row and (now - int(row["last_spin"])) < cooldown:
+        rem_sec = cooldown - (now - int(row["last_spin"]))
+        hours = rem_sec // 3600
+        mins = (rem_sec % 3600) // 60
+        return await message.reply(
+            f"🎡 ⏳ <b>КОЛЕСО ФОРТУНЫ УЖЕ БЫЛО ПРОКРУЧЕНО!</b>\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"Бесплатный спин доступен раз в 24 часа.\n"
+            f"Следующий спин будет доступен через: <b>{hours} ч. {mins} мин.</b>"
+        )
+
+    await db.execute(
+        "INSERT INTO daily_wheel_spins (user_id, last_spin) VALUES (?,?) "
+        "ON CONFLICT(user_id) DO UPDATE SET last_spin=excluded.last_spin",
+        (uid, now)
+    )
+
+    spin_msg = await message.reply("🎡 <i>Колесо Фортуны раскручивается… Стрелка замедляет ход…</i> 🌀")
+    await asyncio.sleep(1.6)
+
+    # Взвешенный выбор сектора
+    weights = [s["weight"] for s in WHEEL_SECTORS]
+    prize = random.choices(WHEEL_SECTORS, weights=weights, k=1)[0]
+
+    if prize["type"] in {"coins", "jackpot"}:
+        await db.add_money(uid, prize["val"])
+        res_line = f"💰 Зачислено на ваш баланс: <b>+{money(prize['val'])}</b> монет!"
+    elif prize["type"] == "vip":
+        await db.execute("UPDATE users SET vip_until=MAX(COALESCE(vip_until, 0), ?) + ? WHERE user_id=?",
+                         (now, prize["val"] * 86400, uid))
+        res_line = f"👑 Активирован <b>VIP-статус на {prize['val']} дня</b>!"
+    elif prize["type"] == "artifact":
+        await db.execute(
+            "INSERT INTO moxxi_artifacts (user_id, artifact_id, level, acquired_ts) VALUES (?,1,1,?) "
+            "ON CONFLICT(user_id, artifact_id) DO NOTHING",
+            (uid, now)
+        )
+        res_line = "⚡️ В ваш профиль добавлен легендарный артефакт <b>«Око Бури»</b>!"
+
+    try:
+        await spin_msg.edit_text(
+            f"🎡 🎯 <b>РЕЗУЛЬТАТ КОЛЕСА ФОРТУНЫ!</b>\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"Выпавший сектор: <b>{prize['label']}</b>\n\n"
+            f"{res_line}\n\n"
+            f"✨ Приходите завтра за новым бесплатным призом!"
+        )
+    except Exception:
+        await message.reply(f"🎡 Сектор: <b>{prize['label']}</b>! {res_line}")
+
 
 # ══════════════════════════════════════════════════════════════════════
-# 16. ОФИЦИАЛЬНЫЙ СПИСОК ОБНОВЛЕНИЯ MOXXI 3.0 REVOLUTION
+# 17. ОГРАБЛЕНИЕ БАНКА (BANK HEIST)
+# ══════════════════════════════════════════════════════════════════════
+
+@router.message(Cmd("ограбить банк", "налет", "ограбление",
+                    section=S_GAMES, rank=0, group_only=True,
+                    usage="ограбить банк [тихо|штурм]",
+                    desc="🦹 Попытаться сорвать куш в городском банке (кулдаун 2 часа)"))
+async def cmd_bank_heist(message: Message, bot: Bot, args: str = "", **kw):
+    uid = message.from_user.id
+    now = int(time.time())
+    cooldown = 7200  # 2 часа
+
+    row = await db.fetchone("SELECT last_heist FROM heist_cooldowns WHERE user_id=?", (uid,))
+    if row and (now - int(row["last_heist"])) < cooldown:
+        rem_sec = cooldown - (now - int(row["last_heist"]))
+        mins = rem_sec // 60
+        return await message.reply(
+            f"🦹 🚨 <b>ВЫ НАХОДИТЕСЬ НА ДНЕ ПОСЛЕ ПРОШЛОГО НАЛЁТА!</b>\n"
+            f"Полиция патрулирует улицы. Следующее ограбление через: <b>{mins} мин.</b>"
+        )
+
+    await db.execute(
+        "INSERT INTO heist_cooldowns (user_id, last_heist) VALUES (?,?) "
+        "ON CONFLICT(user_id) DO UPDATE SET last_heist=excluded.last_heist",
+        (uid, now)
+    )
+
+    tactic = args.strip().lower()
+    is_assault = ("штурм" in tactic or "громко" in tactic)
+
+    heist_msg = await message.reply(f"🦹 <i>Группа ворвалась в центральное хранилище… Тактика: {'💣 Штурм' if is_assault else '🎭 Скрытный взлом'}…</i>")
+    await asyncio.sleep(1.8)
+
+    success_chance = 0.40 if is_assault else 0.65
+    success = random.random() < success_chance
+
+    if success:
+        loot = random.randint(1_000_000, 2_800_000) if is_assault else random.randint(350_000, 850_000)
+        await db.add_money(uid, loot)
+        await heist_msg.edit_text(
+            f"🦹 💰 <b>ОГРАБЛЕНИЕ БАНКА ПРОШЛО УСПЕШНО!</b>\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"Тактика: <b>{'💣 Силовой захват сейфа' if is_assault else '🎭 Тихий взлом депозитариев'}</b>\n"
+            f"Куш: <b>+{money(loot)}</b> монет зачислено на ваш баланс!\n"
+            f"Полиция осталась ни с чем. Вы скрылись в ночном городе! 🏎💨"
+        )
+    else:
+        fine = random.randint(150_000, 400_000)
+        u = await db.get_user(uid)
+        cur_bal = int(u["balance"])
+        actual_fine = min(cur_bal, fine)
+        if actual_fine > 0:
+            await db.add_money(uid, -actual_fine)
+
+        await heist_msg.edit_text(
+            f"🦹 🚨 <b>ТРЕВОГА! НАЛЕТ ПРОВАЛЕН!</b>\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"Сработала сигнализация, спецназ окружил здание!\n"
+            f"Вы едва унесли ноги, бросив сумку с инструментами.\n"
+            f"💸 Штраф на откуп: <b>-{money(actual_fine)}</b> монет."
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 18. КЛАНОВЫЕ ШАХТЫ И ДОБЫЧА РУДЫ (CLAN MINES)
+# ══════════════════════════════════════════════════════════════════════
+
+MINERALS = [
+    {"name": "Железная руда 🪨", "reward": 20_000, "weight": 40},
+    {"name": "Золотая жила 🪙", "reward": 60_000, "weight": 30},
+    {"name": "Неоновый кристалл 💠", "reward": 150_000, "weight": 18},
+    {"name": "Алмазный самородок 💎", "reward": 400_000, "weight": 9},
+    {"name": "Осколок Тёмной Материи 🌌", "reward": 1_200_000, "weight": 3},
+]
+
+@router.message(Cmd("копать руду", "шахта", "добыча руды",
+                    section=S_GAMES, rank=0,
+                    desc="⛏ Добывать ценные минералы и кристаллы в шахтах Мокси"))
+async def cmd_clan_mines(message: Message, bot: Bot, args: str = "", **kw):
+    uid = message.from_user.id
+    now = int(time.time())
+    cooldown = 900  # 15 минут
+
+    row = await db.fetchone("SELECT last_mine FROM mine_cooldowns WHERE user_id=?", (uid,))
+    if row and (now - int(row["last_mine"])) < cooldown:
+        rem_sec = cooldown - (now - int(row["last_mine"]))
+        mins = rem_sec // 60
+        return await message.reply(
+            f"⛏ ⏳ <b>КИРКА НА ПЕРЕЗАРЯДКЕ!</b>\n"
+            f"Вы сможете спуститься в шахту через: <b>{mins} мин.</b>"
+        )
+
+    await db.execute(
+        "INSERT INTO mine_cooldowns (user_id, last_mine) VALUES (?,?) "
+        "ON CONFLICT(user_id) DO UPDATE SET last_mine=excluded.last_mine",
+        (uid, now)
+    )
+
+    weights = [m["weight"] for m in MINERALS]
+    found = random.choices(MINERALS, weights=weights, k=1)[0]
+    await db.add_money(uid, found["reward"])
+
+    await message.reply(
+        f"⛏ 💥 <b>УСПЕШНАЯ ЭКСПЕДИЦИЯ В ШАХТУ!</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"Добыто: <b>{found['name']}</b>\n"
+        f"💰 Продано на бирже за: <b>+{money(found['reward'])}</b> монет!\n"
+        f"Следующий спуск через 15 минут: <code>копать руду</code>"
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 19. АДМИНИСТРАТИВНЫЙ АНТИМАТ, ОПРОСЫ И АНТИМЕДИА
+# ══════════════════════════════════════════════════════════════════════
+
+@router.message(Cmd("антимат", "фильтр мата",
+                    section=S_ADMIN, rank=3, group_only=True,
+                    usage="антимат [вкл|выкл]",
+                    desc="🛡 Умный фильтр нецензурных выражений с предупреждением"))
+async def cmd_antimat_toggle(message: Message, bot: Bot, args: str = "", **kw):
+    me = await effective_rank(message, bot)
+    if me < 3:
+        return await message.reply("⛔️ Команда доступна модераторам от <b>3 ранга (Администратор)</b>.")
+
+    cid = message.chat.id
+    raw = args.strip().lower()
+
+    if raw in {"вкл", "1", "on", "enable"}:
+        await db.set_setting(cid, "antimat", "1")
+        return await message.reply(
+            "🛡 🤬 <b>ФИЛЬТР АНТИМАТ ВКЛЮЧЕН!</b>\n"
+            "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            "Все нецензурные и оскорбительные сообщения будут автоматически удаляться ботом с предупреждением автору."
+        )
+    elif raw in {"выкл", "0", "off", "disable"}:
+        await db.set_setting(cid, "antimat", "0")
+        return await message.reply("🛡 <b>Фильтр антимат выключен.</b>")
+    else:
+        cur = await db.get_setting(cid, "antimat", "0")
+        state_str = "🟢 включен" if cur == "1" else "🔴 выключен"
+        await message.reply(
+            f"🛡 <b>Фильтр нецензурной лексики:</b> {state_str}\n\n"
+            f"Используйте: <code>антимат вкл</code> или <code>антимат выкл</code>."
+        )
+
+
+@router.message(Cmd("антимедиа", "режим тишины медиа",
+                    section=S_ADMIN, rank=3, group_only=True,
+                    usage="антимедиа [вкл|выкл]",
+                    desc="🖼 Запрет отправки стикеров, GIF и медиа для участников"))
+async def cmd_antimedia_toggle(message: Message, bot: Bot, args: str = "", **kw):
+    me = await effective_rank(message, bot)
+    if me < 3:
+        return await message.reply("⛔️ Команда доступна модераторам от <b>3 ранга</b>.")
+
+    cid = message.chat.id
+    raw = args.strip().lower()
+
+    if raw in {"вкл", "1", "on", "enable"}:
+        await db.set_setting(cid, "antimedia", "1")
+        return await message.reply(
+            "🖼 🛡 <b>РЕЖИМ АНТИМЕДИА ВКЛЮЧЕН!</b>\n"
+            "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            "Стикеры, гифки и медиа-флуд от участников без ранга будут автоматически блокироваться."
+        )
+    elif raw in {"выкл", "0", "off", "disable"}:
+        await db.set_setting(cid, "antimedia", "0")
+        return await message.reply("🖼 <b>Режим антимедиа выключен.</b>")
+    else:
+        cur = await db.get_setting(cid, "antimedia", "0")
+        state_str = "🟢 включен" if cur == "1" else "🔴 выключен"
+        await message.reply(f"🖼 <b>Защита от медиа-флуда:</b> {state_str}\nИспользуйте: <code>антимедиа вкл</code> / <code>антимедиа выкл</code>.")
+
+
+@router.message(Cmd("опрос", "создать опрос",
+                    section=S_ADMIN, rank=2, group_only=True,
+                    usage="опрос [вопрос] | [вар1] | [вар2] | [вар3]",
+                    desc="📊 Создать интерактивное голосование для участников беседы"))
+async def cmd_create_poll(message: Message, bot: Bot, args: str = "", **kw):
+    me = await effective_rank(message, bot)
+    if me < 2:
+        return await message.reply("⛔️ Команда доступна модераторам от <b>2 ранга</b>.")
+
+    parts = [p.strip() for p in args.split("|") if p.strip()]
+    if len(parts) < 3:
+        return await message.reply(
+            "📊 <b>Создание опроса в чате:</b>\n\n"
+            "Формат: <code>опрос [вопрос] | [вариант 1] | [вариант 2] | [вариант 3]</code>\n"
+            "Пример: <code>опрос Какой клановый турнир провести? | Дуэли | Рулетка | Ракета</code>"
+        )
+
+    question = parts[0]
+    options = parts[1:10]
+
+    try:
+        await bot.send_poll(
+            chat_id=message.chat.id,
+            question=question[:250],
+            options=options,
+            is_anonymous=False,
+            message_thread_id=getattr(message, "message_thread_id", None)
+        )
+    except Exception as e:
+        await message.reply(f"❌ Ошибка отправки опроса: {e}")
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 20. ОФИЦИАЛЬНЫЙ СПИСОК ОБНОВЛЕНИЯ MOXXI 3.0 REVOLUTION
 # ══════════════════════════════════════════════════════════════════════
 
 @router.message(Cmd("обновление 3.0", "обнова 3.0", "релиз 3.0", "обновление", "обнова", "что нового", "патчноут",
@@ -2380,7 +2661,7 @@ async def cmd_global_update_3_0_manifest(message: Message, bot: Bot, args: str =
             InlineKeyboardButton(text="🏢 Корпорации", callback_data="nav_corp")
         ],
         [
-            InlineKeyboardButton(text="🛡 Защита и Карантин", callback_data="nav_shield"),
+            InlineKeyboardButton(text="🎡 Колесо Фортуны", callback_data="nav_wheel"),
             InlineKeyboardButton(text="🏆 Боевой Пропуск", callback_data="nav_bp")
         ]
     ])
@@ -2388,36 +2669,36 @@ async def cmd_global_update_3_0_manifest(message: Message, bot: Bot, args: str =
     text = (
         "🚀 🌟 <b>ГЛОБАЛЬНОЕ ОБНОВЛЕНИЕ MOXXI 3.0 REVOLUTION!</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "Встречайте масштабнейший релиз в истории бота! Добавлены десятки новых механик, "
-        "игры, масштабная экономика корпораций и непробиваемая защита бесед:\n\n"
+        "Встречайте грандиозный релиз MOXXI! Добавлены десятки уникальных механик, "
+        "игры, экономика корпораций, артефакты и железобетонная защита для чатов:\n\n"
         "🎮 <b>РАЗВЛЕЧЕНИЯ И КАЗИНО 3.0:</b>\n"
-        "• <b>Европейская Рулетка:</b> ставки на цвет, четность, зеро и точные числа до x36! (<code>рулетка 1000 красное</code>)\n"
-        "• <b>Мини-игра «Краш / Ракета»:</b> космический взлёт множителя до x35 с живой кнопкой кэшаута! (<code>ракета [ставка]</code>)\n"
-        "• <b>Telegram Dice Казино:</b> <code>дартс</code>, <code>баскетбол</code>, <code>футбол</code>, <code>боулинг</code> с реальными ставками!\n"
-        "• <b>Moxxi Mini App 3.0:</b> обновленный каталог с 15 предприятиями, выбором бомб в Минах и синхронизацией КД.\n\n"
+        "• <b>Европейская Рулетка:</b> ставки на цвета, четность, зеро и числа до x36! (<code>рулетка 1000 красное</code>)\n"
+        "• <b>Мини-игра «Краш / Ракета»:</b> космический взлёт множителя до x35 с кнопкой кэшаута! (<code>ракета [ставка]</code>)\n"
+        "• <b>Колесо Фортуны:</b> бесплатный ежедневный спин раз в 24ч с джекпотом 5M! (<code>колесо фортуны</code>)\n"
+        "• <b>Ограбление Банка:</b> налёты с выбором тактики «штурм» или «взлом» (<code>ограбить банк</code>)\n"
+        "• <b>Клановые Шахты:</b> добыча золота, кристаллов и темной материи (<code>копать руду</code>)\n"
+        "• <b>Telegram Dice Казино:</b> <code>дартс</code>, <code>баскетбол</code>, <code>футбол</code>, <code>боулинг</code>.\n\n"
         "🏢 <b>БИЗНЕС-ИМПЕРИИ И КОРПОРАЦИИ:</b>\n"
-        "• <b>Мега-Корпорации:</b> основание корпораций от 500k монет (<code>создать корпорацию [название]</code>).\n"
-        "• <b>6 уровней филиалов:</b> от кофейни до квантового дата-центра и космодрома (<code>купить филиал [1-6]</code>).\n"
-        "• <b>Сбор и вывод казны:</b> <code>собрать прибыль</code> и <code>снять из корпорации</code>.\n\n"
-        "🏙 <b>СИНДИКАТЫ И ВОЙНЫ ЗА РАЙОНЫ:</b>\n"
-        "• <b>Битва за 5 районов города:</b> Центр, Казино, Доки, Финансы, Бункер (<code>синдикаты</code>).\n"
-        "• <b>Ежедневная дань:</b> миллионные отчисления прямо в казну сильнейших (<code>захват района [1-5]</code>).\n\n"
+        "• <b>Мега-Корпорации:</b> создание корпорации от 500k монет (<code>создать корпорацию [название]</code>).\n"
+        "• <b>6 уровней филиалов:</b> от кофейни до ЦОД и орбитального космодрома (<code>купить филиал [1-6]</code>).\n"
+        "• <b>Сбор прибыли:</b> <code>собрать прибыль</code> и <code>снять из корпорации</code>.\n\n"
         "🔮 <b>АРТЕФАКТЫ И РЕЙД-БОССЫ:</b>\n"
         "• <b>6 древних артефактов:</b> Око Бури, Щит Титана, Кристалл Изобилия, Хроно-Сфера, Венец, Печать Дракона (<code>артефакты</code>).\n"
-        "• <b>Мировые рейд-боссы:</b> Кибер-Левиафан, Теневой Владыка, Дракон Бездны (<code>призвать босса</code> / <code>ударить босса</code>).\n\n"
+        "• <b>Мировые рейд-боссы:</b> Кибер-Левиафан, Теневой Владыка, Дракон Бездны (<code>призвать босса [1-3]</code> / <code>ударить босса</code>).\n\n"
         "🏦 <b>БАНК, ДЕПОЗИТЫ И БОЕВОЙ ПРОПУСК:</b>\n"
-        "• <b>Фиксированные депозиты:</b> до +50% доходности за 7 дней (<code>депозиты</code>, <code>вклад открыть</code>).\n"
-        "• <b>Боевой Пропуск Сезон 1:</b> 10 уровней с ценными наградами и Free/Premium Pass (<code>боевой пропуск</code>).\n"
-        "• <b>Магазин роскошных подарков:</b> розы, спорткары, особняки с витриной в профиле (<code>подарки магазин</code>).\n\n"
+        "• <b>Фиксированные депозиты:</b> до +50% доходности (<code>депозиты</code>, <code>вклад открыть</code>, <code>вклад забрать</code>).\n"
+        "• <b>Боевой Пропуск Сезон 1:</b> 10 уровней с ценными наградами Free и Premium (<code>боевой пропуск</code>).\n"
+        "• <b>Магазин роскошных подарков:</b> розы, спорткары, замки с витриной в профиле (<code>подарки магазин</code>).\n\n"
         "🛡 <b>АДМИНИСТРАЦИЯ И ЗАЩИТА:</b>\n"
-        "• <b>Умные подсказки ДК:</b> при нехватке прав бот выводит готовую команду разблокировки в 1 клик.\n"
-        "• <b>Карантин новичков:</b> авто-ограничение ссылок и медиа при входе (<code>карантин [минуты/выкл]</code>).\n"
-        "• <b>Антирейд капча:</b> обязательная кнопка подтверждения человека (<code>капча [вкл/выкл]</code>).\n"
-        "• <b>Официальные объявления:</b> публикация баннеров с автозакрепом (<code>объявление [текст]</code>).\n"
-        "• <b>Медленный режим:</b> официальный Slowmode от 10 до 3600 сек (<code>медленный режим [сек]</code>).\n"
-        "• <b>Чистка сервисных смс:</b> удаление оповещений входов и выходов (<code>чистить сервис [кол-во]</code>).\n\n"
+        "• <b>Умные подсказки ДК:</b> готовые кликабельные команды разблокировки прав (<code>дк [команда] 0</code>).\n"
+        "• <b>Антимат и Антимедиа:</b> фильтрация брани и запрет медиа-флуда (<code>антимат вкл</code> / <code>антимедиа вкл</code>).\n"
+        "• <b>Интерактивные опросы:</b> создание официальных опросов с вариантами (<code>опрос ...</code>).\n"
+        "• <b>Карантин новичков и Капча:</b> <code>карантин 15</code> и <code>капча вкл</code>.\n"
+        "• <b>Медленный режим Telegram:</b> официальный Slowmode от 10 до 3600 сек (<code>медленный режим [сек]</code>).\n"
+        "• <b>Официальные объявления:</b> публикация баннеров с автозакрепом (<code>объявление [текст]</code>).\n\n"
         "🎙 <b>МУЛЬТИМОДАЛЬНЫЙ ИИ И STT:</b>\n"
         "• <b>Мгновенная расшифровка кружочков и ГС:</b> авто-перевод видео-заметок и аудио в текст на лету!\n"
+        "• <b>Исправление HTML:</b> устранено отображение сырых тегов <code>&lt;b&gt;</code> в бэкапах и сообщениях.\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "<i>MOXXI 3.0 REVOLUTION — мощь, комфорт и безопасность вашей беседы!</i>"
     )
