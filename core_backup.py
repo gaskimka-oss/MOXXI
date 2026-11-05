@@ -130,7 +130,9 @@ async def save(bot: Bot, note: str = "") -> bool:
     blob = await asyncio.to_thread(_snapshot)
     if not blob:
         return False
-    stamp = time.strftime("%d.%m.%Y %H:%M")
+    from datetime import datetime, timezone, timedelta
+    msk_tz = timezone(timedelta(hours=3))
+    stamp = datetime.now(msk_tz).strftime("%d.%m.%Y %H:%M")
     size_kb = len(blob) / 1024
     size_str = f"{size_kb:.1f} КБ" if size_kb < 1024 else f"{size_kb / 1024:.2f} МБ"
 

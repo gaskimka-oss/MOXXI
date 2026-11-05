@@ -5,6 +5,14 @@ import asyncio
 import logging
 import sys
 import time
+import os
+
+os.environ["TZ"] = "Europe/Moscow"
+if hasattr(time, "tzset"):
+    try:
+        time.tzset()
+    except Exception:
+        pass
 
 try:
     if hasattr(sys.stdout, "reconfigure"):
