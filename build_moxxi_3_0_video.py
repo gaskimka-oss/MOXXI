@@ -1,276 +1,527 @@
 # -*- coding: utf-8 -*-
 """
-MOXXI 3.0 REVOLUTION - Master Video Showcase Generator
-Generates full 1080p (1920x1080) / 720p cinematic presentation video with Irina TTS.
+MOXXI 3.0 REVOLUTION - Master Authentic Telegram Desktop Screencast Generator
+Presents:
+1. Introduction to MOXXI ("Встречайте бота MOXXI!...")
+2. Interactive Profile & Ranks
+3. Smart DK Permissions & Helpful Guidance
+4. Casino 3.0: European Roulette x36, Dice, Slots
+5. Syndicates & City District Clan Wars
+6. Admin Shield: Quarantine, Service Clean, Mod Log
+7. AI Speech-to-Text: Circles & Voice Notes into text
+8. Outro & Invitation
+
+Narrator: Microsoft Neural AI (ru-RU-SvetlanaNeural)
+Engine: Pillow RGB24 + FFmpeg Direct Pipe
 """
 import os
 import sys
-import time
 import wave
+import asyncio
 import subprocess
-import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import imageio_ffmpeg
+import edge_tts
 
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 W, H = 1280, 720
-FPS = 24
+FPS = 15
 
 FONT_DIR = "C:/Windows/Fonts/"
 FONTS = {
-    "title": ImageFont.truetype(FONT_DIR + "segoeuib.ttf", 46),
-    "sub": ImageFont.truetype(FONT_DIR + "segoeuib.ttf", 26),
-    "body": ImageFont.truetype(FONT_DIR + "segoeui.ttf", 22),
-    "badge": ImageFont.truetype(FONT_DIR + "segoeuib.ttf", 18),
-    "footer": ImageFont.truetype(FONT_DIR + "segoeui.ttf", 16),
+    "regular": ImageFont.truetype(FONT_DIR + "segoeui.ttf", 17),
+    "bold": ImageFont.truetype(FONT_DIR + "segoeuib.ttf", 18),
+    "header": ImageFont.truetype(FONT_DIR + "segoeuib.ttf", 20),
+    "small": ImageFont.truetype(FONT_DIR + "segoeui.ttf", 13),
+    "small_bold": ImageFont.truetype(FONT_DIR + "segoeuib.ttf", 13),
+    "input": ImageFont.truetype(FONT_DIR + "segoeui.ttf", 18),
+    "title": ImageFont.truetype(FONT_DIR + "segoeuib.ttf", 23),
+    "mono": ImageFont.truetype(FONT_DIR + "consola.ttf", 15),
 }
+
+async def generate_voice_edge(text: str, out_wav: str):
+    if os.path.exists(out_wav) and os.path.getsize(out_wav) > 10000:
+        return
+    temp_mp3 = out_wav + ".mp3"
+    comm = edge_tts.Communicate(text, "ru-RU-SvetlanaNeural", rate="+6%")
+    await comm.save(temp_mp3)
+
+    cmd = [
+        FFMPEG, "-y", "-i", temp_mp3,
+        "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "1",
+        out_wav
+    ]
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    if os.path.exists(temp_mp3):
+        os.remove(temp_mp3)
+
+def get_wav_duration(wav_path: str) -> float:
+    with wave.open(wav_path, "rb") as w:
+        return w.getnframes() / float(w.getframerate())
 
 SCENES = [
     {
         "id": "scene1_intro",
-        "badge": "🚀 ГЛОБАЛЬНЫЙ РЕЛИЗ 3.0",
-        "title": "MOXXI 3.0 REVOLUTION",
-        "sub": "Революция Telegram-ботов • 650+ возможностей",
-        "bullets": [
-            "⚡️ Моментальный отклик 0.01с и нулевой пинг",
-            "🛡 Полное исправление конфликтов команд и поиска",
-            "🤖 Автоматический AI-перевод голосовых и кружков",
-            "💎 Уникальная экономика, биржа акций и синдикаты"
+        "voice": (
+            "Встречайте бота MOXXI! Это лучший и самый мощный бот для ваших Telegram-бесед и каналов. "
+            "Полный контроль над чатом, система рангов, кланы, умная защита и море развлечений прямо в Telegram!"
+        ),
+        "card_title": "ВСТРЕЧАЙТЕ БОТА MOXXI",
+        "card_bullets": [
+            ("⚡️", "Умный бот для бесед и каналов"),
+            ("👑", "Иерархия рангов от 0 до 8"),
+            ("🛡", "Железная защита от спама и рейдов"),
+            ("🎮", "Казино, синдикаты, бизнес и Web App")
         ],
-        "bg_color": (15, 10, 30),
-        "accent": (168, 85, 247), # purple
-        "text": "Встречайте масштабное глобальное обновление Мокси три точка ноль! Мы полностью переработали ядро бота, устранили все баги и конфликты команд и добавили уникальные возможности для игроков и администраторов!"
+        "typing_cmd": "старт",
+        "messages": [
+            {
+                "sender": "Саша",
+                "text": "старт",
+                "time": "12:00"
+            },
+            {
+                "sender": "MOXXI",
+                "text": (
+                    "Добро пожаловать в MOXXI 3.0 REVOLUTION!\n\n"
+                    "Ваш профиль:\n"
+                    "• Имя: Саша (@sasha_tg)\n"
+                    "• Ранг в беседе: Участник (Ранг 0)\n"
+                    "• Баланс: 250,000 монет\n"
+                    "• VIP-статус: Platinum (активен еще 28 дн.)\n\n"
+                    "Выберите нужный раздел в меню ниже:"
+                ),
+                "buttons": ["🎮 Игры и Казино", "💼 Предприятия", "🛡 Админ-панель"],
+                "time": "12:00"
+            }
+        ]
     },
     {
-        "id": "scene2_webapp",
-        "badge": "📱 WEB APP БЕЗ VPN",
-        "title": "НЕОНОВОЕ КАЗИНО И БИЗНЕСЫ",
-        "sub": "Слоты 777 • Мины х550 • 3D Кости • 15 Предприятий",
-        "bullets": [
-            "🚀 100% автономная работа без белых экранов и VPN",
-            "🎰 Множители ставок x1, x2, x3, x5, x9, x10",
-            "💣 Выбор сложности в Минах (2, 3, 5, 8 бомб)",
-            "🎁 Ежедневный бонус со стриком и честным 4-часовым КД"
+        "id": "scene2_dk_access",
+        "voice": (
+            "Забудьте о сложных настройках прав! В MOXXI система ДК сама подскажет, как открыть команду. "
+            "Если у участника не хватает ранга, бот сразу выведет готовую команду для включения в один клик!"
+        ),
+        "card_title": "СИСТЕМА ДОСТУПА КОМАНД (ДК)",
+        "card_bullets": [
+            ("🔒", "Умное управление правами на любую команду"),
+            ("💡", "Автоматические подсказки при нехватке прав"),
+            ("⚡️", "Включение для всех в одну команду: дк [команда] 0"),
+            ("👥", "Личные права: +пдк и -лдк для участников")
         ],
-        "bg_color": (8, 20, 25),
-        "accent": (6, 182, 212), # cyan
-        "text": "Главная новинка — автономный Веб Апп три точка ноль, который открывается мгновенно без ВПН! Новые множители ставок от одного до десяти икс в Слотах, выбор бомб в игре Мины с кушем до пятисот пятидесяти икс и интерактивные три дэ кости!"
+        "typing_cmd": "снять вклад 10000000",
+        "messages": [
+            {
+                "sender": "Саша",
+                "text": "снять вклад 10000000",
+                "time": "12:01"
+            },
+            {
+                "sender": "MOXXI",
+                "text": (
+                    "⛔️ Недостаточно прав для команды «снять вклад»!\n\n"
+                    "🔒 Требуемый ранг: Технический администратор (Ранг 6)\n"
+                    "👤 Ваш текущий ранг: Участник (Ранг 0)\n\n"
+                    "💡 Как настроить доступ к этой команде:\n"
+                    "• Разрешить команду всем: дк снять вклад 0\n"
+                    "• Изменить ранг доступа: дк снять вклад 2\n"
+                    "• Выдать личный доступ: +пдк @юзер снять вклад"
+                ),
+                "buttons": ["💡 Разрешить всем (дк 0)", "ℹ️ Список рангов"],
+                "time": "12:01"
+            }
+        ]
     },
     {
-        "id": "scene3_syndicates",
-        "badge": "🏙 БИТВА ЗА ГОРОД",
-        "title": "СИНДИКАТЫ И ВОЙНЫ ЗА РАЙОНЫ",
-        "sub": "5 районов города • Казна клана • Пассивный доход",
-        "bullets": [
-            "⚔️ Основание синдиката и набор бойцов",
-            "🌆 Штурм и контроль районов: Центр, Финансы, Доки, Бункер, Казино",
-            "💰 Ежедневная дань прямо в казну синдиката",
-            "🏆 Сезонный рейтинг сильнейших группировок"
+        "id": "scene3_casino_roulette",
+        "voice": (
+            "Игрокам точно не придётся скучать! Встречайте Неоновое Казино 3.0: классическая европейская рулетка с "
+            "множителями до тридцати шести, интерактивный дартс, слоты 777 и блэкджек с реальными кнопками."
+        ),
+        "card_title": "НЕОНОВОЕ КАЗИНО 3.0",
+        "card_bullets": [
+            ("🎰", "Европейская Рулетка: выигрыш до x36"),
+            ("🎯", "Дартс, Баскетбол, Футбол и Боулинг"),
+            ("🃏", "Блэкджек 21 очко с живыми кнопками"),
+            ("📱", "Moxxi Web App: Слоты 777 и Мины x550")
         ],
-        "bg_color": (25, 12, 10),
-        "accent": (239, 68, 68), # red/orange
-        "text": "Для игроков запущена система Синдикатов! Создавайте свои альянсы, прокачивайте боевой рейтинг и захватывайте городские районы. Контроль Центрального Неона и Квартала Казино приносит ежедневную дань прямо в казну!"
+        "typing_cmd": "рулетка 50000 красное",
+        "messages": [
+            {
+                "sender": "Саша",
+                "text": "рулетка 50000 красное",
+                "time": "12:02"
+            },
+            {
+                "sender": "MOXXI",
+                "text": (
+                    "🎰 🎯 ПОБЕДА В РУЛЕТКЕ!\n"
+                    "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+                    "Выпало: 14 (красное)\n"
+                    "Множитель: x2.0\n"
+                    "💰 Выигрыш: +100,000 монет (+50,000 чистыми)!\n"
+                    "Баланс: 300,000 монет."
+                ),
+                "buttons": ["🎡 Крутить еще раз", "🎯 Дартс", "🎰 Слоты"],
+                "time": "12:02"
+            }
+        ]
     },
     {
-        "id": "scene4_tg_games",
-        "badge": "🎲 ИГРЫ TELEGRAM DICE",
-        "title": "ЭМОДЗИ-КАЗИНО С ФИЗИКОЙ",
-        "sub": "🎯 Дартс • 🏀 Баскетбол • 🎳 Боулинг • ⚽️ Футбол",
-        "bullets": [
-            "🎯 Дартс: бросок в яблочко с коэффициентом х3.5!",
-            "🏀 Баскетбол: попадание в кольцо с кушем х2.5!",
-            "🎳 Боулинг: страйк всеми кеглями с выигрышем х4.0!",
-            "⚽️ Футбол: пенальти в девятку с коэффициентом х2.2!"
+        "id": "scene4_syndicates",
+        "voice": (
+            "Синдикаты и Войны за Районы — новая масштабная механика! "
+            "Создавайте группировку, штурмуйте пять районов мегаполиса и собирайте ежедневную дань прямо в казну клана."
+        ),
+        "card_title": "СИНДИКАТЫ И ВОЙНЫ ЗА РАЙОНЫ",
+        "card_bullets": [
+            ("🏙", "5 районов города: Центр, Казино, Доки, Банк, Бункер"),
+            ("⚔️", "Штурм и защита территорий каждый день"),
+            ("💰", "Ежедневная дань миллионами в казну"),
+            ("🏆", "Топ сильнейших синдикатов города")
         ],
-        "bg_color": (10, 26, 16),
-        "accent": (16, 185, 129), # green
-        "text": "Испытайте удачу в настоящих Телеграм играх с живой анимацией кубиков! Дартс в яблочко с коэффициентом три с половиной, броски в кольцо, страйки в боулинге и пенальти в футболе!"
+        "typing_cmd": "синдикаты",
+        "messages": [
+            {
+                "sender": "Саша",
+                "text": "синдикаты",
+                "time": "12:03"
+            },
+            {
+                "sender": "MOXXI",
+                "text": (
+                    "🏙 ⚔️ СИНДИКАТЫ И ВОЙНЫ ЗА РАЙОНЫ\n"
+                    "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+                    "1. 🏛 Деловой Центр ➔ Захвачен: [LEGEND] (Дань: 2.5M)\n"
+                    "2. 🎰 Район Казино ➔ Захвачен: [PHOENIX] (Дань: 5.0M)\n"
+                    "3. ⚓️ Морские Доки ➔ Свободен для штурма!\n"
+                    "4. 🏦 Финансовый Квартал ➔ Захвачен: [BEAR]\n"
+                    "5. 🛡 Подземный Бункер ➔ Свободен для штурма!\n\n"
+                    "Команда штурма: захват района [1-5]"
+                ),
+                "buttons": ["⚔️ Захватить район 3", "🛡 Казна синдиката"],
+                "time": "12:03"
+            }
+        ]
     },
     {
-        "id": "scene5_exchange_ai",
-        "badge": "💎 ОБМЕННИК & ИИ STT",
-        "title": "VIP ЗА МОНЕТЫ И АВТО-ГОЛОС",
-        "sub": "Покупка VIP за игровую валюту • Распознавание ГС и кружков",
-        "bullets": [
-            "⭐ 3 дня VIP (50кк), 7 дней VIP (150кк), 30 дней VIP+ Diamond (500кк)",
-            "🎤 Авто-распознавание ГС и видео-кружков прямо в группах",
-            "📈 Фондовая биржа 5 корпораций, дивиденды и портфель",
-            "📦 Секретные кейсы 3.0 с редким лутом и миллионными кушами"
+        "id": "scene5_admin_shield",
+        "voice": (
+            "Для администраторов подготовлен бронебойный арсенал: антирейд карантин новичков, мгновенная очистка сервисных сообщений, "
+            "тихий бан и подробный аудит действий модерации."
+        ),
+        "card_title": "АДМИНИСТРАТИВНЫЙ ЩИТ 3.0",
+        "card_bullets": [
+            ("🛡", "Карантин новичков: авто-блокировка ссылок и спама"),
+            ("🧹", "Очистка сервисных сообщений (входы, выходы, закрепы)"),
+            ("🔒", "Тихий бан без лишнего шума в чате"),
+            ("📋", "Полный лог модерации и действий стаффа")
         ],
-        "bg_color": (26, 20, 8),
-        "accent": (234, 179, 8), # gold
-        "text": "Накопленные игровые миллионы теперь можно обменять на VIP и VIP плюс Даймонд статусы прямо в обменнике! А встроенная нейросеть автоматически переводит любые голосовые сообщения и кружочки в читаемый текст без лишних команд!"
+        "typing_cmd": "карантин 15",
+        "messages": [
+            {
+                "sender": "Саша",
+                "text": "карантин 15",
+                "time": "12:04"
+            },
+            {
+                "sender": "MOXXI",
+                "text": (
+                    "🛡 ✅ КАРАНТИН НОВИЧКОВ ВКЛЮЧЕН НА 15 МИНУТ!\n"
+                    "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+                    "Все новые участники в течение первых 15 минут защищены от спама: "
+                    "запрещена отправка ссылок и пересылка медиа.\n"
+                    "Ваша беседа под надежной защитой Moxxi!"
+                ),
+                "buttons": ["🧹 Чистить сервис", "📋 Лог модерации"],
+                "time": "12:04"
+            }
+        ]
     },
     {
-        "id": "scene6_admin_shield",
-        "badge": "🛡 БЕЗОПАСНОСТЬ 3.0",
-        "title": "ПРОФЕССИОНАЛЬНЫЙ АДМИН-ЩИТ",
-        "sub": "Карантин новичков • Чистка сервиса • Умная модерация",
-        "bullets": [
-            "🛡 Карантин новичков: защита группы от спам-атак и скам-ботов",
-            "🧹 Команда «чистить сервис»: удаление входов, выходов и закрепов",
-            "💡 Умные подсказки ДК: кликабельная помощь при отказе прав",
-            "🎯 Идеально точный поиск «найти бан» без банковской путаницы"
+        "id": "scene6_stt_ai",
+        "voice": (
+            "А умный искусственный интеллект MOXXI мгновенно переводит любые голосовые сообщения и видео-кружочки в текст "
+            "прямо на лету, без необходимости вводить команды!"
+        ),
+        "card_title": "ИИ РАСШИФРОВКА КРУЖОЧКОВ И ГС",
+        "card_bullets": [
+            ("📹", "Мгновенная расшифровка видео-кружочков"),
+            ("🎙", "Авто-перевод голосовых сообщений в текст"),
+            ("🤖", "Сверхбыстрый мультимодальный ИИ"),
+            ("⚡️", "Работает автоматически для всех участников")
         ],
-        "bg_color": (18, 12, 35),
-        "accent": (147, 51, 234), # violet
-        "text": "Для администраторов доступны режим карантина новичков, скрытый тихий бан, экспресс чистка сервисных сообщений и подробные подсказки по настройке прав команд через Де Ка. Присоединяйтесь к Мокси три точка ноль!"
+        "typing_cmd": "привет, расскажи коротко о себе!",
+        "messages": [
+            {
+                "sender": "Саша",
+                "text": "📹 [Видео-кружочек: 0:04 сек]",
+                "time": "12:05"
+            },
+            {
+                "sender": "MOXXI",
+                "text": (
+                    "📹 Кружочек:\n"
+                    "«Ребята, всем привет! Во сколько сегодня собираемся в голосовом чате на турнир?»\n\n"
+                    "🤖 MOXXI AI: Автоматическая транскрипция речи выполнена успешно!"
+                ),
+                "buttons": ["🎙 Настройки распознавания"],
+                "time": "12:05"
+            }
+        ]
+    },
+    {
+        "id": "scene7_outro",
+        "voice": (
+            "MOXXI 3.0 — это будущее Telegram-ботов уже сегодня. "
+            "Сделайте вашу группу самой активной и безопасной. Добавляйте бота прямо сейчас: собака moxxichat_bot!"
+        ),
+        "card_title": "ПОДКЛЮЧАЙТЕ MOXXI 3.0 ПРЯМО СЕЙЧАС",
+        "card_bullets": [
+            ("🚀", "Быстрое подключение без сложной настройки"),
+            ("💎", "100% бесплатные базовые функции для всех чатов"),
+            ("👑", "Более 500 уникальных команд и возможностей"),
+            ("🤖", "Юзернейм бота: @moxxichat_bot")
+        ],
+        "typing_cmd": "помощь",
+        "messages": [
+            {
+                "sender": "Саша",
+                "text": "помощь",
+                "time": "12:06"
+            },
+            {
+                "sender": "MOXXI",
+                "text": (
+                    "🌟 MOXXI 3.0 REVOLUTION АКТИВЕН!\n"
+                    "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+                    "Бот успешно работает в чате. Откройте интерактивную панель управления "
+                    "или используйте команду «команды» для полного списка."
+                ),
+                "buttons": ["➕ Добавить в группу", "💬 Канал обновлений", "🎮 Открыть Web App"],
+                "time": "12:06"
+            }
+        ]
     }
 ]
 
-def generate_voice(text, wav_path):
-    txt_temp = wav_path + ".txt"
-    with open(txt_temp, "w", encoding="utf-8") as f:
-        f.write(text)
-    cmd = [
-        "powershell", "-ExecutionPolicy", "Bypass",
-        "-File", ".\\tts_helper.ps1",
-        "-TextFile", txt_temp,
-        "-OutFile", wav_path
+def build_telegram_frame(card_title: str, card_bullets: list, typed_text: str = "", messages: list = None):
+    img = Image.new("RGB", (W, H), "#0e1621")
+    draw = ImageDraw.Draw(img)
+
+    # 1. Header Bar
+    draw.rectangle([0, 0, W, 64], fill="#17212b")
+    draw.line([0, 64, W, 64], fill="#232e3c", width=1)
+
+    # Avatar circle
+    draw.ellipse([18, 12, 58, 52], fill="#5b3b8c")
+    draw.text((28, 16), "M", font=FONTS["header"], fill="#ffffff")
+
+    # Titles
+    draw.text((70, 14), "MOXXI", font=FONTS["header"], fill="#ffffff")
+    draw.text((70, 38), "бот • официальный бот группы", font=FONTS["small"], fill="#7f91a4")
+
+    # Right header pill
+    draw.rounded_rectangle([W - 320, 15, W - 20, 49], radius=17, fill="#243447", outline="#3b526f", width=1)
+    draw.text((W - 300, 21), "⚡️ MOXXI 3.0 REVOLUTION", font=FONTS["small_bold"], fill="#64b5f6")
+
+    # 2. Bottom Input Bar
+    draw.rectangle([0, H - 72, W, H], fill="#17212b")
+    draw.line([0, H - 72, W, H - 72], fill="#232e3c", width=1)
+    
+    # Input field
+    input_box = [60, H - 58, W - 90, H - 14]
+    draw.rounded_rectangle(input_box, radius=22, fill="#242f3d", outline="#394a5a", width=1)
+    
+    # Paperclip / attach icon on the left
+    draw.ellipse([20, H - 52, 48, H - 24], fill="#242f3d")
+    draw.text((28, H - 47), "📎", font=FONTS["regular"], fill="#7f91a4")
+    
+    # Send button / Mic on the right
+    draw.ellipse([W - 74, H - 54, W - 32, H - 18], fill="#5288c1" if typed_text else "#242f3d")
+    draw.text((W - 61, H - 46), "➤" if typed_text else "🎙", font=FONTS["bold"], fill="#ffffff" if typed_text else "#7f91a4")
+
+    if typed_text:
+        draw.text((78, H - 48), typed_text, font=FONTS["input"], fill="#ffffff")
+        # Blinking cursor
+        tx = 78 + int(FONTS["input"].getlength(typed_text)) + 2
+        draw.line([tx, H - 48, tx, H - 24], fill="#64b5f6", width=2)
+    else:
+        draw.text((78, H - 48), "Написать сообщение...", font=FONTS["input"], fill="#6c7883")
+
+    # 3. Side Feature Showcase Card (Top Right)
+    cx, cy, cw, ch = W - 440, 80, 420, 250
+    draw.rounded_rectangle([cx, cy, cx + cw, cy + ch], radius=14, fill="#1c2533", outline="#2b5278", width=2)
+    
+    # Header of card
+    draw.rectangle([cx + 1, cy + 1, cx + cw - 1, cy + 42], fill="#223247")
+    draw.text((cx + 16, cy + 12), card_title, font=FONTS["bold"], fill="#ffd54f")
+    draw.line([cx, cy + 43, cx + cw, cy + 43], fill="#2b5278", width=1)
+
+    by = cy + 54
+    for icon, text in card_bullets:
+        draw.text((cx + 16, by), icon, font=FONTS["regular"], fill="#ffffff")
+        draw.text((cx + 46, by + 1), text, font=FONTS["small"], fill="#e0e0e0")
+        by += 44
+
+    # 4. Chat Messages (Left area)
+    if messages:
+        y = 80
+        for msg in messages:
+            sender = msg.get("sender", "User")
+            is_user = (sender == "Саша")
+            text = msg.get("text", "")
+            time_str = msg.get("time", "12:00")
+            buttons = msg.get("buttons", [])
+
+            lines = text.split("\n")
+            max_line_len = max(len(l) for l in lines) if lines else 10
+            bubble_w = min(680, max(300, max_line_len * 9 + 50))
+            bubble_h = len(lines) * 22 + 34 + (len(buttons) * 42)
+
+            if is_user:
+                bx = min(W - 470 - bubble_w, 480)
+                draw.rounded_rectangle([bx, y, bx + bubble_w, y + bubble_h], radius=12, fill="#2b5278")
+                draw.text((bx + 16, y + 8), sender, font=FONTS["bold"], fill="#64b5f6")
+                cy_m = y + 32
+                for l in lines:
+                    draw.text((bx + 16, cy_m), l, font=FONTS["regular"], fill="#ffffff")
+                    cy_m += 22
+                draw.text((bx + bubble_w - 65, y + bubble_h - 20), f"{time_str} ✓✓", font=FONTS["small"], fill="#90caf9")
+            else:
+                bx = 30
+                draw.rounded_rectangle([bx, y, bx + bubble_w, y + bubble_h], radius=12, fill="#182533", outline="#2b5278", width=1)
+                draw.text((bx + 16, y + 8), "MOXXI", font=FONTS["bold"], fill="#ce93d8")
+                # БОТ badge
+                draw.rounded_rectangle([bx + 85, y + 9, bx + 128, y + 25], radius=4, fill="#8e24aa")
+                draw.text((bx + 92, y + 10), "БОТ", font=FONTS["small_bold"], fill="#ffffff")
+                
+                cy_m = y + 34
+                for l in lines:
+                    color = "#ffffff"
+                    if "⛔️" in l or "недостаточно" in l.lower() or "проиграли" in l.lower():
+                        color = "#ff5252"
+                    elif "✅" in l or "победа" in l.lower() or "выигрыш" in l.lower() or "активен" in l.lower():
+                        color = "#69f0ae"
+                    elif "💡" in l or "баланс:" in l.lower() or "ранг:" in l.lower():
+                        color = "#ffd740"
+                    elif "⚔️" in l or "рулетка" in l.lower() or "штурм" in l.lower():
+                        color = "#ffab40"
+                    elif "•" in l or "—" in l or "┈┈" in l:
+                        color = "#b0bec5"
+                    draw.text((bx + 16, cy_m), l, font=FONTS["regular"], fill=color)
+                    cy_m += 22
+
+                if buttons:
+                    cy_m += 6
+                    btn_w = (bubble_w - 32 - (len(buttons) - 1) * 8) // len(buttons)
+                    for bi, btn in enumerate(buttons):
+                        btn_x = bx + 16 + bi * (btn_w + 8)
+                        btn_rect = [btn_x, cy_m, btn_x + btn_w, cy_m + 32]
+                        draw.rounded_rectangle(btn_rect, radius=6, fill="#242f3d", outline="#394a5a", width=1)
+                        # Center button text
+                        t_len = FONTS["small_bold"].getlength(btn)
+                        tx_btn = btn_x + max(4, int((btn_w - t_len) / 2))
+                        draw.text((tx_btn, cy_m + 7), btn, font=FONTS["small_bold"], fill="#64b5f6")
+
+            y += bubble_h + 16
+
+    return img
+
+async def main():
+    print("=== STARTING MOXXI 3.0 MASTER SCREENCAST BUILD ===")
+    os.makedirs("screencast_temp", exist_ok=True)
+
+    wav_files = []
+    # 1. Generate Voice for all scenes with edge-tts ru-RU-SvetlanaNeural
+    for i, sc in enumerate(SCENES):
+        wav_path = os.path.join("screencast_temp", f"voice_{sc['id']}.wav")
+        print(f"[{i+1}/{len(SCENES)}] Generating natural voice for: {sc['card_title']}...")
+        await generate_voice_edge(sc["voice"], wav_path)
+        wav_files.append(wav_path)
+
+    # 2. Stitch Full Audio Track
+    full_audio = "screencast_temp/full_audio.wav"
+    concat_list = "screencast_temp/audio_list.txt"
+    with open(concat_list, "w", encoding="utf-8") as f:
+        for w in wav_files:
+            f.write(f"file '{os.path.abspath(w)}'\n")
+
+    cmd_concat = [
+        FFMPEG, "-y", "-f", "concat", "-safe", "0",
+        "-i", concat_list, "-c", "copy", full_audio
     ]
-    subprocess.run(cmd, check=True)
-    if os.path.exists(txt_temp):
-        os.remove(txt_temp)
+    subprocess.run(cmd_concat, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    total_audio_dur = get_wav_duration(full_audio)
+    print(f"Full audio track generated! Duration: {total_audio_dur:.1f}s ({total_audio_dur/60:.2f} min)")
 
-def get_wav_duration(wav_path):
-    with wave.open(wav_path, "rb") as w:
-        return w.getnframes() / float(w.getframerate())
+    # 3. Setup Direct FFmpeg Video Encoder Pipe
+    output_video = "MOXXI_3.0_GLOBAL_UPDATE.mp4"
+    print(f"Starting video encoding into {output_video} via direct pipe...")
 
-def render_scene(sc, idx, total):
-    wav_path = f"temp_sc_{sc['id']}.wav"
-    mp4_path = f"temp_sc_{sc['id']}.mp4"
-    print(f"[{idx}/{total}] Synthesizing TTS for {sc['id']}...")
-    generate_voice(sc["text"], wav_path)
-    dur = get_wav_duration(wav_path) + 0.8
-    total_frames = int(dur * FPS)
-
-    print(f"[{idx}/{total}] Rendering {total_frames} frames ({dur:.1f}s) for {sc['id']}...")
-
-    # Start ffmpeg process
-    ffmpeg_cmd = [
+    ffmpeg_proc = subprocess.Popen([
         FFMPEG, "-y",
         "-f", "rawvideo",
-        "-pix_fmt", "rgb24",
+        "-vcodec", "rawvideo",
         "-s", f"{W}x{H}",
+        "-pix_fmt", "rgb24",
         "-r", str(FPS),
         "-i", "-",
-        "-i", wav_path,
+        "-i", full_audio,
         "-c:v", "libx264",
-        "-preset", "ultrafast",
+        "-preset", "fast",
+        "-crf", "20",
         "-pix_fmt", "yuv420p",
         "-c:a", "aac",
+        "-b:a", "192k",
         "-shortest",
-        mp4_path
-    ]
-    proc = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE)
+        output_video
+    ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    base_bg = sc["bg_color"]
-    accent = sc["accent"]
+    # 4. Render and stream frames for each scene
+    for i, sc in enumerate(SCENES):
+        wav_path = wav_files[i]
+        scene_dur = get_wav_duration(wav_path)
+        scene_frames = int(scene_dur * FPS)
 
-    for f in range(total_frames):
-        # Progress 0.0 -> 1.0
-        p = f / float(total_frames)
+        cmd_to_type = sc.get("typing_cmd", "")
+        # Phase 1: Typing text into input box (takes ~25% of scene time)
+        typing_frames = min(int(scene_frames * 0.28), len(cmd_to_type) * 4)
+        if typing_frames < len(cmd_to_type):
+            typing_frames = len(cmd_to_type)
 
-        # Create base canvas with smooth gradient
-        img = Image.new("RGB", (W, H), base_bg)
-        draw = ImageDraw.Draw(img)
+        messages = sc.get("messages", [])
+        user_msg = messages[:1] if messages else []
+        all_msgs = messages
 
-        # Ambient background glow
-        glow_alpha = int(40 + 20 * np.sin(p * np.pi * 2))
-        draw.ellipse((-100, -100, 600, 600), fill=(accent[0]//5, accent[1]//5, accent[2]//5))
-        draw.ellipse((W - 500, H - 400, W + 100, H + 100), fill=(accent[0]//6, accent[1]//6, accent[2]//6))
+        print(f"  Rendering scene {i+1}/{len(SCENES)}: {sc['id']} ({scene_dur:.1f}s, {scene_frames} frames)...")
 
-        # Top Badge
-        badge_x, badge_y = 90, 65
-        b_w, b_h = 240, 36
-        draw.rounded_rectangle((badge_x, badge_y, badge_x + b_w, badge_y + b_h), radius=10, fill=(30, 30, 45), outline=accent, width=2)
-        draw.text((badge_x + 16, badge_y + 7), sc["badge"], fill=accent, font=FONTS["badge"])
+        # Animate typing
+        for f in range(typing_frames):
+            progress = (f + 1) / float(typing_frames)
+            char_count = int(progress * len(cmd_to_type))
+            current_typed = cmd_to_type[:char_count]
+            # While typing, no messages or previous messages
+            frame = build_telegram_frame(sc["card_title"], sc["card_bullets"], current_typed, messages=user_msg)
+            ffmpeg_proc.stdin.write(frame.tobytes())
 
-        # Title with neon underline
-        title_y = 125
-        draw.text((90, title_y), sc["title"], fill=(255, 255, 255), font=FONTS["title"])
-        
-        # Subtitle
-        sub_y = 188
-        draw.text((92, sub_y), sc["sub"], fill=(203, 213, 225), font=FONTS["sub"])
+        # Phase 2: User hit send, bot answers and stays on screen
+        rem_frames = scene_frames - typing_frames
+        full_frame = build_telegram_frame(sc["card_title"], sc["card_bullets"], "", messages=all_msgs)
+        full_bytes = full_frame.tobytes()
 
-        # Animated Glowing Line
-        line_w = int((W - 180) * min(1.0, p * 2.5))
-        draw.line((90, 230, 90 + line_w, 230), fill=accent, width=3)
+        for _ in range(rem_frames):
+            ffmpeg_proc.stdin.write(full_bytes)
 
-        # Card container for bullets
-        card_x, card_y = 90, 260
-        card_w, card_h = 1100, 340
-        draw.rounded_rectangle((card_x, card_y, card_x + card_w, card_y + card_h), radius=18, fill=(18, 22, 34), outline=(45, 55, 75), width=2)
+    # Close pipe and finalize
+    ffmpeg_proc.stdin.close()
+    ffmpeg_proc.wait()
 
-        # Bullets with animated fade-in
-        bullet_start_y = 295
-        for b_idx, b_text in enumerate(sc["bullets"]):
-            delay = 0.15 * b_idx
-            if p >= delay:
-                by = bullet_start_y + (b_idx * 60)
-                # Bullet icon
-                draw.rounded_rectangle((card_x + 30, by + 2, card_x + 48, by + 20), radius=5, fill=accent)
-                # Bullet text
-                draw.text((card_x + 65, by), b_text, fill=(241, 245, 249), font=FONTS["body"])
-
-        # Bottom Progress Bar
-        bar_w = int(W * p)
-        draw.rectangle((0, H - 8, bar_w, H), fill=accent)
-
-        # Footer
-        draw.text((90, H - 40), f"MOXXI 3.0 REVOLUTION • @moxxichat_bot • Сцена {idx}/{total}", fill=(100, 116, 139), font=FONTS["footer"])
-
-        # Pipe frame bytes
-        raw_bytes = img.tobytes()
-        proc.stdin.write(raw_bytes)
-
-    proc.stdin.close()
-    proc.wait()
-    if os.path.exists(wav_path):
-        os.remove(wav_path)
-    return mp4_path
-
-def main():
-    print("=== STARTING FULL MOXXI 3.0 VIDEO SHOWCASE GENERATION ===")
-    parts = []
-    total = len(SCENES)
-    for i, sc in enumerate(SCENES, 1):
-        p = render_scene(sc, i, total)
-        parts.append(p)
-
-    concat_file = "video_concat_list.txt"
-    with open(concat_file, "w", encoding="utf-8") as f:
-        for p in parts:
-            f.write(f"file '{p}'\n")
-
-    final_output = "MOXXI_3.0_GLOBAL_UPDATE.mp4"
-    print(f"\nConcatenating all {total} scenes into master file: {final_output}...")
-    cmd_concat = [
-        FFMPEG, "-y",
-        "-f", "concat",
-        "-safe", "0",
-        "-i", concat_file,
-        "-c", "copy",
-        final_output
-    ]
-    subprocess.run(cmd_concat, check=True)
-
-    # Cleanup temp scene mp4s
-    for p in parts:
-        if os.path.exists(p):
-            try:
-                os.remove(p)
-            except Exception:
-                pass
-    if os.path.exists(concat_file):
-        try:
-            os.remove(concat_file)
-        except Exception:
-            pass
-
-    size_mb = os.path.getsize(final_output) / (1024 * 1024)
-    print(f"🎉 SUCCESS! Final video generated: {final_output} ({size_mb:.2f} MB)")
+    if os.path.exists(output_video):
+        size_mb = os.path.getsize(output_video) / (1024 * 1024)
+        print(f"=== SUCCESS! Video rendered: {output_video} ({size_mb:.2f} MB, {total_audio_dur:.1f}s) ===")
+    else:
+        print("ERROR: Output video was not created!")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

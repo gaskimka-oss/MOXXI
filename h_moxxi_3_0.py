@@ -1205,3 +1205,179 @@ async def cmd_mod_action_log(message: Message, bot: Bot, args: str = "", **kw):
         + "\n".join(lines)
     )
 
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 6. КАЗИНО ЕВРОПЕЙСКАЯ РУЛЕТКА (ROULETTE X36)
+# ══════════════════════════════════════════════════════════════════════
+
+ROULETTE_RED = {1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36}
+
+@router.message(Cmd("рулетка", "рулетка казино", "крутить рулетку",
+                    section=S_GAMES, rank=0,
+                    usage="рулетка [ставка] [красное|черное|зеро|чет|нечет|0..36]",
+                    desc="🎰 Европейская рулетка: угадайте сектор или цвет (выигрыш до x36!)"))
+async def cmd_casino_roulette(message: Message, bot: Bot, args: str = "", **kw):
+    parts = args.strip().split()
+    if len(parts) < 2:
+        return await message.reply(
+            "🎰 <b>Европейская Рулетка MOXXI:</b>\n\n"
+            "• На цвет: <code>рулетка 1000 красное</code> (x2)\n"
+            "• На цвет: <code>рулетка 1000 черное</code> (x2)\n"
+            "• На четность: <code>рулетка 1000 чет</code> / <code>нечет</code> (x2)\n"
+            "• На зеро: <code>рулетка 1000 зеро</code> (x36)\n"
+            "• На точное число: <code>рулетка 1000 17</code> (x36) [0–36]"
+        )
+
+    bet_raw, choice_raw = parts[0], parts[1].lower()
+    bet = parse_money(bet_raw)
+    if not bet or bet <= 0:
+        return await message.reply("❌ Укажите корректную сумму ставки!")
+
+    uid = message.from_user.id
+    u = await db.get_user(uid)
+    bal = int(u["balance"])
+    if bal < bet:
+        return await message.reply(f"❌ Недостаточно средств! Ваш баланс: <b>{money(bal)}</b> монет.")
+
+    valid_choices = {"красное", "красный", "red", "черное", "чёрное", "черный", "black", "зеро", "zero", "чет", "четное", "нечет", "нечетное"}
+    is_num = choice_raw.isdigit() and (0 <= int(choice_raw) <= 36)
+    if not is_num and choice_raw not in valid_choices:
+        return await message.reply("❌ Неверный выбор! Выберите: <code>красное</code>, <code>черное</code>, <code>зеро</code>, <code>чет</code>, <code>нечет</code> или число <code>0–36</code>.")
+
+    await db.add_money(uid, -bet)
+
+    spin_msg = await message.reply(f"🎡 <i>Шарик запущен по колесу рулетки… Ставка: {money(bet)} монет!</i> ⚪️")
+    await asyncio.sleep(1.8)
+
+    winning_num = random.randint(0, 36)
+    if winning_num == 0:
+        win_color = "зеленое 🟢"
+        color_tag = "зеро"
+    elif winning_num in ROULETTE_RED:
+        win_color = "красное 🔴"
+        color_tag = "красное"
+    else:
+        win_color = "черное ⚫️"
+        color_tag = "черное"
+
+    is_even = (winning_num > 0) and (winning_num % 2 == 0)
+
+    # Проверка выигрыша
+    won = False
+    multiplier = 0.0
+
+    if is_num and int(choice_raw) == winning_num:
+        won = True
+        multiplier = 36.0
+    elif choice_raw in {"зеро", "zero"} and winning_num == 0:
+        won = True
+        multiplier = 36.0
+    elif choice_raw in {"красное", "красный", "red"} and color_tag == "красное":
+        won = True
+        multiplier = 2.0
+    elif choice_raw in {"черное", "чёрное", "черный", "black"} and color_tag == "черное":
+        won = True
+        multiplier = 2.0
+    elif choice_raw in {"чет", "четное"} and is_even:
+        won = True
+        multiplier = 2.0
+    elif choice_raw in {"нечет", "нечетное"} and (winning_num > 0 and not is_even):
+        won = True
+        multiplier = 2.0
+
+    payout = int(bet * multiplier)
+    if won:
+        await db.add_money(uid, payout)
+        net_profit = payout - bet
+        res_text = (
+            f"🎰 🎯 <b>ПОБЕДА В РУЛЕТКЕ!</b>\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"Выпало: <b>{winning_num}</b> ({win_color})\n"
+            f"Множитель: <b>x{multiplier:.1f}</b>\n"
+            f"💰 Выигрыш: <b>+{money(payout)}</b> монет (+{money(net_profit)} чистыми)!\n"
+            f"Баланс: <b>{money(bal - bet + payout)}</b> монет."
+        )
+    else:
+        res_text = (
+            f"🎰 💨 <b>ВЫ ПРОИГРАЛИ!</b>\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"Выпало: <b>{winning_num}</b> ({win_color})\n"
+            f"Ваш выбор: <code>{choice_raw}</code>\n"
+            f"💸 Потеряно: <b>-{money(bet)}</b> монет.\n"
+            f"Баланс: <b>{money(bal - bet)}</b> монет."
+        )
+
+    try:
+        await spin_msg.edit_text(res_text)
+    except Exception:
+        await message.reply(res_text)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 7. АДМИН-ОБЪЯВЛЕНИЕ И АНТИРЕЙД КАПЧА
+# ══════════════════════════════════════════════════════════════════════
+
+@router.message(Cmd("объявление", "объявить", "важное",
+                    section=S_ADMIN, rank=3, group_only=True,
+                    usage="объявление [текст]", desc="📢 Опубликовать стильное объявление от администрации с закрепом"))
+async def cmd_admin_announcement(message: Message, bot: Bot, args: str = "", **kw):
+    me = await effective_rank(message, bot)
+    if me < 3:
+        return await message.reply("⛔️ Команда доступна модераторам от <b>3 ранга (Администратор)</b>.")
+
+    text = args.strip()
+    if not text:
+        return await message.reply("📢 Укажите текст объявления: <code>объявление Сегодня в 20:00 клановый турнир!</code>")
+
+    admin_name = message.from_user.first_name if message.from_user else "Администрация"
+    cid = message.chat.id
+
+    banner = (
+        f"📢 ⚡️ <b>ОФИЦИАЛЬНОЕ ОБЪЯВЛЕНИЕ АДМИНИСТРАЦИИ</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"{html.escape(text)}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"✍️ Опубликовал: <b>{html.escape(admin_name)}</b>\n"
+        f"🔔 Просьба ознакомиться всем участникам беседы!"
+    )
+
+    try:
+        sent = await message.reply(banner)
+        try:
+            await bot.pin_chat_message(cid, sent.message_id, disable_notification=False)
+        except Exception:
+            pass
+    except Exception as e:
+        await message.reply(f"❌ Ошибка публикации: {e}")
+
+
+@router.message(Cmd("капча", "антирейд капча", "вход капча",
+                    section=S_ADMIN, rank=4, group_only=True,
+                    usage="капча [вкл|выкл]", desc="🛡 Анти-бот капча при вступлении новых участников"))
+async def cmd_admin_captcha_toggle(message: Message, bot: Bot, args: str = "", **kw):
+    me = await effective_rank(message, bot)
+    if me < 4:
+        return await message.reply("⛔️ Команда доступна администраторам от <b>4 ранга</b>.")
+
+    cid = message.chat.id
+    raw = args.strip().lower()
+
+    if raw in {"вкл", "1", "on", "enable"}:
+        await db.set_setting(cid, "captcha_join", "1")
+        return await message.reply(
+            "🛡 🤖 <b>АНТИ-СПАМ КАПЧА ВКЛЮЧЕНА!</b>\n"
+            "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            "Каждый новый участник чата обязан пройти проверку кнопкой «Я человек» в течение 60 секунд. "
+            "Спам-боты и рейдеры будут автоматически изолированы!"
+        )
+    elif raw in {"выкл", "0", "off", "disable"}:
+        await db.set_setting(cid, "captcha_join", "0")
+        return await message.reply("🛡 <b>Капча для новичков выключена.</b>")
+    else:
+        cur = await db.get_setting(cid, "captcha_join", "0")
+        state_str = "🟢 включена" if cur == "1" else "🔴 выключена"
+        await message.reply(
+            f"🛡 <b>Защита чата капчей:</b> {state_str}\n\n"
+            f"Используйте: <code>капча вкл</code> или <code>капча выкл</code>."
+        )
