@@ -495,7 +495,11 @@ async def cb_noop_children(call: CallbackQuery):
 
 @router.message(Cmd("ребенок", "ребёнок", "мой ребенок", "мой ребёнок", "дети", "отн дети", "отн ребенок инфо",
                     section=S_REL, usage="ребенок", desc="Профиль ребёнка и забота о нём"))
-async def cmd_my_child(message: Message, bot: Bot, **kw):
+async def cmd_my_child(message: Message, bot: Bot, args: str = "", had_prefix: bool = False, **kw):
+    args_clean = (args or "").strip()
+    # Если в группе без префикса передан нечисловой текст (например «ребенок с бабушкой», «дети играют») — это разговорная речь!
+    if not had_prefix and args_clean and not args_clean.isdigit():
+        return
     me_id = message.from_user.id
     rel = await db.get_relationship(me_id)
     if not rel:

@@ -341,6 +341,13 @@ async def cmd_rel_main(message: Message, bot: Bot, args: str = "", **kw):
     me_id = message.from_user.id
     raw_arg = (args or "").strip().lower()
 
+    # Если в группе без префикса переданы случайные разговорные слова (например «пара слов», «пара минут») — игнорируем!
+    if in_group and not had_prefix and raw_arg:
+        if raw_arg not in ("запрос", "запросы", "предложение", "предложения", "основа", "основной") and not raw_arg.isdigit():
+            uid, name, _ = await resolve_target(message, args, bot)
+            if not uid:
+                return
+
     # Запросы в отношения
     if raw_arg in ("запрос", "запросы", "предложение", "предложения"):
         incoming = await db.fetchall("SELECT from_id, ts FROM marry_requests WHERE to_id=?", (me_id,))

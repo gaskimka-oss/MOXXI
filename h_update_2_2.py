@@ -725,9 +725,12 @@ async def cmd_settings_audit(message: Message, bot: Bot, **kw):
 
 @router.message(Cmd("казна", "казна чата", section=34, group_only=True,
                     usage="казна", desc="💸 Баланс общей казны чата"))
-async def cmd_chat_treasury(message: Message, **kw):
+async def cmd_chat_treasury(message: Message, had_prefix: bool = False, **kw):
+    low = (message.text or message.caption or "").strip().lower()
     if not await is_feat_on(message.chat.id, "cash_rain"):
-        return await message.reply("⚠️ Модуль «Казна & Денежный Дождь» выключен в этом чате. Включить: <code>функции 2.2</code>")
+        if had_prefix or low in {"казна", "казна чата"}:
+            return await message.reply("⚠️ Модуль «Казна & Денежный Дождь» выключен в этом чате. Включить: <code>функции 2.2</code>")
+        return
 
     await db.execute("CREATE TABLE IF NOT EXISTS chat_treasury (chat_id INTEGER PRIMARY KEY, balance INTEGER DEFAULT 0)")
     row = await db.fetchone("SELECT balance FROM chat_treasury WHERE chat_id=?", (message.chat.id,))
@@ -743,9 +746,17 @@ async def cmd_chat_treasury(message: Message, **kw):
 
 @router.message(Cmd("дождь", "денежный дождь", section=34, group_only=True,
                     usage="дождь [сумма]", desc="💸 Сбросить денежный дождь в чат для игроков"))
-async def cmd_trigger_cash_rain(message: Message, bot: Bot, args: str = "", **kw):
+async def cmd_trigger_cash_rain(message: Message, bot: Bot, args: str = "", had_prefix: bool = False, **kw):
+    args_clean = (args or "").strip()
+    # Если в группе без префикса передан нечисловой текст (например «дождь идёт», «дождь не очень») — это разговорная речь!
+    if not had_prefix and args_clean and not args_clean.isdigit():
+        return
+
+    low = (message.text or message.caption or "").strip().lower()
     if not await is_feat_on(message.chat.id, "cash_rain"):
-        return await message.reply("⚠️ Модуль «Казна & Денежный Дождь» выключен в этом чате. Включить: <code>функции 2.2</code>")
+        if had_prefix or low in {"дождь", "денежный дождь"}:
+            return await message.reply("⚠️ Модуль «Казна & Денежный Дождь» выключен в этом чате. Включить: <code>функции 2.2</code>")
+        return
 
     me = await effective_rank(message, bot)
     if me < 5:
