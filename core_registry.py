@@ -30,6 +30,7 @@ EXPLICIT_ADDRESS_NAMES = {
     "дождь", "ребенок", "ребёнок", "дети", "пара", "пары", "ночь", "сон",
     "чай", "кофе", "сок", "пицца", "вода", "торт", "пять",
     "тема", "темы", "голос", "друг", "дать", "куш", "стаж", "акции",
+    "бот",
 }
 
 SECTIONS: dict[int, str] = {
@@ -243,12 +244,13 @@ class Cmd(Filter):
         body = text
         had_prefix = False
 
-        # 1. Если сообщение начинается с тега бота: @moxxichat_bot help
+        # 1. Если сообщение начинается с тега самого бота: @moxxichat_bot help
+        # Обычные упоминания пользователей (@username) НЕ являются обращением к боту!
         if body.startswith("@"):
             parts = body.split(maxsplit=1)
-            first_word = parts[0]
+            first_word = parts[0].lower()
             rest = parts[1] if len(parts) > 1 else ""
-            if re.match(r"^@[a-zA-Z0-9_]+$", first_word):
+            if first_word in ("@moxxichat_bot", "@moxxi_bot", "@moxxi", "@zrgg_oblivion_bot") or ("moxxi" in first_word and first_word.endswith("bot")):
                 body = rest
                 had_prefix = True
 
@@ -273,9 +275,11 @@ class Cmd(Filter):
         parts = body.split(maxsplit=1)
         first_token = parts[0]
         rest_token = parts[1] if len(parts) > 1 else ""
-        if "@" in first_token:
+        # Суффикс бота в команде Telegram: /help@moxxichat_bot или !duels@moxxichat_bot
+        # ВАЖНО: обычные упоминания пользователей (@username) не должны считаться командами бота!
+        if "@" in first_token and not first_token.startswith("@"):
             cmd_part, bot_mention = first_token.split("@", 1)
-            if re.match(r"^[a-zA-Z0-9_]+$", bot_mention):
+            if cmd_part and re.match(r"^[a-zA-Z0-9_]+$", bot_mention):
                 body = f"{cmd_part} {rest_token}".strip() if rest_token else cmd_part
                 had_prefix = True
 

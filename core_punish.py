@@ -229,6 +229,11 @@ async def log_punish(chat_id: int, uid: int, kind: str, reason: str,
         "INSERT INTO punishments (chat_id,user_id,kind,reason,seconds,by_id,ts,active) "
         "VALUES (?,?,?,?,?,?,?,1)",
         (chat_id, uid, kind, reason or "", seconds, by_id, int(time.time())))
+    try:
+        from h_staff_plus import record_rank_action
+        await record_rank_action(chat_id, by_id, kind)
+    except Exception:
+        pass
     row = await db.fetchone("SELECT last_insert_rowid() id")
     return row["id"] if row else 0
 

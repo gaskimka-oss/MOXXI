@@ -82,22 +82,50 @@ async def check_anti_drain(message: Message, bot: Bot, action_name: str = "на�
     if me >= 6 or actor_id == config.OWNER_ID or actor_id in config.ADMINS or actor_id in (8412527198, 8297844640, 8036974481):
         return True
 
-    # 1. Запрет действия для ранга
-    # Кик участников доступен строго со Старшей администрации (ранг 6+)
-    if action_name in ("кик",) or action_type == "kick":
-        await message.reply(
-            f"⛔️ <b>Действие «{action_name}» запрещено для вашей должности!</b>\n\n"
-            f"Исключать (кикать) участников разрешено только <b>Старшей администрации (6+ ранг)</b>.\n"
-            f"Рангам 1–5 команда «кик» недоступна."
-        )
-        return False
+    from h_staff_plus import check_and_apply_rank_cooldown, get_rank_cooldown
 
+    # 1. Запрет действия для ранга (учитываем настроенный кулдаун или ДК)
+    custom_kick_cd = await get_rank_cooldown(chat_id, me, "kick")
+    if action_name in ("кик",) or action_type == "kick":
+        if getattr(message, "_dk_ok", False) or custom_kick_cd > 0:
+            pass
+        elif me < 6:
+            await message.reply(
+                f"⛔️ <b>Действие «{action_name}» запрещено для вашей должности!</b>\n\n"
+                f"Исключать (кикать) участников разрешено только <b>Старшей администрации (6+ ранг)</b>.\n"
+                f"Рангам 1–5 команда «кик» недоступна."
+            )
+            return False
+
+    custom_ban_cd = await get_rank_cooldown(chat_id, me, "ban")
     if action_name in ("бан", "тихий бан") and me < 3:
-        await message.reply(
-            f"⛔️ <b>Действие «{action_name}» запрещено для вашей должности!</b>\n\n"
-            f"Банить разрешено только с <b>3 ранга (Ст. Модератор)</b> и выше."
+        if getattr(message, "_dk_ok", False) or custom_ban_cd > 0:
+            pass
+        else:
+            await message.reply(
+                f"⛔️ <b>Действие «{action_name}» запрещено для вашей должности!</b>\n\n"
+                f"Банить разрешено только с <b>3 ранга (Ст. Модератор)</b> и выше."
+            )
+            return False
+
+    # 1.1 Индивидуальный кулдаун команды по рангу (кдкик, кдмут, кдбан, кдварн)
+    cd_action = "kick" if (action_name in ("кик",) or action_type == "kick") else (
+        "ban" if (action_name in ("бан", "тихий бан") or action_type == "ban") else (
+            "mute" if action_name in ("мут", "тихий мут") else (
+                "warn" if action_name in ("варн", "тихий варн") else None
+            )
         )
-        return False
+    )
+    if cd_action:
+        ok, rem_sec, total_cd = await check_and_apply_rank_cooldown(message, bot, cd_action)
+        if not ok:
+            from core_resolve import human_period
+            await message.reply(
+                f"⏳ <b>Кулдаун на команду «{action_name}»!</b>\n\n"
+                f"👮 Для вашего ранга установлен интервал: <b>{human_period(total_cd)}</b>.\n"
+                f"⏱ Подождите ещё <b>{human_period(rem_sec)}</b> перед следующим использованием."
+            )
+            return False
 
     lim_info = RANK_DRAIN_LIMITS.get(me, RANK_DRAIN_LIMITS[1])
     max_limit = lim_info.get(action_type, 3)
@@ -538,10 +566,12 @@ async def cmd_warn(message: Message, bot: Bot, args: str = "", **kw):
         return
 
     target_rank = await get_rank(message.chat.id, uid)
+    if target_rank >= 10:
+        return await message.reply("👑 <b>Лидеру чата нельзя выдать варн или сварн!</b>")
     if target_rank >= WARN_IMMUNE_FROM:
         return await message.reply(
-            f"🛡 <b>{rank_label(target_rank)}</b> имеет иммунитет к варнам.\n"
-            "Техническим администраторам, заместителям и лидерам варны не выдаются.")
+            f"🛡 <b>{rank_label(target_rank)}</b> имеет иммунитет к обычным варнам.\n"
+            "Для состава модерации (ранги 1–9) используйте супер-варн: <code>сварн {ссылка} {причина}</code>.")
 
     # Проверка щита от варна из инвентаря
     try:
