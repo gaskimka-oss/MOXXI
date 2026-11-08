@@ -955,6 +955,39 @@
       color: #94a3b8;
       cursor: pointer;
     }
+  
+    /* Селектор множителей ставок x1, x2, x3, x5, x9, x10 */
+    .mult-selector {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 8px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+    .mult-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-right: 2px;
+    }
+    .mult-chip {
+      background: rgba(30, 41, 59, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #94a3b8;
+      border-radius: 8px;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .mult-chip.active {
+      background: linear-gradient(135deg, #10b981, #06b6d4);
+      color: #fff;
+      border-color: #10b981;
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.45);
+    }
+
   </style>
 </head>
 <body>
@@ -1049,11 +1082,11 @@
       <span>ДОБАВИТЬ ЯРЛЫК НА ГЛАВНЫЙ ЭКРАН</span>
     </button>
 
-    <!-- Неоновый блок "ЕЖЕДНЕВНЫЙ БОНУС +150 000 000 MOXXI" -->
+    <!-- Неоновый блок "ЕЖЕДНЕВНЫЙ БОНУС" с таймером КД -->
     <div class="daily-bonus-card">
       <div class="daily-bonus-info">
-        <span class="daily-bonus-title">ЕЖЕДНЕВНЫЙ БОНУС</span>
-        <span class="daily-bonus-amount">+150 000 000 MOXXI</span>
+        <span class="daily-bonus-title">🎁 ЕЖЕДНЕВНЫЙ БОНУС</span>
+        <span class="daily-bonus-amount">до +7 500 🪙 · серия x4.0</span>
       </div>
       <button class="btn-claim-bonus" id="btnDailyBonus" onclick="claimDailyBonus()">
         ЗАБРАТЬ
@@ -1096,8 +1129,17 @@
         <button class="bet-btn" onclick="setSlotBet(1000)">1 000</button>
         <button class="bet-btn" onclick="setSlotBet(5000)">5 000</button>
       </div>
+      <div class="mult-selector">
+        <span class="mult-label">Множитель:</span>
+        <button class="mult-chip active" onclick="setSlotMult(1)">x1</button>
+        <button class="mult-chip" onclick="setSlotMult(2)">x2</button>
+        <button class="mult-chip" onclick="setSlotMult(3)">x3</button>
+        <button class="mult-chip" onclick="setSlotMult(5)">x5</button>
+        <button class="mult-chip" onclick="setSlotMult(9)">x9</button>
+        <button class="mult-chip" onclick="setSlotMult(10)">x10</button>
+      </div>
       <button class="action-btn" id="btnSpinSlots" onclick="spinSlots()">
-        <span>🎰</span> КРУТИТЬ БАРАБАН
+        <span>🎰</span> КРУТИТЬ БАРАБАН (<span id="slotTotalBet">500</span> 🪙)
       </button>
     </div>
 
@@ -1106,6 +1148,13 @@
       <div class="game-card-title">
         <span>💣 Игра «Мины»</span>
         <span class="badge-stat" id="minesMultBadge">x1.20 - x32.0</span>
+      </div>
+      <div class="mult-selector" style="margin-bottom: 10px;">
+        <span class="mult-label">Риск (бомбы):</span>
+        <button class="mult-chip" onclick="setMinesBombs(2)">2💣 (до x18)</button>
+        <button class="mult-chip active" onclick="setMinesBombs(3)">3💣 (до x38)</button>
+        <button class="mult-chip" onclick="setMinesBombs(5)">5💣 (до x120)</button>
+        <button class="mult-chip" onclick="setMinesBombs(8)">8💣 (до x550)</button>
       </div>
       <div class="mines-board" id="minesBoard">
         <!-- 25 тайлов генерируются в JS -->
@@ -1118,6 +1167,34 @@
           <span>💰</span> ЗАБРАТЬ (<span id="minesCashoutVal">0</span>)
         </button>
       </div>
+    </div>
+
+        <!-- КАРТОЧКА: КОСТИ MOXXI 3.0 -->
+    <div class="game-card">
+      <div class="game-card-title">
+        <span>🎲 Кости Moxxi 3.0</span>
+        <span class="badge-stat">Выигрыш x2.20</span>
+      </div>
+      <div style="display: flex; justify-content: center; align-items: center; gap: 20px; padding: 14px 0;">
+        <div style="text-align: center;">
+          <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">ВЫ</div>
+          <div class="slot-reel" id="diceUser">🎲</div>
+        </div>
+        <div style="font-size: 18px; font-weight: 900; color: #94a3b8;">VS</div>
+        <div style="text-align: center;">
+          <div style="font-size: 11px; color: #facc15; margin-bottom: 4px;">МОКСИ</div>
+          <div class="slot-reel" id="diceBot" style="border-color: #facc15;">🎲</div>
+        </div>
+      </div>
+      <div class="bet-selector">
+        <button class="bet-btn" onclick="setDiceBet(500)">500</button>
+        <button class="bet-btn active" onclick="setDiceBet(1000)">1 000</button>
+        <button class="bet-btn" onclick="setDiceBet(5000)">5 000</button>
+        <button class="bet-btn" onclick="setDiceBet(25000)">25 000</button>
+      </div>
+      <button class="action-btn" id="btnRollDice" onclick="rollDiceGame()">
+        <span>🎲</span> БРОСИТЬ КОСТИ (x2.2)
+      </button>
     </div>
 
     <!-- КАРТОЧКА 3: РАКЕТА КРАШ -->
@@ -1218,21 +1295,42 @@
 
     let soundEnabled = true;
     let hapticEnabled = true;
-    let userBalance = 750105297;
+    let userBalance = 10000;
     let currentSlotBet = 500;
     let gameHistory = [];
 
     // Загрузка данных пользователя из Telegram WebApp
     function initUser() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const paramName = urlParams.get("name") || urlParams.get("user") || urlParams.get("first_name");
+      const paramPlatform = (urlParams.get("platform") || "").toUpperCase();
+
       const u = tg?.initDataUnsafe?.user;
-      if (u) {
-        const name = u.first_name || "Боец";
-        document.getElementById("uName").innerText = name;
-        document.getElementById("uAvatar").innerText = name.charAt(0).toUpperCase();
-        if (u.photo_url) {
-          document.getElementById("uAvatar").innerHTML = `<img src="${u.photo_url}" alt="avatar">`;
+      let finalName = "Боец";
+      if (paramName) {
+        finalName = decodeURIComponent(paramName);
+      } else if (u?.first_name) {
+        finalName = u.first_name;
+      }
+
+      const nameEl = document.getElementById("uName");
+      if (nameEl) nameEl.innerText = finalName;
+
+      const avatarEl = document.getElementById("uAvatar");
+      if (avatarEl) {
+        avatarEl.innerText = finalName.charAt(0).toUpperCase();
+        if (u?.photo_url) {
+          avatarEl.innerHTML = `<img src="${u.photo_url}" alt="avatar">`;
         }
       }
+
+      if (paramPlatform) {
+        const subinfo = document.querySelector(".user-subinfo");
+        if (subinfo) {
+          subinfo.innerHTML = `<span class="vip-badge">✦ ${paramPlatform} EDITION</span> <span>• VIP 5</span>`;
+        }
+      }
+
       // Загрузка локального баланса
       const savedBal = localStorage.getItem("moxxi_bal_v3");
       if (savedBal) {
@@ -1248,11 +1346,19 @@
 
     // Звуки и виброотклик
     function triggerHaptic(type = "light") {
-      if (!hapticEnabled || !tg?.HapticFeedback) return;
-      if (type === "success") tg.HapticFeedback.notificationOccurred("success");
-      else if (type === "error") tg.HapticFeedback.notificationOccurred("error");
-      else if (type === "medium") tg.HapticFeedback.impactOccurred("medium");
-      else tg.HapticFeedback.impactOccurred("light");
+      if (!hapticEnabled) return;
+      if (tg?.HapticFeedback) {
+        if (type === "success") tg.HapticFeedback.notificationOccurred("success");
+        else if (type === "error") tg.HapticFeedback.notificationOccurred("error");
+        else if (type === "medium") tg.HapticFeedback.impactOccurred("medium");
+        else tg.HapticFeedback.impactOccurred("light");
+      } else if (typeof navigator !== "undefined" && navigator.vibrate) {
+        try {
+          if (type === "error") navigator.vibrate([40, 60, 40]);
+          else if (type === "success") navigator.vibrate([30, 50]);
+          else navigator.vibrate(20);
+        } catch (e) {}
+      }
     }
 
     function toggleSound() {
@@ -1321,38 +1427,80 @@
       }
     }
 
-    // Ежедневный бонус
+    // Ежедневный бонус с сохранением таймера кулдауна (4 часа)
+    const BONUS_COOLDOWN_SEC = 14400; // 4 часа кулдаун
+    function checkBonusCooldown() {
+      const btn = document.getElementById("btnDailyBonus");
+      if (!btn) return;
+      const last = parseInt(localStorage.getItem("moxxi_bonus_last_ts") || "0");
+      const now = Math.floor(Date.now() / 1000);
+      const diff = now - last;
+      if (diff < BONUS_COOLDOWN_SEC) {
+        const left = BONUS_COOLDOWN_SEC - diff;
+        const h = Math.floor(left / 3600);
+        const m = Math.floor((left % 3600) / 60);
+        const s = left % 60;
+        btn.disabled = true;
+        btn.innerText = `⏳ ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+        btn.style.background = "#334155";
+        btn.style.borderColor = "#475569";
+        btn.style.color = "#94a3b8";
+      } else {
+        btn.disabled = false;
+        btn.innerText = "ЗАБРАТЬ";
+        btn.style.background = "linear-gradient(135deg, #10b981, #06b6d4)";
+        btn.style.borderColor = "#10b981";
+        btn.style.color = "#fff";
+      }
+    }
+
     function claimDailyBonus() {
       const btn = document.getElementById("btnDailyBonus");
       if (btn.disabled) return;
-      userBalance += 150000000;
+      const reward = Math.floor(Math.random() * (7500 - 2500 + 1)) + 2500;
+      userBalance += reward;
       updateBalanceUI();
       triggerHaptic("success");
-      btn.disabled = true;
-      btn.innerText = "ПОЛУЧЕНО ✓";
-      btn.style.background = "#334155";
-      btn.style.borderColor = "#475569";
+      const now = Math.floor(Date.now() / 1000);
+      localStorage.setItem("moxxi_bonus_last_ts", now);
+      checkBonusCooldown();
       sendActionToBot("бонус");
+      alert(`🎁 Ежедневный бонус получен: +${reward.toLocaleString("ru-RU")} монет!\nСледующий бонус через 4 часа.`);
+      gameHistory.unshift(`Бонус: получено +${reward.toLocaleString("ru-RU")} монет`);
     }
+
+    setInterval(checkBonusCooldown, 1000);
 
     // ── СЛОТЫ 777 ─────────────────────────────────────────────────────────
     const slotSymbols = ["7", "💎", "🍒", "👑", "🍋", "🔔"];
+    let slotMultiplier = 1;
+    function setSlotMult(m) {
+      slotMultiplier = m;
+      document.querySelectorAll(".mult-selector .mult-chip").forEach(c => {
+        c.classList.toggle("active", c.innerText === ("x" + m));
+      });
+      document.getElementById("slotTotalBet").innerText = (currentSlotBet * slotMultiplier).toLocaleString("ru-RU");
+      triggerHaptic();
+    }
+
     function setSlotBet(amt) {
       currentSlotBet = amt;
-      document.querySelectorAll(".bet-btn").forEach(b => {
+      document.querySelectorAll(".bet-selector .bet-btn").forEach(b => {
         b.classList.toggle("active", b.innerText.replace(/\s/g, "") == amt);
       });
+      document.getElementById("slotTotalBet").innerText = (currentSlotBet * slotMultiplier).toLocaleString("ru-RU");
       triggerHaptic();
     }
 
     let isSpinning = false;
     function spinSlots() {
       if (isSpinning) return;
-      if (userBalance < currentSlotBet) {
+      const effectiveBet = currentSlotBet * slotMultiplier;
+      if (userBalance < effectiveBet) {
         alert("Недостаточно монет для вращения!");
         return;
       }
-      userBalance -= currentSlotBet;
+      userBalance -= effectiveBet;
       updateBalanceUI();
       isSpinning = true;
       triggerHaptic("medium");
@@ -1376,23 +1524,100 @@
           const s3 = r3.innerText;
           if (s1 === s2 && s2 === s3) {
             const mult = (s1 === "7") ? 50 : 15;
-            const win = currentSlotBet * mult;
+            const win = currentSlotBet * slotMultiplier * mult;
             userBalance += win;
             updateBalanceUI();
             triggerHaptic("success");
-            alert(`🎉 ДЖЕКПОТ 777! Вы выиграли +${win.toLocaleString("ru-RU")} монет!`);
-            gameHistory.unshift(`Слоты: 3x [${s1}] — выигрыш +${win}`);
+            alert(`🎉 ДЖЕКПОТ 777 (x${slotMultiplier})! Вы выиграли +${win.toLocaleString("ru-RU")} монет!`);
+            gameHistory.unshift(`Слоты (x${slotMultiplier}): 3x [${s1}] — выигрыш +${win}`);
           } else if (s1 === s2 || s2 === s3 || s1 === s3) {
-            const win = Math.floor(currentSlotBet * 1.5);
+            const win = Math.floor(currentSlotBet * slotMultiplier * 1.8);
             userBalance += win;
             updateBalanceUI();
             triggerHaptic("light");
-            gameHistory.unshift(`Слоты: пара [${s1}] — выигрыш +${win}`);
+            gameHistory.unshift(`Слоты (x${slotMultiplier}): пара [${s1}] — выигрыш +${win}`);
           } else {
-            gameHistory.unshift(`Слоты: проигрыш -${currentSlotBet}`);
+            gameHistory.unshift(`Слоты (x${slotMultiplier}): проигрыш -${currentSlotBet * slotMultiplier}`);
           }
         }
       }, 70);
+    }
+
+    
+    // ── НАСТРОЙКА БОМБ В МИНАХ ───────────────────────────────────────────
+    let currentBombsCount = 3;
+    function setMinesBombs(b) {
+      if (minesActive) return;
+      currentBombsCount = b;
+      document.querySelectorAll(".game-card:nth-of-type(2) .mult-chip").forEach(btn => {
+        btn.classList.toggle("active", btn.innerText.startsWith(b + "💣"));
+      });
+      const badge = document.getElementById("minesMultBadge");
+      if (b === 2) badge.innerText = "x1.15 - x18.0";
+      else if (b === 3) badge.innerText = "x1.35 - x38.0";
+      else if (b === 5) badge.innerText = "x1.85 - x120.0";
+      else if (b === 8) badge.innerText = "x3.20 - x550.0";
+      triggerHaptic();
+    }
+
+    // ── ИГРА В КОСТИ (DICE GAME) ─────────────────────────────────────────
+    let currentDiceBet = 1000;
+    function setDiceBet(amt) {
+      currentDiceBet = amt;
+      document.querySelectorAll(".game-card:nth-of-type(3) .bet-btn").forEach(btn => {
+        btn.classList.toggle("active", btn.innerText.replace(/\s/g, "") == amt);
+      });
+      triggerHaptic();
+    }
+
+    let isDiceRolling = false;
+    function rollDiceGame() {
+      if (isDiceRolling) return;
+      if (userBalance < currentDiceBet) {
+        alert("Недостаточно монет для броска костей!");
+        return;
+      }
+      userBalance -= currentDiceBet;
+      updateBalanceUI();
+      isDiceRolling = true;
+      triggerHaptic("medium");
+
+      const uEl = document.getElementById("diceUser");
+      const bEl = document.getElementById("diceBot");
+      const diceFaces = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
+
+      let rolls = 0;
+      const rollInt = setInterval(() => {
+        uEl.innerText = diceFaces[Math.floor(Math.random() * 6)];
+        bEl.innerText = diceFaces[Math.floor(Math.random() * 6)];
+        rolls++;
+        if (rolls > 12) {
+          clearInterval(rollInt);
+          isDiceRolling = false;
+          const uVal = Math.floor(Math.random() * 6) + 1;
+          const bVal = Math.floor(Math.random() * 6) + 1;
+          uEl.innerText = diceFaces[uVal - 1];
+          bEl.innerText = diceFaces[bVal - 1];
+
+          if (uVal > bVal) {
+            const win = Math.floor(currentDiceBet * 2.2);
+            userBalance += win;
+            updateBalanceUI();
+            triggerHaptic("success");
+            alert(`🎉 ВЫ ПОБЕДИЛИ! ${uVal} против ${bVal} у Мокси! Выигрыш: +${win.toLocaleString("ru-RU")} монет!`);
+            gameHistory.unshift(`Кости: победа ${uVal}:${bVal} — +${win}`);
+          } else if (uVal === bVal) {
+            userBalance += currentDiceBet;
+            updateBalanceUI();
+            alert(`🤝 НИЧЬЯ (${uVal}:${bVal})! Ставка возвращена на баланс.`);
+            gameHistory.unshift(`Кости: ничья ${uVal}:${bVal}`);
+          } else {
+            triggerHaptic("error");
+            alert(`💔 Мокси выбросила ${bVal}, а у вас ${uVal}. Ставка проиграна.`);
+            gameHistory.unshift(`Кости: проигрыш ${uVal}:${bVal} (-${currentDiceBet})`);
+          }
+        }
+      }, 80);
     }
 
     // ── МИНЫ ─────────────────────────────────────────────────────────────
@@ -1558,31 +1783,53 @@
       if (e.target.id === "appModal") closeModalDirect();
     }
 
+    const BUSINESSES_DATA = [
+      { id: 1, name: "Ферма", emoji: "🌾", price: 5000, income: 3, lvl: 1 },
+      { id: 2, name: "Дом в аренду", emoji: "🏠", price: 18000, income: 10, lvl: 2 },
+      { id: 3, name: "Завод", emoji: "🏭", price: 60000, income: 32, lvl: 3 },
+      { id: 4, name: "Торговый центр", emoji: "🏢", price: 200000, income: 100, lvl: 4 },
+      { id: 5, name: "Крипто-шахта", emoji: "⛏", price: 712500, income: 340, lvl: 5 },
+      { id: 6, name: "Кофейня Мокси", emoji: "☕", price: 1500000, income: 850, lvl: 5 },
+      { id: 7, name: "Электростанция", emoji: "⚡", price: 2500000, income: 1150, lvl: 6 },
+      { id: 8, name: "Неоновое Казино", emoji: "🎰", price: 5000000, income: 2400, lvl: 7 },
+      { id: 9, name: "Нефтяная вышка", emoji: "🛢", price: 8000000, income: 3600, lvl: 8 },
+      { id: 10, name: "Космодром", emoji: "🚀", price: 30000000, income: 13000, lvl: 10 },
+      { id: 11, name: "Кристалльный Монолит", emoji: "💎", price: 50000000, income: 24000, lvl: 11 },
+      { id: 12, name: "Банковский конгломерат", emoji: "🏦", price: 85000000, income: 35000, lvl: 12 },
+      { id: 13, name: "Орбитальная станция", emoji: "🛰", price: 220000000, income: 88000, lvl: 15 },
+      { id: 14, name: "Сфера Дайсона", emoji: "🌌", price: 1200000000, income: 450000, lvl: 22 },
+      { id: 15, name: "Колония на Марсе", emoji: "🪐", price: 2800000000, income: 1000000, lvl: 26 }
+    ];
+
     function openBusinessModal() {
+      const listHtml = BUSINESSES_DATA.map(b => `
+        <div style="background: rgba(30, 41, 59, 0.6); padding: 8px 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <div style="font-weight: 800; font-size: 13px;">${b.emoji} ${b.name} <span style="font-size: 10px; color: #facc15;">${b.lvl} LVL</span></div>
+            <div style="font-size: 11px; color: #10b981; margin-top: 1px;">Доход: +${b.income.toLocaleString("ru-RU")} 🪙/мин • Цена: ${b.price.toLocaleString("ru-RU")} 🪙</div>
+          </div>
+          <button style="background: linear-gradient(135deg, #8b5cf6, #06b6d4); color: #fff; border: none; padding: 5px 10px; border-radius: 8px; font-size: 11px; font-weight: 800; cursor: pointer;" onclick="sendActionToBot('купить бизнес ${b.id}')">Купить</button>
+        </div>
+      `).join("");
+
       showModal(`
-        <h2 style="font-size: 18px; font-weight: 900; color: #fff; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-          <span>🏢</span> Каталог предприятий
+        <h2 style="font-size: 18px; font-weight: 900; color: #fff; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
+          <span>🏢</span> Каталог предприятий (15 видов)
         </h2>
-        <p style="font-size: 12px; color: #94a3b8; margin-bottom: 16px;">
+        <p style="font-size: 12px; color: #94a3b8; margin-bottom: 10px;">
           Предприятия приносят пассивный доход в монетах 🪙 каждую минуту!
         </p>
-        <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px;">
-          <div style="background: rgba(30, 41, 59, 0.6); padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06);">
-            <div style="font-weight: 800; font-size: 14px;">☕ Кофейня Мокси</div>
-            <div style="font-size: 11px; color: #10b981;">Доход: 5 000 🪙/мин • Цена: 500 000 🪙</div>
-          </div>
-          <div style="background: rgba(30, 41, 59, 0.6); padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06);">
-            <div style="font-weight: 800; font-size: 14px;">🎰 Неоновое Казино</div>
-            <div style="font-size: 11px; color: #10b981;">Доход: 45 000 🪙/мин • Цена: 5 000 000 🪙</div>
-          </div>
-          <div style="background: rgba(30, 41, 59, 0.6); padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06);">
-            <div style="font-weight: 800; font-size: 14px;">💎 Кристалльный Монолит</div>
-            <div style="font-size: 11px; color: #10b981;">Доход: 350 000 🪙/мин • Цена: 50 000 000 🪙</div>
-          </div>
+        <div style="display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow-y: auto; margin-bottom: 12px; padding-right: 4px;">
+          ${listHtml}
         </div>
-        <button class="action-btn" onclick="sendActionToBot('бизнесы')">
-          <span>💼</span> ОТКРЫТЬ ВСЕ БИЗНЕСЫ В ЧАТЕ
-        </button>
+        <div style="display: flex; gap: 8px;">
+          <button class="action-btn" style="flex: 1;" onclick="sendActionToBot('собрать')">
+            <span>💰</span> СОБРАТЬ ПРИБЫЛЬ
+          </button>
+          <button class="action-btn cyan" style="flex: 1;" onclick="sendActionToBot('бизнесы')">
+            <span>🏢</span> ВЕСЬ КАТАЛОГ
+          </button>
+        </div>
       `);
     }
 
