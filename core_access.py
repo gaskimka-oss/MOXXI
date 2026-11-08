@@ -101,9 +101,17 @@ async def check(message, bot, key: str, base_rank: int,
     if quiet and key not in ADMIN_KEYS:
         return ""
 
-    return (f"⛔️ Недостаточно прав для этой команды.\n"
-            f"Нужен ранг: <b>{rank_label(need)}</b>\n"
-            f"Ваш ранг: <b>{rank_label(have) if have else 'Участник'}</b>")
+    cmd_name = (key or "этой команды").strip()
+    return (
+        f"⛔️ <b>Недостаточно прав для команды «{cmd_name}»!</b>\n\n"
+        f"🔒 Требуемый ранг: <b>{rank_label(need)}</b> (Ранг {need})\n"
+        f"👤 Ваш текущий ранг: <b>{rank_label(have) if have else 'Участник'}</b> (Ранг {have})\n\n"
+        f"💡 <b>Как настроить доступ к этой команде:</b>\n"
+        f"• Разрешить команду всем: <code>дк {cmd_name} 0</code>\n"
+        f"• Изменить ранг доступа: <code>дк {cmd_name} {need}</code>\n"
+        f"• Выдать личный доступ игроку: <code>+пдк @юзер {cmd_name}</code>\n\n"
+        f"ℹ️ <i>Если вы участник — обратитесь к администрации чата с просьбой открыть команду:</i> <code>дк {cmd_name} 0</code>"
+    )
 
 
 ALLOWED_WITHOUT_FORM = {
@@ -187,20 +195,6 @@ async def access_middleware(handler, event, data: dict):
                         pass
                 return
 
-        # тема описаний — только для незаполнивших: остальным там тихо
-        if key not in {"описание", "+описание", "шаблон", "тема описания",
-                       "анкета обязательна"}:
-            try:
-                from h_userinfo import (get_form_topic, needs_form,
-                                               topic_id)
-                ft = await get_form_topic(event.chat.id)
-                if ft and topic_id(event) == ft and event.from_user:
-                    if not await needs_form(event.chat.id, event.from_user.id):
-                        from core_ranks import effective_rank
-                        if await effective_rank(event, data.get("bot")) < 1:
-                            return
-            except Exception:
-                pass
 
         # доступ разрешён на уровне ДК — внутренние require() не должны спорить
         try:

@@ -616,22 +616,40 @@ async def cmd_strict(message: Message, bot: Bot, args: str = "", **kw):
 
 # ═══════════════ ИИ-НАДЗОР ═══════════════
 @router.message(Cmd("ии надзор", "ии статус", "автомут ии", "нейросеть статус", "ии настройки",
-                    section=S, rank=6, usage="ии надзор", desc="🧠 ИИ-надзор: статус и настройка"))
+                    section=S, rank=0, usage="ии статус", desc="🧠 ИИ-надзор: статус и настройка"))
 async def cmd_ai(message: Message, bot: Bot, args: str = "", **kw):
     """Статус ИИ, включение оповещений."""
-    if not await require(message, bot, 6):
-        return
     import core_ai as ai
     cid = message.chat.id
     a = (args or "").strip().lower()
 
     # ии оповещения вкл|выкл
     if a.startswith(("оповещ", "уведом", "алерт")):
-        val = "0" if "выкл" in a else "1"
+        if not await require(message, bot, 3):
+            return
+        val = "0" if any(w in a for w in ("выкл", "off", "0", "нет")) else "1"
         await db.set_setting(cid, "ai_alerts", val)
         return await message.reply(
             f"🔔 Оповещения о спорных наказаниях: "
             f"<b>{'включены' if val == '1' else 'выключены'}</b>")
+
+    prov = ai.provider()
+    model = getattr(ai, "MODEL", "Gemini Flash")
+    alerts = await db.get_setting(cid, "ai_alerts", "1")
+    alerts_str = "🟢 Включены" if alerts == "1" else "🔴 Выключены"
+
+    text = (
+        f"🧠 ✨ <b>СТАТУС ИИ-НАДЗОРА MOXXI</b> ✨ 🧠\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"🤖 <b>Сервис:</b> <code>{prov}</code>\n"
+        f"⚡ <b>Модель:</b> <code>{model}</code>\n"
+        f"🔔 <b>Оповещения о спорных наказаниях:</b> {alerts_str}\n\n"
+        f"💡 <b>Команды управления:</b>\n"
+        f"• <code>ии оповещения вкл/выкл</code> (с 3 ранга)\n"
+        f"• <code>ии анализ</code> (сводка обстановки в чате)\n"
+        f"• <code>ии [вопрос]</code> (живой диалог с Мокси)"
+    )
+    return await message.reply(text)
 
 
 @router.message(Cmd("ии сводка", "сводка чата", "отчет чата", section=S, rank=4,

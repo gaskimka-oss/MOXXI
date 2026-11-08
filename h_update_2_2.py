@@ -79,7 +79,7 @@ FEATURE_NAMES = {
 
 async def is_feat_on(chat_id: int, feature: str) -> bool:
     """Проверяет, включена ли конкретная функция в конкретном чате.
-    По умолчанию ВСЕ новые функции выключены (False)!"""
+    Базовые информационные модули (теплокарта, рулетка, дизайн) включены по умолчанию!"""
     await db.execute(
         "CREATE TABLE IF NOT EXISTS chat_features_2_2 ("
         "chat_id INTEGER, "
@@ -91,7 +91,12 @@ async def is_feat_on(chat_id: int, feature: str) -> bool:
         "SELECT enabled FROM chat_features_2_2 WHERE chat_id=? AND feature=?",
         (chat_id, feature)
     )
-    return bool(row and row["enabled"] == 1)
+    if row is not None:
+        return bool(row["enabled"] == 1)
+    # По умолчанию для базовых модулей обновления: ВКЛЮЧЕНО
+    if feature in ("heatmap", "roulette_mute", "custom_design", "voice_stt"):
+        return True
+    return False
 
 
 async def set_feat(chat_id: int, feature: str, enabled: bool):
@@ -720,9 +725,12 @@ async def cmd_settings_audit(message: Message, bot: Bot, **kw):
 
 @router.message(Cmd("казна", "казна чата", section=34, group_only=True,
                     usage="казна", desc="💸 Баланс общей казны чата"))
-async def cmd_chat_treasury(message: Message, **kw):
+async def cmd_chat_treasury(message: Message, had_prefix: bool = False, **kw):
+    low = (message.text or message.caption or "").strip().lower()
     if not await is_feat_on(message.chat.id, "cash_rain"):
-        return await message.reply("⚠️ Модуль «Казна & Денежный Дождь» выключен в этом чате. Включить: <code>функции 2.2</code>")
+        if had_prefix or low in {"казна", "казна чата"}:
+            return await message.reply("⚠️ Модуль «Казна & Денежный Дождь» выключен в этом чате. Включить: <code>функции 2.2</code>")
+        return
 
     await db.execute("CREATE TABLE IF NOT EXISTS chat_treasury (chat_id INTEGER PRIMARY KEY, balance INTEGER DEFAULT 0)")
     row = await db.fetchone("SELECT balance FROM chat_treasury WHERE chat_id=?", (message.chat.id,))
@@ -738,9 +746,17 @@ async def cmd_chat_treasury(message: Message, **kw):
 
 @router.message(Cmd("дождь", "денежный дождь", section=34, group_only=True,
                     usage="дождь [сумма]", desc="💸 Сбросить денежный дождь в чат для игроков"))
-async def cmd_trigger_cash_rain(message: Message, bot: Bot, args: str = "", **kw):
+async def cmd_trigger_cash_rain(message: Message, bot: Bot, args: str = "", had_prefix: bool = False, **kw):
+    args_clean = (args or "").strip()
+    # Если в группе без префикса передан нечисловой текст (например «дождь идёт», «дождь не очень») — это разговорная речь!
+    if not had_prefix and args_clean and not args_clean.isdigit():
+        return
+
+    low = (message.text or message.caption or "").strip().lower()
     if not await is_feat_on(message.chat.id, "cash_rain"):
-        return await message.reply("⚠️ Модуль «Казна & Денежный Дождь» выключен в этом чате. Включить: <code>функции 2.2</code>")
+        if had_prefix or low in {"дождь", "денежный дождь"}:
+            return await message.reply("⚠️ Модуль «Казна & Денежный Дождь» выключен в этом чате. Включить: <code>функции 2.2</code>")
+        return
 
     me = await effective_rank(message, bot)
     if me < 5:
@@ -1273,23 +1289,30 @@ async def on_service_join_leave(message: Message, bot: Bot):
                 pass
 
 
-@router.message(F.text)
-async def on_custom_buttons_trigger(message: Message):
-    if message.chat and message.chat.type in {"group", "supergroup"}:
-        await record_chat_activity(message.chat.id)
-    """Проверяет кастомные кнопки-триггеры из Фичи 2."""
+async def _custom_button_filter(message: Message) -> bool:
     if not message.chat or message.chat.type not in {"group", "supergroup"}:
-        return
+        return False
     text = (message.text or "").strip().lower()
-    if not text:
-        return
+    if not text or len(text) > 60 or text.startswith(("/", "!", "+", "-", ".")):
+        return False
+    if not await is_feat_on(message.chat.id, "custom_buttons"):
+        return False
+    row = await db.fetchone(
+        "SELECT 1 FROM custom_chat_buttons WHERE chat_id=? AND trigger=?",
+        (message.chat.id, text)
+    )
+    return bool(row)
 
-    # Проверяем триггер
+
+@router.message(F.text, _custom_button_filter)
+async def on_custom_buttons_trigger(message: Message):
+    """Проверяет кастомные кнопки-триггеры из Фичи 2."""
+    text = (message.text or "").strip().lower()
     row = await db.fetchone(
         "SELECT text, btn_label, btn_url FROM custom_chat_buttons WHERE chat_id=? AND trigger=?",
         (message.chat.id, text)
     )
-    if row and await is_feat_on(message.chat.id, "custom_buttons"):
+    if row:
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text=row["btn_label"], url=row["btn_url"])
         ]])
@@ -1339,10 +1362,17 @@ def _activity_to_emoji(cnt: int) -> str:
 
 
 @router.message(Cmd("теплокарта", "тепловая карта", "карта активности", "heatmap",
-                    section=34, group_only=True,
+                    section=34, group_only=False,
                     usage="теплокарта", desc="📊 Визуальная тепловая карта активности 7x24"))
 async def cmd_chat_heatmap(message: Message, bot: Bot, **kw):
-    if not await is_feat_on(message.chat.id, "heatmap"):
+    if not message.chat or message.chat.type not in {"group", "supergroup"}:
+        target_chat_id = config.MAIN_CHAT
+        chat_title = "Главная беседа проекта"
+    else:
+        target_chat_id = message.chat.id
+        chat_title = message.chat.title or "Беседа"
+
+    if not await is_feat_on(target_chat_id, "heatmap"):
         return await message.reply("⚠️ Модуль «Тепловая карта» выключен в этом чате. Включить: <code>функции 2.2</code>")
 
     await db.execute(
@@ -1353,7 +1383,7 @@ async def cmd_chat_heatmap(message: Message, bot: Bot, **kw):
 
     rows = await db.fetchall(
         "SELECT day_of_week, hour, count FROM chat_hourly_activity WHERE chat_id=?",
-        (message.chat.id,)
+        (target_chat_id,)
     )
 
     matrix = {dow: {h: 0 for h in range(24)} for dow in range(7)}
@@ -1364,7 +1394,7 @@ async def cmd_chat_heatmap(message: Message, bot: Bot, **kw):
 
     # Если база новая/пустая, используем реальный объем из chat_stats для наглядности
     if total_msgs < 30:
-        cs_row = await db.fetchone("SELECT SUM(messages) as sm FROM chat_stats WHERE chat_id=?", (message.chat.id,))
+        cs_row = await db.fetchone("SELECT SUM(messages) as sm FROM chat_stats WHERE chat_id=?", (target_chat_id,))
         approx = cs_row["sm"] if (cs_row and cs_row.get("sm")) else 500
         for d in range(7):
             for h in range(24):
@@ -1386,7 +1416,7 @@ async def cmd_chat_heatmap(message: Message, bot: Bot, **kw):
 
     lines = [
         "📊 <b>ТЕПЛОВАЯ КАРТА АКТИВНОСТИ ЧАТА (7×24)</b>\n"
-        f"💬 Беседа: «{html.escape(message.chat.title or '')}»\n"
+        f"💬 Беседа: «{html.escape(chat_title)}»\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "<code>ЧАСЫ 00┄04┄08┄12┄16┄20┄24</code>"
     ]

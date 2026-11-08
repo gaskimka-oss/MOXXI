@@ -124,22 +124,45 @@ def _link(username: str | None, name: str | None, user_id: int = 0) -> str:
 
 
 async def _staff_rows(chat_id: int, bot: Bot | None = None) -> dict[int, list[tuple[str, bool]]]:
-    """Собирает состав из таблицы ranks (живые) + staff (импортированные)."""
+    """Собирает состав администрации. Исключает снятых, забаненных и вышедших участников."""
     out: dict[int, list[tuple[str, bool]]] = {}
+
+    # 1. Получаем список забаненных в чате (навсегда или действующие)
+    now_ts = int(time.time())
+    b_rows = await db.fetchall(
+        "SELECT user_id FROM bans WHERE chat_id=? AND (until=0 OR until>?)",
+        (chat_id, now_ts)
+    )
+    banned_uids = {b["user_id"] for b in b_rows}
+
+    # Сразу очищаем забаненных из таблицы рангов и стаффа
+    for b_uid in banned_uids:
+        await db.execute("DELETE FROM ranks WHERE chat_id=? AND user_id=?", (chat_id, b_uid))
+        await db.execute("DELETE FROM staff WHERE chat_id=? AND user_id=?", (chat_id, b_uid))
 
     rows = await db.fetchall(
         "SELECT r.user_id, r.rank, u.first_name, u.username FROM ranks r "
         "LEFT JOIN users u ON u.user_id = r.user_id "
         "WHERE r.chat_id=? AND r.rank>0", (chat_id,))
     seen_ids = set()
+
     for r in rows:
         uid = r["user_id"]
-        seen_ids.add(uid)
+        if uid in banned_uids:
+            continue
+
         fname = r["first_name"]
         uname = r["username"]
-        if bot and uid and not clean_visible_name(fname):
+
+        # Живая проверка через Telegram API
+        if bot and uid:
             try:
                 cm = await bot.get_chat_member(chat_id, uid)
+                if cm.status in {"left", "kicked"}:
+                    # Пользователь вышел или забанен в Telegram — удаляем ранг и не показываем!
+                    await db.execute("DELETE FROM ranks WHERE chat_id=? AND user_id=?", (chat_id, uid))
+                    await db.execute("DELETE FROM staff WHERE chat_id=? AND user_id=?", (chat_id, uid))
+                    continue
                 if cm and cm.user:
                     u_live = cm.user
                     fname = u_live.first_name or fname
@@ -147,105 +170,46 @@ async def _staff_rows(chat_id: int, bot: Bot | None = None) -> dict[int, list[tu
                     await db.touch_user(uid, uname, fname)
             except Exception:
                 pass
-        out.setdefault(r["rank"], []).append(
-            (_link(uname, fname, uid), False))
 
+        seen_ids.add(uid)
+        out.setdefault(r["rank"], []).append((_link(uname, fname, uid), False))
+
+    # Из таблицы staff берем ТОЛЬКО тех, у кого нет user_id (нераспознанные при импорте @ники), и кто НЕ вышел!
     srows = await db.fetchall(
         "SELECT username, name, rank, user_id, left_chat FROM staff "
-        "WHERE chat_id=? ORDER BY rank DESC, pos ASC, rowid ASC", (chat_id,))
+        "WHERE chat_id=? AND (left_chat=0 OR left_chat IS NULL) "
+        "ORDER BY rank DESC, pos ASC, rowid ASC", (chat_id,))
     for r in srows:
         uid = r["user_id"] or 0
-        if uid and uid in seen_ids:
-            continue
-        fname = r["name"]
         uname = r["username"]
-        if bot and uid and not clean_visible_name(fname):
-            try:
-                cm = await bot.get_chat_member(chat_id, uid)
-                if cm and cm.user:
-                    u_live = cm.user
-                    fname = u_live.first_name or fname
-                    uname = u_live.username or uname
-                    await db.touch_user(uid, uname, fname)
-            except Exception:
-                pass
-        out.setdefault(r["rank"], []).append(
-            (_link(uname, fname, uid), bool(r["left_chat"])))
+        fname = r["name"]
+        if uid:
+            if uid in seen_ids or uid in banned_uids:
+                continue
+            # Если пользователь есть в staff, но удален из ranks — он был снят! Чистим staff
+            await db.execute("DELETE FROM staff WHERE chat_id=? AND user_id=?", (chat_id, uid))
+            continue
+
+        if uname:
+            # Проверяем, не забанен ли этот username в chat_id
+            b_u = await db.fetchone(
+                "SELECT user_id FROM bans WHERE chat_id=? AND user_id IN "
+                "(SELECT user_id FROM users WHERE lower(username)=lower(?)) "
+                "AND (until=0 OR until>?)",
+                (chat_id, uname.lstrip("@"), now_ts)
+            )
+            if b_u:
+                await db.execute("DELETE FROM staff WHERE chat_id=? AND lower(username)=lower(?)",
+                                 (chat_id, uname.lstrip("@")))
+                continue
+
+        out.setdefault(r["rank"], []).append((_link(uname, fname, 0), False))
+
     return out
 
 
-STAFF_THEMES = {
-    "rainbow": {
-        "id": "rainbow",
-        "name": "🌈 Радужный VIP (Diamond Rainbow)",
-        "badge": "🌈",
-        "desc": "Фирменный градиентный стиль с кристаллами, алмазами и цветными акцентами",
-        "banner": "✦ ══ • ⊰ 💖 🔮 💙 🩵 💚 💛 🟣 🧡 ❤️ 🤍 ⊱ • ══ ✦",
-        "header_title": "👑 ✨ <b>{title}</b> ✨ 👑",
-        "group_box": "┌ <b>{head}</b>",
-        "branch_mid": "├─▸",
-        "branch_last": "└─▸",
-        "footer_banner": "✦ ══════════════════════════════ ✦",
-        "footer_fmt": "📊 <i>Всего в администрации: <b>{total}</b></i>",
-        "bullets": {10: "👑", 9: "🔱", 8: "🔮", 7: "💎", 6: "⭐", 5: "🛡️", 4: "⚔️", 3: "🗡️", 2: "🔹", 1: "▫️"}
-    },
-    "cyber_sakura": {
-        "id": "cyber_sakura",
-        "name": "🌸 Сакура & Киберпанк (Tokyo Neo-Samurai)",
-        "badge": "🌸",
-        "desc": "Японский кибер-стиль с цветущей сакурой, неоновыми разделителями и катанами",
-        "banner": "🌸 ════════ • ⛩️ • ════════ 🌸",
-        "header_title": "🏮 🌸 <b>{title}</b> 🌸 🏮",
-        "group_box": "┏━ 🌸 <b>{head}</b>",
-        "branch_mid": "┣━▸",
-        "branch_last": "┗━▸",
-        "footer_banner": "🌸 ════════ • ⛩️ • ════════ 🌸",
-        "footer_fmt": "⛩️ <i>Мастеров самурайского совета: <b>{total}</b></i>",
-        "bullets": {10: "⛩️", 9: "🏮", 8: "⚡", 7: "🥷", 6: "🗡️", 5: "⚔️", 4: "🎋", 3: "🌸", 2: "🏮", 1: "🥋"}
-    },
-    "dark_order": {
-        "id": "dark_order",
-        "name": "⚔️ Тёмный Орден (Gothic Castle / Dark Souls)",
-        "badge": "⚔️",
-        "desc": "Готический средневековый стиль с рыцарскими щитами, клинками и гербами",
-        "banner": "⚜️ ━━━━━━━━ • ⚔️ • ━━━━━━━━ ⚜️",
-        "header_title": "🏰 ⚔️ <b>{title}</b> ⚔️ 🏰",
-        "group_box": "╔══ ⚜️ <b>{head}</b>",
-        "branch_mid": "╠══▸",
-        "branch_last": "╚══▸",
-        "footer_banner": "⚜️ ━━━━━━━━ • ⚔️ • ━━━━━━━━ ⚜️",
-        "footer_fmt": "🛡️ <i>Рыцарей круглого стола: <b>{total}</b></i>",
-        "bullets": {10: "👑", 9: "⚜️", 8: "🦅", 7: "⚔️", 6: "🛡️", 5: "🗡️", 4: "🏹", 3: "⚖️", 2: "🛡️", 1: "🗡️"}
-    },
-    "minimal_slate": {
-        "id": "minimal_slate",
-        "name": "💎 Минимализм (Modern Executive Slate)",
-        "badge": "💎",
-        "desc": "Строгий современный моноширинный дизайн для деловых и технологичных бесед",
-        "banner": "──────────────────────────────",
-        "header_title": "┌────────────────────────────┐\n│   <b>{title}</b>   │\n└────────────────────────────┘",
-        "group_box": "■ <b>{head}</b>",
-        "branch_mid": "  ├─",
-        "branch_last": "  └─",
-        "footer_banner": "──────────────────────────────",
-        "footer_fmt": "• <i>Руководящий состав: <b>{total}</b></i>",
-        "bullets": {10: "◈", 9: "◈", 8: "✦", 7: "✦", 6: "✦", 5: "▫️", 4: "▫️", 3: "▪️", 2: "▪️", 1: "▫️"}
-    },
-    "cosmic_galaxy": {
-        "id": "cosmic_galaxy",
-        "name": "🌌 Космос & Галактика (Cosmic Starfleet)",
-        "badge": "🌌",
-        "desc": "Глубокий космический вайб со звёздами, кометами, орбитами и туманностями",
-        "banner": "✨ ⋆ ★ ━━━━━━━ • 🛸 • ━━━━━━━ ★ ⋆ ✨",
-        "header_title": "🪐 🚀 <b>{title}</b> 🚀 🪐",
-        "group_box": "┏━ 🪐 <b>{head}</b>",
-        "branch_mid": "┣━💫",
-        "branch_last": "┗━💫",
-        "footer_banner": "✨ ⋆ ★ ━━━━━━━ • 🛸 • ━━━━━━━ ★ ⋆ ✨",
-        "footer_fmt": "🛰️ <i>Экипаж командного мостика: <b>{total}</b></i>",
-        "bullets": {10: "🪐", 9: "🚀", 8: "🛸", 7: "🌟", 6: "🌠", 5: "☄️", 4: "🛰️", 3: "💫", 2: "✨", 1: "🔭"}
-    }
-}
+import core_themes
+STAFF_THEMES = core_themes.ALL_THEMES
 
 
 def _render_staff(groups: dict[int, list[tuple[str, bool]]], title: str = "А Д М И Н И С Т Р А Ц И Я   Б Е С Е Д Ы", theme: str = "rainbow") -> str:
@@ -532,7 +496,7 @@ async def cmd_quick_demote(message: Message, bot: Bot, args: str = "", **kw):
     await cmd_remove_rank(message, bot, args=args, **kw)
 
 
-@router.message(Cmd("+модер", "+админ", "модер", "админ", "ранг", "+ранг", "!ранг", "+ра", "!ра", "+ra", "!ra", "ра", "ra", "дать ранг", "выдать ранг", "назначить", section=S, rank=6,
+@router.message(Cmd("+модер", "+админ", "+ранг", "+ра", "+ra", "дать ранг", "выдать ранг", "назначить ранг", "назначить", section=S, rank=6,
                     usage="+ра {ссылка} [1-10 / должность]",
                     desc="Назначить ранг модератора (1–10)"))
 async def cmd_promote_rank(message: Message, bot: Bot, args: str = "", **kw):
@@ -610,7 +574,7 @@ async def cmd_promote(message: Message, bot: Bot, args: str = "", **kw):
     await _grant(message, bot, str(uid), cur + 1, **kw)
 
 
-@router.message(Cmd("понизить", "разжаловать", "снизить", "-понизить", "!понизить", "-ра", "!ра", "-ra", "!ra", "-ранг", "!ранг", section=S, rank=6,
+@router.message(Cmd("понизить", "разжаловать", "снизить", "-понизить", "-ра", "-ra", "-ранг", section=S, rank=6,
                     usage="понизить {ссылка}", desc="Понизить на один ранг"))
 async def cmd_demote(message: Message, bot: Bot, args: str = "", **kw):
     me = await effective_rank(message, bot)
@@ -751,6 +715,9 @@ async def cmd_demote_left(message: Message, bot: Bot, **kw):
 @router.message(Cmd("снять", "разжаловать ранг", section=S, rank=8, usage="снять {ссылка}",
                     desc="Полностью снять ранг"))
 async def cmd_remove_rank(message: Message, bot: Bot, args: str = "", **kw):
+    # Защита от перехвата банковских/экономических команд (снять вклад, снять депозит)
+    if args and args.lower().split()[0] in {"вклад", "депозит", "банк", "монеты", "деньги", "кассу"}:
+        return
     me = await effective_rank(message, bot)
     import config
     is_tech = bool(
@@ -1140,14 +1107,16 @@ def _make_theme_menu_kb(cur_theme: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
 
-@router.message(Cmd("дизайн чата", "тема чата", "дизайн состава", "тема состава",
-                    "стиль состава", "стиль чата", "оформление состава",
+@router.message(Cmd("дизайн", "дизайн чата", "дизайн группы", "стиль оформления", "тема оформления", "дизайн состава", "тема состава",
+                    "стиль состава", "стиль чата", "оформление состава", "оформление чата",
                     section=34, group_only=True,
                     usage="дизайн чата", desc="🎨 Настройка дизайна оформления состава и чата"))
 async def cmd_chat_design(message: Message, bot: Bot, **kw):
+    from config import is_bot_owner
+    uid = message.from_user.id if message.from_user else 0
     me = await effective_rank(message, bot)
-    if me < 4:
-        return await message.reply("⛔️ Настраивать дизайн чата могут только администраторы от <b>4 ранга (Главный модератор)</b> и выше!")
+    if me < 3 and not is_bot_owner(uid):
+        return await message.reply("⛔️ Настраивать дизайн чата могут администраторы беседы (от <b>3 ранга</b>) и выше!")
 
     await db.execute(
         "CREATE TABLE IF NOT EXISTS chat_themes ("

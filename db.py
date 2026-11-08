@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS users (
     banned      INTEGER NOT NULL DEFAULT 0,
     verified    INTEGER NOT NULL DEFAULT 0,
     grams       INTEGER NOT NULL DEFAULT 0,
+    crystals    INTEGER NOT NULL DEFAULT 0,
     created_at  INTEGER NOT NULL DEFAULT 0
 );
 
@@ -51,6 +52,13 @@ CREATE TABLE IF NOT EXISTS chat_members (
 );
 CREATE INDEX IF NOT EXISTS idx_chat_members_active
     ON chat_members(chat_id, is_member, updated_at);
+
+CREATE TABLE IF NOT EXISTS hidden_chats (
+    chat_id INTEGER PRIMARY KEY,
+    title TEXT,
+    hidden_by INTEGER,
+    ts INTEGER
+);
 
 CREATE TABLE IF NOT EXISTS chats (
     chat_id   INTEGER PRIMARY KEY,
@@ -957,6 +965,87 @@ CREATE TABLE IF NOT EXISTS daily_roulette_spins (
     user_id   INTEGER PRIMARY KEY,
     last_spin INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS user_battlepass (
+    user_id INTEGER PRIMARY KEY,
+    season INTEGER NOT NULL DEFAULT 1,
+    level INTEGER NOT NULL DEFAULT 1,
+    xp INTEGER NOT NULL DEFAULT 0,
+    claimed_levels TEXT NOT NULL DEFAULT '',
+    is_premium INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS moxxi_corporations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id INTEGER UNIQUE,
+    name TEXT,
+    balance INTEGER DEFAULT 0,
+    level INTEGER DEFAULT 1,
+    branches TEXT DEFAULT '[]',
+    last_collect INTEGER DEFAULT 0,
+    created_ts INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS moxxi_deposits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    amount INTEGER,
+    term_days INTEGER,
+    yield_pct REAL,
+    open_ts INTEGER,
+    expire_ts INTEGER,
+    claimed INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS moxxi_artifacts (
+    user_id INTEGER,
+    artifact_id INTEGER,
+    level INTEGER DEFAULT 1,
+    acquired_ts INTEGER,
+    PRIMARY KEY (user_id, artifact_id)
+);
+
+CREATE TABLE IF NOT EXISTS moxxi_battle_pass (
+    user_id INTEGER PRIMARY KEY,
+    season INTEGER DEFAULT 1,
+    points INTEGER DEFAULT 0,
+    level INTEGER DEFAULT 1,
+    has_premium INTEGER DEFAULT 0,
+    claimed_levels TEXT DEFAULT '[]'
+);
+
+CREATE TABLE IF NOT EXISTS moxxi_gifts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_id INTEGER,
+    to_id INTEGER,
+    gift_id INTEGER,
+    gift_name TEXT,
+    message TEXT,
+    ts INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS moxxi_loans (
+    user_id INTEGER PRIMARY KEY,
+    amount INTEGER,
+    due_amount INTEGER,
+    due_ts INTEGER,
+    status TEXT DEFAULT 'active'
+);
+
+CREATE TABLE IF NOT EXISTS daily_wheel_spins (
+    user_id INTEGER PRIMARY KEY,
+    last_spin INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS heist_cooldowns (
+    user_id INTEGER PRIMARY KEY,
+    last_heist INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS mine_cooldowns (
+    user_id INTEGER PRIMARY KEY,
+    last_mine INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
@@ -983,6 +1072,8 @@ async def init() -> None:
     _conn = await aiosqlite.connect(DB_PATH)
     _conn.row_factory = DictRow
     await _conn.execute("PRAGMA journal_mode=WAL")
+    await _conn.execute("PRAGMA synchronous=NORMAL")
+    await _conn.execute("PRAGMA wal_autocheckpoint=100")
     await _conn.execute("PRAGMA foreign_keys=ON")
     await _conn.executescript(SCHEMA)
     await _migrate()
@@ -1024,7 +1115,8 @@ async def _migrate() -> None:
                     ("ai_reason", "TEXT"), ("ai_advice", "TEXT")],
         "users": [("verified", "INTEGER NOT NULL DEFAULT 0"),
                   ("grams", "INTEGER NOT NULL DEFAULT 0"),
-                  ("coins", "INTEGER NOT NULL DEFAULT 0")],
+                  ("coins", "INTEGER NOT NULL DEFAULT 0"),
+                  ("crystals", "INTEGER NOT NULL DEFAULT 0")],
         "relations": [("count", "INTEGER NOT NULL DEFAULT 1")],
         "profiles": [("gender", "TEXT"), ("custom", "TEXT"), ("custom_by", "INTEGER"),
                      ("custom_ts", "INTEGER"),
@@ -1046,6 +1138,10 @@ async def _migrate() -> None:
         "bot_staff": [
             ("warns", "INTEGER NOT NULL DEFAULT 0"),
             ("muted_until", "INTEGER NOT NULL DEFAULT 0"),
+        ],
+        "support_tickets": [
+            ("platform", "TEXT NOT NULL DEFAULT 'tg'"),
+            ("platform_peer_id", "INTEGER NOT NULL DEFAULT 0"),
         ],
     }
     for table, cols in wanted.items():
@@ -1352,6 +1448,61 @@ async def record_roulette_spin(user_id: int) -> None:
         (user_id, now)
     )
 
+
+# ── Сезонный Боевой Пропуск (Moxxi Cyber Pass) ─────────────────────────────
+
+async def get_battlepass(user_id: int) -> dict:
+    row = await fetchone("SELECT * FROM user_battlepass WHERE user_id=?", (user_id,))
+    if not row:
+        await execute(
+            "INSERT INTO user_battlepass (user_id, season, level, xp, claimed_levels, is_premium) "
+            "VALUES (?, 1, 1, 0, '', 0) ON CONFLICT(user_id) DO NOTHING",
+            (user_id,)
+        )
+        row = await fetchone("SELECT * FROM user_battlepass WHERE user_id=?", (user_id,))
+    return dict(row) if row else {"user_id": user_id, "season": 1, "level": 1, "xp": 0, "claimed_levels": "", "is_premium": 0}
+
+
+async def add_battlepass_xp(user_id: int, xp_amount: int) -> tuple[int, int, bool]:
+    """Добавляет сезонный опыт, возвращает (новый_уровень, новый_xp, был_ли_levelup)."""
+    bp = await get_battlepass(user_id)
+    cur_lvl = bp["level"]
+    cur_xp = bp["xp"] + max(0, xp_amount)
+    leveled_up = False
+
+    XP_PER_LVL = 500
+    MAX_LVL = 30
+    while cur_xp >= XP_PER_LVL and cur_lvl < MAX_LVL:
+        cur_xp -= XP_PER_LVL
+        cur_lvl += 1
+        leveled_up = True
+
+    await execute(
+        "UPDATE user_battlepass SET level=?, xp=? WHERE user_id=?",
+        (cur_lvl, cur_xp, user_id)
+    )
+    return cur_lvl, cur_xp, leveled_up
+
+
+async def claim_battlepass_level(user_id: int, level: int) -> bool:
+    bp = await get_battlepass(user_id)
+    claimed = set(bp["claimed_levels"].split(",")) if bp["claimed_levels"] else set()
+    claimed.add(str(level))
+    new_claimed_str = ",".join(sorted(claimed, key=lambda x: int(x) if x.isdigit() else 0))
+    await execute("UPDATE user_battlepass SET claimed_levels=? WHERE user_id=?", (new_claimed_str, user_id))
+    return True
+
+
+async def get_top_battlepass(limit: int = 10) -> list[dict]:
+    rows = await fetchall(
+        "SELECT bp.user_id, bp.level, bp.xp, u.first_name, u.username "
+        "FROM user_battlepass bp "
+        "LEFT JOIN users u ON bp.user_id = u.id "
+        "ORDER BY bp.level DESC, bp.xp DESC LIMIT ?",
+        (limit,)
+    )
+    return [dict(r) for r in rows]
+
 async def blacklist_chat(chat_id: int, reason: str = "", banned_by: int = 0) -> None:
     now = int(time.time())
     await execute(
@@ -1588,10 +1739,6 @@ async def touch_user(user_id: int, username: str | None, first_name: str | None)
             await execute(
                 "UPDATE staff SET user_id=? WHERE chat_id=? AND lower(username)=lower(?)",
                 (user_id, r["chat_id"], username))
-            await execute(
-                "INSERT INTO ranks (chat_id,user_id,rank,granted_by,ts) VALUES (?,?,?,0,?) "
-                "ON CONFLICT(chat_id,user_id) DO NOTHING",
-                (r["chat_id"], user_id, r["rank"], int(__import__("time").time())))
 
 
 async def get_balance(user_id: int) -> int:
@@ -1625,6 +1772,43 @@ async def set_balance(user_id: int, amount: int) -> int:
     val = max(0, int(amount))
     await execute("UPDATE users SET balance=? WHERE user_id=?", (val, user_id))
     return val
+
+async def get_crystals(user_id: int) -> int:
+    """Возвращает баланс кристаллов пользователя."""
+    row = await fetchone("SELECT crystals FROM users WHERE user_id=?", (user_id,))
+    if not row:
+        await get_user(user_id)
+        row = await fetchone("SELECT crystals FROM users WHERE user_id=?", (user_id,))
+    return int(row["crystals"]) if (row and "crystals" in row and row["crystals"] is not None) else 0
+
+
+async def add_crystals(user_id: int, amount: int, action: str = "", meta: str = "") -> int:
+    """Безопасно пополняет или списывает кристаллы (не уходит в минус)."""
+    await get_user(user_id)
+    try:
+        amt = int(amount)
+    except Exception:
+        amt = 0
+    await execute("UPDATE users SET crystals = MAX(0, crystals + ?) WHERE user_id=?", (amt, user_id))
+    if action:
+        try:
+            await execute(
+                "INSERT INTO log (user_id, action, amount, meta, ts) VALUES (?,?,?,?,?)",
+                (user_id, f"crystal:{action}", amt, meta, int(time.time())),
+            )
+        except Exception:
+            pass
+    row = await fetchone("SELECT crystals FROM users WHERE user_id=?", (user_id,))
+    return int(row["crystals"]) if (row and "crystals" in row and row["crystals"] is not None) else 0
+
+
+async def set_crystals(user_id: int, amount: int) -> int:
+    """Устанавливает точное число кристаллов."""
+    await get_user(user_id)
+    val = max(0, int(amount))
+    await execute("UPDATE users SET crystals=? WHERE user_id=?", (val, user_id))
+    return val
+
 
 
 REFERENCE_TOP = [
@@ -2309,6 +2493,10 @@ async def add_game_xp(user_id: int, xp_amount: int = 1, is_win: bool = False) ->
         "ON CONFLICT(user_id) DO UPDATE SET xp=xp+?, games_played=games_played+1, games_won=games_won+?",
         (user_id, new_xp, win_add, xp_amount, win_add)
     )
+    try:
+        await conn().execute("PRAGMA wal_checkpoint(PASSIVE)")
+    except Exception:
+        pass
     return new_lvl, (new_lvl > old_lvl)
 
 
@@ -2330,6 +2518,10 @@ async def change_user_business(user_id: int, biz_key: str, count_delta: int) -> 
         if new_cnt > 0:
             await execute("INSERT INTO user_businesses (user_id, biz_key, count, last_collect) VALUES (?, ?, ?, ?)",
                           (user_id, biz_key, new_cnt, now))
+        try:
+            await conn().execute("PRAGMA wal_checkpoint(PASSIVE)")
+        except Exception:
+            pass
         return new_cnt
 
 
@@ -2339,6 +2531,10 @@ async def change_user_business(user_id: int, biz_key: str, count_delta: int) -> 
             await execute("DELETE FROM user_businesses WHERE user_id=? AND biz_key=?", (user_id, biz_key))
         else:
             await execute("UPDATE user_businesses SET count=? WHERE user_id=? AND biz_key=?", (new_cnt, user_id, biz_key))
+        try:
+            await conn().execute("PRAGMA wal_checkpoint(PASSIVE)")
+        except Exception:
+            pass
         return new_cnt
 
 
@@ -2619,11 +2815,11 @@ async def get_suggestions(limit: int = 10, status: str | None = None) -> list[di
 
 
 # --- Служба техподдержки и тикетов -----------------------------------------
-async def create_support_ticket(user_id: int, user_name: str, text: str, status: str = "open") -> int:
+async def create_support_ticket(user_id: int, user_name: str, text: str, status: str = "open", platform: str = "tg", platform_peer_id: int = 0) -> int:
     now = int(time.time())
     async with conn().execute(
-        "INSERT INTO support_tickets (user_id, user_name, text, status, created_at) VALUES (?, ?, ?, ?, ?)",
-        (user_id, user_name, text, status, now)
+        "INSERT INTO support_tickets (user_id, user_name, text, status, platform, platform_peer_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (user_id, user_name, text, status, platform, platform_peer_id, now)
     ) as cur:
         await conn().commit()
         return int(cur.lastrowid)

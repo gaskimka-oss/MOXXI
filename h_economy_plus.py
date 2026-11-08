@@ -251,24 +251,30 @@ async def cmd_deposit_info(message: Message, bot: Bot, **kw):
     )
 
 
-@router.message(Cmd("вклад положить", "депозит положить", usage="вклад положить [сумма]",
+@router.message(Cmd("вклад положить", "положить вклад", "положить на вклад", "внести вклад",
+                    "депозит положить", "положить депозит", "положить на депозит", "внести депозит",
+                    usage="вклад положить [сумма]",
                     desc="Положить монеты на депозит под процент"))
 async def cmd_deposit_put(message: Message, bot: Bot, args: str = "", **kw):
-    a = (args or "").strip().lower()
+    a = (args or "").strip()
     user = await db.get_user(message.from_user.id)
     cur_bal = user["balance"] if user else 0
 
-    if a in ("все", "всё", "all"):
-        amount = cur_bal
-    elif a.isdigit():
-        amount = int(a)
-    else:
+    if not a:
+        return await message.reply(
+            f"🏦 <b>Банковский вклад под 3% в сутки</b>\n\n"
+            f"💰 Ваш баланс на руках: <b>{cur_bal:,} монет</b>\n\n"
+            f"💡 Чтобы пополнить вклад, укажите сумму:\n"
+            f"• <code>вклад положить 5000000</code>\n"
+            f"• <code>вклад положить всё</code>"
+        )
+
+    amount = parse_amount(a, cur_bal, minimum=1)
+    if amount is None or amount <= 0:
         return await message.reply("Укажите сумму: <code>вклад положить 5000</code> или <code>вклад положить всё</code>.")
 
-    if amount <= 0:
-        return await message.reply("Сумма должна быть больше нуля.")
     if cur_bal < amount:
-        return await message.reply(f"Недостаточно монет на руках. Ваш баланс: <b>{cur_bal:,}</b>.")
+        return await message.reply(f"Недостаточно монет на руках. Ваш баланс: <b>{cur_bal:,} монет</b>.")
 
     await db.add_coins(message.from_user.id, -amount, "deposit_put")
     now = int(time.time())
@@ -280,29 +286,35 @@ async def cmd_deposit_put(message: Message, bot: Bot, args: str = "", **kw):
 
     await message.reply(
         f"🏦 <b>ВКЛАД ПОПОЛНЕН!</b>\n\n"
-        f"💵 Сумма: <b>+{amount:,} монет</b>\n"
-        f"📈 Каждый день вам будет начисляться <b>3%</b> пассивного дохода.\n"
-        f"🛡 Деньги в банке в полной безопасности!"
+        f"💵 Внесено: <b>+{amount:,} монет</b>\n"
+        f"📈 Каждый день начисляется <b>3%</b> пассивного дохода.\n"
+        f"🛡 Средства защищены от ограблений!"
     )
 
 
-@router.message(Cmd("вклад снять", "депозит снять", usage="вклад снять [сумма]",
+@router.message(Cmd("вклад снять", "снять вклад", "снять с вклада", "забрать вклад", "забрать с вклада",
+                    "депозит снять", "снять депозит", "снять с депозита", "забрать депозит", "забрать с депозита",
+                    "вывести вклад", "вывести депозит",
+                    usage="снять вклад [сумма]",
                     desc="Снять монеты с депозита на баланс"))
 async def cmd_deposit_withdraw(message: Message, bot: Bot, args: str = "", **kw):
-    a = (args or "").strip().lower()
+    a = (args or "").strip()
     row = await db.fetchone("SELECT * FROM user_deposits WHERE chat_id=? AND user_id=?",
                             (message.chat.id, message.from_user.id))
     cur_dep = row["amount"] if row else 0
 
-    if a in ("все", "всё", "all"):
-        amount = cur_dep
-    elif a.isdigit():
-        amount = int(a)
-    else:
-        return await message.reply("Укажите сумму: <code>вклад снять 5000</code> или <code>вклад снять всё</code>.")
+    if not a:
+        return await message.reply(
+            f"🏦 <b>Ваш вклад в банке:</b> <b>{cur_dep:,} монет</b>\n\n"
+            f"💡 Чтобы снять средства на руки, укажите сумму:\n"
+            f"• <code>снять вклад 5000000</code>\n"
+            f"• <code>снять вклад всё</code>"
+        )
 
-    if amount <= 0:
-        return await message.reply("Сумма должна быть больше нуля.")
+    amount = parse_amount(a, cur_dep, minimum=1)
+    if amount is None or amount <= 0:
+        return await message.reply("Укажите сумму для снятия: <code>снять вклад 5000</code> или <code>снять вклад всё</code>.")
+
     if cur_dep < amount:
         return await message.reply(f"На вкладе недостаточно средств. Доступно: <b>{cur_dep:,} монет</b>.")
 

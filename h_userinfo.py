@@ -187,11 +187,11 @@ def short_num(n: int) -> str:
 
 async def activity_counts(chat_id: int, uid: int) -> tuple[int, int, int, int]:
     """Активность: день | неделя | месяц | всего."""
-    today = time.strftime("%Y-%m-%d")
-    week = [time.strftime("%Y-%m-%d", time.localtime(time.time() - i * 86400))
-            for i in range(7)]
-    month = [time.strftime("%Y-%m-%d", time.localtime(time.time() - i * 86400))
-             for i in range(30)]
+    from datetime import datetime, timezone, timedelta
+    msk_now = datetime.now(timezone(timedelta(hours=3)))
+    today = msk_now.strftime("%Y-%m-%d")
+    week = [(msk_now - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
+    month = [(msk_now - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(30)]
 
     async def total(days: list[str]) -> int:
         if not days:

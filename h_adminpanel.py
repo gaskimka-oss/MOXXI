@@ -1164,21 +1164,48 @@ async def cmd_chats(message: Message, bot: Bot, **kw):
     if message.from_user.id != OWNER_ID and not await is_staff(message.from_user.id):
         return await message.reply("🔒 Эта команда доступна только создателю бота в личных сообщениях.")
 
-    chats = await db.fetchall("SELECT * FROM chats ORDER BY added_at DESC")
+    chats = await db.fetchall("""
+        SELECT c.* FROM chats c
+        LEFT JOIN hidden_chats h ON h.chat_id = c.chat_id
+        WHERE h.chat_id IS NULL
+        ORDER BY c.added_at DESC
+    """)
     if not chats:
         return await message.reply("📋 Бот пока не добавлен ни в один чат.")
 
     lines = [f"📋 <b>Чаты, в которых состоит бот ({len(chats)}):</b>\n"]
     buttons = []
 
-    for i, c in enumerate(chats, 1):
+    bot_user = await bot.me()
+    active_chats = []
+
+    for c in chats:
         cid = c["chat_id"]
-        title = c["title"] or f"Чат {cid}"
-        members_cnt = "—"
-        link = None
         try:
             tg_chat = await bot.get_chat(cid)
-            title = tg_chat.title or title
+            # Проверяем реальное присутствие бота в чате
+            try:
+                chat_mem = await bot.get_chat_member(cid, bot_user.id)
+                if chat_mem.status in ("left", "kicked"):
+                    await db.execute("DELETE FROM chats WHERE chat_id=?", (cid,))
+                    await db.execute("DELETE FROM chat_stats WHERE chat_id=?", (cid,))
+                    await db.execute("DELETE FROM hidden_chats WHERE chat_id=?", (cid,))
+                    continue
+            except Exception:
+                # Если не удается получить статус бота (исключен/забанен/чат удален) — удаляем из базы
+                await db.execute("DELETE FROM chats WHERE chat_id=?", (cid,))
+                await db.execute("DELETE FROM chat_stats WHERE chat_id=?", (cid,))
+                await db.execute("DELETE FROM hidden_chats WHERE chat_id=?", (cid,))
+                continue
+
+            cnt_str = "—"
+            try:
+                cnt = await bot.get_chat_member_count(cid)
+                cnt_str = str(cnt)
+            except Exception:
+                pass
+
+            link = None
             if tg_chat.username:
                 link = f"https://t.me/{tg_chat.username}"
             else:
@@ -1192,22 +1219,156 @@ async def cmd_chats(message: Message, bot: Bot, **kw):
                         cid_str = str(cid)
                         short_id = cid_str[4:] if cid_str.startswith("-100") else cid_str.lstrip("-")
                         link = f"https://t.me/c/{short_id}/1"
-            try:
-                cnt = await bot.get_chat_member_count(cid)
-                members_cnt = str(cnt)
-            except Exception:
-                pass
-        except Exception:
-            cid_str = str(cid)
-            short_id = cid_str[4:] if cid_str.startswith("-100") else cid_str.lstrip("-")
-            link = f"https://t.me/c/{short_id}/1"
 
-        lines.append(f"{i}. 💬 <b>{html.escape(title)}</b>\n   • ID: <code>{cid}</code> · 👥 Участников: <b>{members_cnt}</b>")
-        if link:
-            btn_title = title[:24] + "…" if len(title) > 24 else title
-            buttons.append([InlineKeyboardButton(text=f"🔗 {i}. {btn_title}", url=link)])
+            active_chats.append({
+                "cid": cid,
+                "title": tg_chat.title or c["title"] or f"Чат {cid}",
+                "members": cnt_str,
+                "link": link
+            })
+        except Exception:
+            # Чат не существует или бот заблокирован/удален
+            await db.execute("DELETE FROM chats WHERE chat_id=?", (cid,))
+            continue
+
+    if not active_chats:
+        return await message.reply("📋 Бот не состоит ни в одном активном чате.")
+
+    lines = [f"📋 <b>Чаты, в которых состоит бот ({len(active_chats)}):</b>\n"]
+    buttons = []
+
+    for i, ac in enumerate(active_chats, 1):
+        lines.append(f"{i}. 💬 <b>{html.escape(ac['title'])}</b>\n   • ID: <code>{ac['cid']}</code> · 👥 Участников: <b>{ac['members']}</b>")
+        if ac["link"]:
+            btn_title = ac["title"][:24] + "…" if len(ac["title"]) > 24 else ac["title"]
+            buttons.append([InlineKeyboardButton(text=f"🔗 {i}. {btn_title}", url=ac["link"])])
 
     lines.append("\n👉 <i>Нажмите на кнопку с чатом ниже, чтобы перейти в него или читать сообщения:</i>")
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
     await message.reply("\n".join(lines), reply_markup=kb, disable_web_page_preview=True)
 
+
+
+# ═══════════════ СКРЫТИЕ ЧАТОВ ИЗ СПИСКА (ТОЛЬКО ДЛЯ ВЛАДЕЛЬЦА) ═══════════════
+OFFICIAL_SERVICE_CHATS = {
+    -1004292137436: "💗 MOXXI ┃ Идеи & Фидбек 💡",
+    -1004373090684: "💛 MOXXI ┃ Отзывы & Звёзды",
+    -1004493630732: "💜 MOXXI ┃ Чат Сообщества 💬"
+}
+
+@router.message(F.text.lower().startswith(("скрыть служебные", "скрыть официальные")))
+async def cmd_hide_service_chats(message: Message, bot: Bot):
+    import config
+    if not config.is_bot_owner(message.from_user.id):
+        return await message.reply("🔒 Эта команда доступна ТОЛЬКО Создателю бота.")
+
+    now_ts = int(time.time())
+    for cid, title in OFFICIAL_SERVICE_CHATS.items():
+        await db.execute(
+            "INSERT OR REPLACE INTO hidden_chats (chat_id, title, hidden_by, ts) VALUES (?, ?, ?, ?)",
+            (cid, title, message.from_user.id, now_ts)
+        )
+
+    await message.reply(
+        "✅ <b>3 служебные группы успешно скрыты из списка чатов!</b>\n\n"
+        "• 💗 MOXXI | Идеи & Фидбек\n"
+        "• 💛 MOXXI | Отзывы & Звёзды\n"
+        "• 💜 MOXXI | Чат Сообщества\n\n"
+        "💡 Теперь при вызове <code>чаты</code> они не будут отображаться и мешаться.\n"
+        "Вернуть их показ: <code>показать служебные</code>"
+    )
+
+
+@router.message(F.text.lower().startswith(("показать служебные", "раскрыть служебные", "вернуть служебные")))
+async def cmd_unhide_service_chats(message: Message, bot: Bot):
+    import config
+    if not config.is_bot_owner(message.from_user.id):
+        return await message.reply("🔒 Эта команда доступна ТОЛЬКО Создателю бота.")
+
+    for cid in OFFICIAL_SERVICE_CHATS:
+        await db.execute("DELETE FROM hidden_chats WHERE chat_id=?", (cid,))
+
+    await message.reply("✅ <b>Служебные группы снова отображаются в списке <code>чаты</code>!</b>")
+
+
+@router.message(F.text.lower().startswith(("скрыть чат", "скрыть группу")))
+async def cmd_hide_custom_chat(message: Message, bot: Bot):
+    import config
+    if not config.is_bot_owner(message.from_user.id):
+        return await message.reply("🔒 Эта команда доступна ТОЛЬКО Создателю бота.")
+
+    raw = (message.text or "").strip()
+    parts = raw.split(maxsplit=2)
+    arg = parts[2].strip() if len(parts) > 2 else ""
+
+    if not arg:
+        return await message.reply(
+            "🔒 <b>Команда скрытия группы (для Владельца):</b>\n\n"
+            "• Скрыть 3 группы отзывов/идей: <code>скрыть служебные</code>\n"
+            "• Скрыть конкретный чат: <code>скрыть чат [ID чата]</code>\n"
+            "• Список скрытых: <code>скрытые чаты</code>\n"
+            "• Вернуть чат: <code>показать чат [ID]</code>"
+        )
+
+    cid = None
+    if arg.lstrip("-").isdigit():
+        cid = int(arg)
+    elif "t.me/c/" in arg:
+        import re as _re
+        m = _re.search(r"t\.me/c/(\d+)", arg)
+        if m:
+            cid = int(f"-100{m.group(1)}")
+
+    if not cid:
+        return await message.reply("❌ Укажите числовой ID чата (например: <code>скрыть чат -1004292137436</code>).")
+
+    chat_row = await db.fetchone("SELECT title FROM chats WHERE chat_id=?", (cid,))
+    title = chat_row["title"] if chat_row else f"Чат {cid}"
+    now_ts = int(time.time())
+
+    await db.execute(
+        "INSERT OR REPLACE INTO hidden_chats (chat_id, title, hidden_by, ts) VALUES (?, ?, ?, ?)",
+        (cid, title, message.from_user.id, now_ts)
+    )
+
+    await message.reply(
+        f"✅ <b>Чат «{html.escape(title)}» (<code>{cid}</code>) скрыт!</b>\n"
+        f"Теперь он не будет отображаться в командах <code>чаты</code> и списках.\n"
+        f"💡 Вернуть: <code>показать чат {cid}</code>"
+    )
+
+
+@router.message(F.text.lower().startswith(("показать чат", "раскрыть чат", "вернуть чат")))
+async def cmd_unhide_custom_chat(message: Message, bot: Bot):
+    import config
+    if not config.is_bot_owner(message.from_user.id):
+        return await message.reply("🔒 Эта команда доступна ТОЛЬКО Создателю бота.")
+
+    raw = (message.text or "").strip()
+    parts = raw.split(maxsplit=2)
+    arg = parts[2].strip() if len(parts) > 2 else ""
+
+    if not arg or not arg.lstrip("-").isdigit():
+        return await message.reply("Формат: <code>показать чат [ID чата]</code>")
+
+    cid = int(arg)
+    await db.execute("DELETE FROM hidden_chats WHERE chat_id=?", (cid,))
+    await message.reply(f"✅ Чат <code>{cid}</code> восстановлен в общем списке!")
+
+
+@router.message(F.text.lower().in_(("скрытые чаты", "скрытые группы", "список скрытых")))
+async def cmd_hidden_chats_list(message: Message, bot: Bot):
+    import config
+    if not config.is_bot_owner(message.from_user.id):
+        return await message.reply("🔒 Эта команда доступна ТОЛЬКО Создателю бота.")
+
+    rows = await db.fetchall("SELECT * FROM hidden_chats ORDER BY ts DESC")
+    if not rows:
+        return await message.reply("📋 Нет скрытых чатов. Все группы отображаются.")
+
+    lines = [f"🙈 <b>Скрытые чаты ({len(rows)}):</b>\n"]
+    for i, r in enumerate(rows, 1):
+        lines.append(f"{i}. 💬 <b>{html.escape(r['title'] or 'Чат')}</b> (<code>{r['chat_id']}</code>)")
+
+    lines.append("\n💡 <i>Чтобы вернуть показ: <code>показать чат [ID]</code> или <code>показать служебные</code></i>")
+    await message.reply("\n".join(lines))

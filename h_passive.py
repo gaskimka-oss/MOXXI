@@ -141,9 +141,13 @@ async def on_rights_changed(event: ChatMemberUpdated, bot: Bot):
         pass
 
 
-@router.my_chat_member(ChatMemberUpdatedFilter(IS_MEMBER >> IS_NOT_MEMBER))
-async def on_removed(event: ChatMemberUpdated):
-    await db.execute("DELETE FROM chats WHERE chat_id=?", (event.chat.id,))
+@router.my_chat_member()
+async def on_my_chat_member_change(event: ChatMemberUpdated):
+    # Если бота выгнали или он покинул чат из любого статуса (участник или админ)
+    if event.new_chat_member.status in ("left", "kicked"):
+        await db.execute("DELETE FROM chats WHERE chat_id=?", (event.chat.id,))
+        await db.execute("DELETE FROM chat_stats WHERE chat_id=?", (event.chat.id,))
+        await db.execute("DELETE FROM hidden_chats WHERE chat_id=?", (event.chat.id,))
 
 
 @router.message(F.new_chat_members)
@@ -309,24 +313,36 @@ async def cb_captcha_verify(call: CallbackQuery, bot: Bot):
     _a.create_task(_del_later(call.message, 5))
 
 
-@router.message(Cmd("капча", "защита от ботов", "антибот", section=6, rank=3,
-                    usage="капча вкл|выкл", desc="Проверка новых участников кнопкой «Я человек»"))
+@router.message(Cmd("+капча", "-капча", "капча",
+                    "+антибот", "-антибот", "антибот", "+анти бот", "-анти бот", "анти бот",
+                    "+защита от ботов", "-защита от ботов", "защита от ботов",
+                    section=6, rank=0,
+                    usage="антибот [вкл/выкл]", desc="Проверка новых участников кнопкой «Я человек»"))
 async def cmd_captcha_toggle(message: Message, bot: Bot, args: str = "", **kw):
-    if not await require(message, bot, 3):
-        return
     a = (args or "").strip().lower()
-    if a in {"вкл", "on", "1", "да"}:
+    cmd_name = (kw.get("cmd_name") or (message.text or "")).strip().lower()
+
+    # Включение (+антибот, капча вкл, +капча, +защита от ботов)
+    if cmd_name.startswith(("+антибот", "+анти бот", "+капча", "+защита от ботов")) or a in {"вкл", "on", "1", "да", "enable"}:
+        if not await require(message, bot, 3):
+            return
         await db.set_setting(message.chat.id, "captcha", "1")
-        return await message.reply("🛡 <b>Капча включена!</b>\nНовые участники будут замьючены, пока не нажмут кнопку «✅ Я человек».")
-    if a in {"выкл", "off", "0", "нет"}:
+        return await message.reply("🛡 <b>Защита от ботов (капча) включена!</b>\nНовые участники будут замьючены, пока не нажмут кнопку «✅ Я человек».")
+
+    # Выключение (-антибот, капча выкл, -капча, -защита от ботов)
+    if cmd_name.startswith(("-антибот", "-анти бот", "-капча", "-защита от ботов")) or a in {"выкл", "off", "0", "нет", "disable"}:
+        if not await require(message, bot, 3):
+            return
         await db.set_setting(message.chat.id, "captcha", "0")
-        return await message.reply("⚪️ <b>Капча выключена.</b> Новые участники сразу могут писать в чат.")
+        return await message.reply("⚪️ <b>Защита от ботов (капча) выключена.</b> Новые участники сразу могут писать в чат.")
+
+    # Просмотр статуса доступен любому участнику
     cur = await db.get_setting(message.chat.id, "captcha", "0")
     state = "🟢 включена" if cur == "1" else "🔴 выключена"
     await message.reply(
         f"🤖 <b>Защита от ботов (Капча):</b> {state}\n\n"
-        f"Включить: <code>капча вкл</code>\n"
-        f"Выключить: <code>капча выкл</code>"
+        f"• Включить: <code>+антибот</code> (или <code>капча вкл</code>)\n"
+        f"• Выключить: <code>-антибот</code> (или <code>капча выкл</code>)"
     )
 
 
@@ -467,6 +483,14 @@ async def activity(message: Message, bot: Bot):
     except Exception:
         pass
 
+    # --- теплокарта активности 7x24 ---
+    if message.chat and message.chat.type in {"group", "supergroup"}:
+        try:
+            from h_update_2_2 import record_chat_activity
+            await record_chat_activity(message.chat.id)
+        except Exception:
+            pass
+
     # --- буфер для контекста в логах модерации ---
     try:
         import core_modlog as _ml
@@ -523,9 +547,14 @@ async def activity(message: Message, bot: Bot):
                                            needs_form, parse_form,
                                            topic_id, topic_link)
             if await needs_form(message.chat.id, uid):
-                form_topic = await get_form_topic(message.chat.id)
-                here = topic_id(message)
-                in_form_topic = (not form_topic) or (here == form_topic)
+                from h_chatset import get_effective_chat_mode
+                cmode = await get_effective_chat_mode(message.chat.id, getattr(message.chat, "is_forum", False))
+                if cmode == "single":
+                    pass
+                else:
+                    form_topic = await get_form_topic(message.chat.id)
+                    here = topic_id(message)
+                    in_form_topic = (not form_topic) or (here == form_topic)
 
                 # анкету принимаем только в назначенной теме
                 lines = _split_lines(text_raw)
@@ -619,10 +648,11 @@ async def activity(message: Message, bot: Bot):
 
         await db.bump_chat_stat(message.chat.id, uid, XP_PER_MESSAGE)
         import time as _t
+        from utils import current_msk_date
         await db.execute(
             "INSERT INTO daily_stats (day, chat_id, user_id, messages) VALUES (?,?,?,1) "
             "ON CONFLICT(day, chat_id, user_id) DO UPDATE SET messages = messages + 1",
-            (_t.strftime("%Y-%m-%d"), message.chat.id, uid))
+            (current_msk_date(), message.chat.id, uid))
         await db.execute(
             "INSERT OR IGNORE INTO first_seen (chat_id, user_id, ts) VALUES (?,?,?)",
             (message.chat.id, uid, int(_t.time())))

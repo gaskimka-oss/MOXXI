@@ -42,22 +42,8 @@ STAFF: dict[int, dict[str, tuple[str, int, int]]] = {
 
 
 async def seed_staff_ranks() -> None:
-    """Гарантирует, что модерация (включая Simba) всегда присутствует в ranks и staff."""
-    now = int(time.time())
-    for chat_id, members_dict in STAFF.items():
-        for username, (name, rank, uid) in members_dict.items():
-            if uid > 0:
-                await db.execute(
-                    "INSERT INTO ranks (chat_id, user_id, rank, granted_by, ts) VALUES (?, ?, ?, 0, ?) "
-                    "ON CONFLICT(chat_id, user_id) DO UPDATE SET rank=MAX(rank, excluded.rank)",
-                    (chat_id, uid, rank, now)
-                )
-            await db.execute(
-                "INSERT INTO staff (chat_id, username, name, rank, user_id, left_chat, ts, pos) "
-                "VALUES (?, ?, ?, ?, ?, 0, ?, 1) "
-                "ON CONFLICT(chat_id, username) DO UPDATE SET rank=MAX(rank, excluded.rank), user_id=excluded.user_id",
-                (chat_id, username, name, rank, uid, now)
-            )
+    """Не перезаписываем снятых или забаненных администраторов при перезагрузке."""
+    return
 
 
 async def mark_filled_profiles() -> int:

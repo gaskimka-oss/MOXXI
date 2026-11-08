@@ -5,6 +5,14 @@ import asyncio
 import logging
 import sys
 import time
+import os
+
+os.environ["TZ"] = "Europe/Moscow"
+if hasattr(time, "tzset"):
+    try:
+        time.tzset()
+    except Exception:
+        pass
 
 try:
     if hasattr(sys.stdout, "reconfigure"):
@@ -79,6 +87,9 @@ import h_social_fun as social_fun
 import h_owner_panel as owner_panel
 import h_player_features as player_features
 import h_update_2_2 as update_2_2
+import h_currency_exchange as currency_exchange
+import h_vip_plus as vip_plus
+import h_moxxi_3_0 as moxxi_3_0
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s")
@@ -93,24 +104,32 @@ async def _delayed_delete_msg(msg: Message, delay: float = 2.0) -> None:
         pass
 
 
+_cleared_reply_keyboard_users: set[int] = set()
+
 async def keyboard_middleware(handler, event, data: dict):
     """Нажатие кнопки старого нижнего меню = скрытие клавиатуры + вызов команды.
 
-    Если у пользователя на клиенте (ПК/телефон) осталась старая reply-клавиатура:
-    1) Отправляем удаление клавиатуры ReplyKeyboardRemove.
-    2) Подменяем текст на команду, чтобы сработал нужный хэндлер.
+    Устраняет дублирование двух меню (нижней Reply-клавиатуры и inline-меню).
+    Гарантирует, что старая нижняя клавиатура удаляется с экрана Telegram клиента.
     """
-    text = getattr(event, "text", None)
-    if text:
+    if isinstance(event, Message) and getattr(event.chat, "type", "") == "private":
+        uid = event.from_user.id if event.from_user else 0
+        text = getattr(event, "text", None) or ""
         cmd = kbd.resolve(text)
+        is_legacy = bool(cmd) or kbd.is_legacy_button(text) or text.lower().strip() in {"убрать меню", "скрыть кнопки", "удалить меню"}
+
+        # Если у пользователя еще не очищена нижняя reply-панель в этой сессии
+        if uid and (uid not in _cleared_reply_keyboard_users or is_legacy):
+            _cleared_reply_keyboard_users.add(uid)
+            try:
+                # Отправляем один постоянный сигнал снятия Reply-клавиатуры без удаления,
+                # чтобы клиент Telegram навсегда удалил застрявшую нижнюю панель!
+                await event.answer("🧹 <i>Нижняя панель очищена. Используйте меню по кнопкам сообщений.</i>",
+                                   reply_markup=kbd.hide())
+            except Exception:
+                pass
+
         if cmd:
-            chat = getattr(event, "chat", None)
-            if isinstance(event, Message) and chat and getattr(chat, "type", "") == "private":
-                try:
-                    rm = await event.answer("🧹 <i>Обновление интерфейса...</i>", reply_markup=kbd.hide())
-                    asyncio.create_task(_delayed_delete_msg(rm, 2.0))
-                except Exception:
-                    pass
             try:
                 copy = event.model_copy(update={"text": cmd})
                 bot = data.get("bot") or getattr(event, "bot", None)
@@ -153,6 +172,7 @@ async def user_middleware(handler, event, data: dict):
                 pass
             if user.username:
                 try:
+                    now_ts = int(time.time())
                     s_rows = await db.fetchall(
                         "SELECT chat_id, rank FROM staff WHERE lower(username)=lower(?) AND (user_id=0 OR user_id IS NULL)",
                         (user.username,)
@@ -160,11 +180,22 @@ async def user_middleware(handler, event, data: dict):
                     if s_rows:
                         from core_ranks import set_rank
                         for s in s_rows:
+                            s_cid = s["chat_id"]
+                            # Проверяем, не забанен ли пользователь в этой группе!
+                            is_banned = await db.fetchone(
+                                "SELECT 1 FROM bans WHERE chat_id=? AND user_id=? AND (until=0 OR until>?)",
+                                (s_cid, user.id, now_ts)
+                            )
+                            if is_banned:
+                                await db.execute("DELETE FROM staff WHERE chat_id=? AND lower(username)=lower(?)",
+                                                 (s_cid, user.username))
+                                continue
+
                             await db.execute(
                                 "UPDATE staff SET user_id=?, name=? WHERE chat_id=? AND lower(username)=lower(?)",
-                                (user.id, user.first_name, s["chat_id"], user.username)
+                                (user.id, user.first_name, s_cid, user.username)
                             )
-                            await set_rank(s["chat_id"], user.id, s["rank"], by=0)
+                            await set_rank(s_cid, user.id, s["rank"], by=0)
                 except Exception:
                     pass
         await db.register_chat(chat.id, chat.title)
@@ -298,18 +329,63 @@ class TopicClosedRetryMiddleware(BaseRequestMiddleware):
             return await make_request(bot, method)
         except TelegramBadRequest as e:
             err = str(e).lower()
-            if "topic_closed" in err or "topic_deleted" in err or "message thread not found" in err:
-                tid = getattr(method, "message_thread_id", None)
+            if any(p in err for p in (
+                "topic_closed", "topic is closed", "message thread is closed",
+                "thread is closed", "topic_deleted", "topic deleted",
+                "message thread not found", "message thread has expired",
+                "reply message not found", "replied message not found"
+            )):
                 cid = getattr(method, "chat_id", None)
-                if tid is not None:
-                    log.warning("Тема #%s в чате %s закрыта/удалена — отправляю в основной чат", tid, cid)
+                tid = getattr(method, "message_thread_id", None)
+
+                # 1. Если тема закрыта, пробуем временно открыть её через API бота-администратора и отправить сообщение
+                if tid and tid > 1 and cid:
+                    try:
+                        await bot.reopen_forum_topic(chat_id=cid, message_thread_id=tid)
+                        res = await make_request(bot, method)
+                        try:
+                            await bot.close_forum_topic(chat_id=cid, message_thread_id=tid)
+                        except Exception:
+                            pass
+                        return res
+                    except Exception as e_reopen:
+                        log.debug("Не удалось переоткрыть тему #%s в чате %s: %s", tid, cid, e_reopen)
+
+                # 2. Если переоткрыть нельзя (или это General / удалённая тема) — перенаправляем в тему общения (sms_topic) или корень чата
+                log.warning("Тема #%s в чате %s закрыта/недоступна — перенаправляю ответ", tid, cid)
+
+                # Сбрасываем reply_parameters, т.к. ответ на сообщение в закрытой теме отклоняется сервером Telegram
+                setattr(method, "reply_parameters", None)
+
+                sms_tid = None
+                try:
+                    from h_chatset import get_sms_topic
+                    sms_tid = await get_sms_topic(cid)
+                except Exception:
+                    pass
+
+                if sms_tid and sms_tid != tid:
+                    setattr(method, "message_thread_id", sms_tid)
+                else:
+                    setattr(method, "message_thread_id", None)
+
+                note = f"⚠️ <i>[Тема #{tid} закрыта, ответ на команду перенесён сюда]:</i>\n\n" if tid else ""
+                if note:
+                    if hasattr(method, "text") and method.text:
+                        method.text = note + method.text
+                    elif hasattr(method, "caption") and method.caption:
+                        method.caption = note + method.caption
+
+                try:
+                    return await make_request(bot, method)
+                except Exception as e2:
+                    log.debug("Повторная отправка в sms_topic не удалась (%s), пробую без thread_id", e2)
                     setattr(method, "message_thread_id", None)
                     try:
                         return await make_request(bot, method)
-                    except Exception as e2:
-                        log.debug("Повторная отправка в основной чат не удалась: %s", e2)
+                    except Exception as e3:
+                        log.error("Критическая ошибка отправки в чат %s: %s", cid, e3)
                         return None
-                return None
             raise
 
 
@@ -351,6 +427,15 @@ async def main() -> None:
     except Exception as e:
         log.warning("seed: %s", e)
 
+    try:
+        import core_restore_merge
+        res = await core_restore_merge.apply_full_merge()
+        if res.get("applied"):
+            log.info("✅ Автоматическое объединение баз 22 и 03 чисел выполнено: %s пользователей, %s бизнесов",
+                     res.get("users_updated"), res.get("biz_updated"))
+    except Exception as e_merge:
+        log.warning("merge auto-apply: %s", e_merge)
+
     dp = Dispatcher()
     dp.message.outer_middleware(keyboard_middleware)
     dp.message.middleware(user_middleware)
@@ -370,7 +455,7 @@ async def main() -> None:
         automod.router, nightmode.router, boss.router, items.router,
         duels.router, clan_wars.router, fishing_craft.router, achievements.router,
         quests.router, social_fun.router, grams.router, nav.router,
-        adminpanel.router, owner_panel.router, start.router, update_2_2.router,
+        adminpanel.router, owner_panel.router, start.router, update_2_2.router, currency_exchange.router, vip_plus.router, moxxi_3_0.router,
     )
     for r in command_routers:
         r.message.middleware(access_middleware)
@@ -424,6 +509,9 @@ async def main() -> None:
     dp.include_router(botinfo.router)
     dp.include_router(userinfo.router)
     dp.include_router(update_2_2.router)
+    dp.include_router(currency_exchange.router)
+    dp.include_router(vip_plus.router)
+    dp.include_router(moxxi_3_0.router)
     dp.include_router(passive.router)
 
     me = None

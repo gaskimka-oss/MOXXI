@@ -462,39 +462,58 @@ async def note_del(message: Message, args: str = "", **kw):
 
 
 # ================= 25. ТАЙМЕРЫ =================
-@router.message(Cmd("таймер", "напомни", "напоминание", section=S_TIMER,
-                    usage="таймер {период} {текст}", desc="Поставить напоминание"))
-async def timer_add(message: Message, args: str = "", **kw):
-    secs, text = parse_period(args or "")
-    if not secs:
-        return await message.reply("Формат: <code>таймер 10 минут выключить плиту</code>")
-    fire = int(time.time()) + secs
-    await db.execute("INSERT INTO timers (chat_id,user_id,text,fire_at) VALUES (?,?,?,?)",
-                     (message.chat.id, message.from_user.id, text or "напоминание", fire))
-    await message.reply(f"⏰ Напомню через <b>{human_period(secs)}</b>: "
-                        f"{html.escape(text or 'напоминание')}")
-
-
-@router.message(Cmd("таймеры", "мои таймеры", section=S_TIMER, usage="таймеры",
+@router.message(Cmd("таймеры", "мои таймеры", "мой таймер", "мои таймер", "список таймеров", section=S_TIMER, usage="таймеры",
                     desc="Список активных таймеров"))
 async def timer_list(message: Message, **kw):
-    rows = await db.fetchall("SELECT id,text,fire_at FROM timers WHERE user_id=? AND done=0 "
+    now = int(time.time())
+    rows = await db.fetchall("SELECT id, text, fire_at FROM timers WHERE user_id=? AND done=0 "
                              "ORDER BY fire_at", (message.from_user.id,))
-    if not rows:
-        return await message.reply("Активных таймеров нет.")
-    lines = [f"#{r['id']} {html.escape(r['text'])} — через "
-             f"{human_period(int(r['fire_at'] - time.time()))}" for r in rows]
-    await message.reply("⏰ <b>Ваши таймеры</b>\n" + "\n".join(lines))
+    active = [r for r in rows if r["fire_at"] > now]
+    if not active:
+        return await message.reply(
+            "⏰ <b>У вас нет активных таймеров.</b>\n\n"
+            "Поставить таймер: <code>таймер 15 мин выключить плиту</code> или <code>напомни через 2 ч позвонить маме</code>"
+        )
+    lines = [f"• <b>#{r['id']}</b> «{html.escape(r['text'])}» — через <b>{human_period(int(r['fire_at'] - now))}</b>" for r in active]
+    await message.reply(
+        "⏰ ✨ <b>ВАШИ АКТИВНЫЕ ТАЙМЕРЫ</b> ✨ ⏰\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n" +
+        "\n".join(lines) +
+        "\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        "💡 <i>Отменить: <code>отменить таймер [номер]</code></i>"
+    )
 
 
-@router.message(Cmd("удалить таймер", "отменить таймер", section=S_TIMER,
-                    usage="удалить таймер {id}", desc="Отменить таймер"))
+@router.message(Cmd("удалить таймер", "отменить таймер", "снять таймер", section=S_TIMER,
+                    usage="отменить таймер [id]", desc="Отменить таймер"))
 async def timer_del(message: Message, args: str = "", **kw):
-    if not args.strip().isdigit():
-        return await message.reply("Формат: <code>удалить таймер 3</code>")
-    await db.execute("UPDATE timers SET done=1 WHERE id=? AND user_id=?",
-                     (int(args.strip()), message.from_user.id))
-    await message.reply("✅ Таймер отменён.")
+    a = (args or "").strip()
+    uid = message.from_user.id
+    now = int(time.time())
+    rows = await db.fetchall("SELECT id, text, fire_at FROM timers WHERE user_id=? AND done=0 AND fire_at>?", (uid, now))
+
+    if not rows:
+        return await message.reply("⏰ У вас нет активных таймеров для отмены.")
+
+    target_id = None
+    if a.isdigit():
+        target_id = int(a)
+    elif len(rows) == 1:
+        target_id = rows[0]["id"]
+    else:
+        lines = [f"• <b>#{r['id']}</b> «{html.escape(r['text'])}»" for r in rows]
+        return await message.reply(
+            "⏰ <b>Выберите номер таймера для отмены:</b>\n" +
+            "\n".join(lines) +
+            "\n\n👉 Напишите: <code>отменить таймер [номер]</code>"
+        )
+
+    match = [r for r in rows if r["id"] == target_id]
+    if not match:
+        return await message.reply(f"❌ Таймер #{target_id} не найден среди ваших активных таймеров.")
+
+    await db.execute("UPDATE timers SET done=1 WHERE id=? AND user_id=?", (target_id, uid))
+    await message.reply(f"✅ Таймер #{target_id} «{html.escape(match[0]['text'])}» успешно отменён!")
 
 
 # ================= 26. КАТАЛОГ =================
@@ -531,7 +550,7 @@ async def market(message: Message, **kw):
     await message.reply("💱 <b>Ирис-биржа</b>\n" + "\n".join(lines))
 
 
-@router.message(Cmd("продать", section=S_MARKET, usage="продать {кол-во} за {цена}",
+@router.message(Cmd("продать на бирже", "биржа продать", "маркет продать", section=S_MARKET, usage="биржа продать {кол-во} за {цена}",
                     desc="Выставить заявку на бирже"))
 async def market_sell(message: Message, args: str = "", **kw):
     m = (args or "").replace(" за ", " ").split()
@@ -550,7 +569,7 @@ async def market_sell(message: Message, args: str = "", **kw):
     await message.reply(f"💱 Заявка создана: {money(amount)} за {money(price)}")
 
 
-@router.message(Cmd("купить", section=S_MARKET, usage="купить {id}", desc="Купить заявку"))
+@router.message(Cmd("купить на бирже", "биржа купить", "маркет купить", "купить заявку", section=S_MARKET, usage="биржа купить {id}", desc="Купить заявку на бирже"))
 async def market_buy(message: Message, args: str = "", **kw):
     if not args.strip().isdigit():
         return await message.reply("Формат: <code>купить 3</code> (id из списка «биржа»)")

@@ -151,14 +151,16 @@ async def _cross_ban(bot: Bot, user_id: int, user_name: str, source_chat: int,
         except Exception as exc:
             failures.append((chat_id, str(exc)))
 
-    # Очищаем анкету, описание и ник вышедшего игрока
-    try:
-        await db.execute("DELETE FROM chat_profiles WHERE user_id=?", (user_id,))
-        await db.execute("DELETE FROM chat_nicks WHERE user_id=?", (user_id,))
-        await db.execute("DELETE FROM profiles WHERE user_id=?", (user_id,))
-        await db.execute("UPDATE users SET nick=NULL WHERE user_id=?", (user_id,))
-    except Exception:
-        pass
+    # Очищаем анкету, описание и ник вышедшего игрока ТОЛЬКО для связанных групп
+    for cid in ids:
+        try:
+            await db.execute("DELETE FROM chat_profiles WHERE chat_id=? AND user_id=?", (cid, user_id))
+            await db.execute("DELETE FROM chat_nicks WHERE chat_id=? AND user_id=?", (cid, user_id))
+            await db.execute("DELETE FROM ranks WHERE chat_id=? AND user_id=?", (cid, user_id))
+            await db.execute("DELETE FROM staff WHERE chat_id=? AND user_id=?", (cid, user_id))
+            await db.execute("DELETE FROM chat_stats WHERE chat_id=? AND user_id=?", (cid, user_id))
+        except Exception:
+            pass
 
     # Сообщаем в исходную группу. Если писать туда нельзя — пробуем вторую.
     trigger_name = {"left": "вышел", "kicked": "был исключён/забанен"}.get(
@@ -201,6 +203,13 @@ async def on_member_changed(event: ChatMemberUpdated, bot: Bot):
         await pending.apply_for_user(bot, event.chat.id, user)
     except Exception:
         pass
+
+    if not is_here:
+        try:
+            import core_members
+            await core_members.clean_user_from_chat(event.chat.id, user.id, username=user.username)
+        except Exception:
+            pass
 
     if not was_here or is_here:
         return

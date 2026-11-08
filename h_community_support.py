@@ -606,6 +606,97 @@ async def cmd_support(message: Message, bot: Bot, args: str = "", **kw):
             pass
 
 
+
+async def send_omnichannel_ticket_reply(bot: Bot, ticket: dict, answer_text: str) -> tuple[bool, str]:
+    ticket_id = ticket.get("id") or 0
+    platform = (ticket.get("platform") or "tg").lower()
+
+    if platform == "vk":
+        import os
+        from vkbottle import API
+        vk_token = os.getenv("VK_BOT_TOKEN")
+        if not vk_token:
+            return False, "VK_BOT_TOKEN не настроен в .env"
+
+        peer_id = ticket.get("platform_peer_id") or ticket.get("user_id") or 0
+        if peer_id >= 70_000_000_000:
+            peer_id -= 70_000_000_000
+
+        vk_msg = (
+            f"📩 🔔 ВЫ ПОЛУЧИЛИ ОТВЕТ ОТ ТЕХПОДДЕРЖКИ! (Тикет #{ticket_id})\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"📝 Ваше обращение:\n«{ticket.get('text', '')}»\n\n"
+            f"👨‍💻 ОТВЕТ АДМИНИСТРАЦИИ:\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"{answer_text}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"🔒 Тикет закрыт администрацией. Если потребуется дополнительная помощь, напишите: поддержка [вопрос]."
+        )
+        try:
+            vk_api = API(token=vk_token)
+            await vk_api.messages.send(peer_id=peer_id, message=vk_msg, random_id=0)
+            return True, "ВКонтакте"
+        except Exception as e:
+            return False, f"VK API: {e}"
+    else:
+        user_notify = (
+            f"📩 🔔 <b>ВЫ ПОЛУЧИЛИ ОТВЕТ ОТ ТЕХПОДДЕРЖКИ! (Тикет #{ticket_id})</b>\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"📝 <b>Ваше обращение:</b>\n"
+            f"«<i>{html.escape(ticket.get('text', ''))}</i>»\n\n"
+            f"👨‍💻 <b>ОТВЕТ АДМИНИСТРАЦИИ:</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"{html.escape(answer_text)}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"🔒 <i>Тикет закрыт администрацией. Если потребуется дополнительная помощь, вы можете подать новое обращение: <code>поддержка [вопрос]</code>.</i>"
+        )
+        try:
+            await bot.send_message(ticket["user_id"], user_notify)
+            return True, "Telegram"
+        except Exception as e:
+            return False, f"Telegram: {e}"
+
+
+async def send_omnichannel_ticket_close(bot: Bot, ticket: dict, reason: str = "") -> tuple[bool, str]:
+    ticket_id = ticket.get("id") or 0
+    platform = (ticket.get("platform") or "tg").lower()
+    reason_text = f" Причина: {reason}" if reason else ""
+
+    if platform == "vk":
+        import os
+        from vkbottle import API
+        vk_token = os.getenv("VK_BOT_TOKEN")
+        if not vk_token:
+            return False, "VK_BOT_TOKEN не настроен в .env"
+
+        peer_id = ticket.get("platform_peer_id") or ticket.get("user_id") or 0
+        if peer_id >= 70_000_000_000:
+            peer_id -= 70_000_000_000
+
+        vk_msg = (
+            f"🔒 Ваше обращение (Тикет #{ticket_id}) закрыто администрацией.{reason_text}\n\n"
+            f"Если потребуется помощь, напишите: поддержка [вопрос]."
+        )
+        try:
+            vk_api = API(token=vk_token)
+            await vk_api.messages.send(peer_id=peer_id, message=vk_msg, random_id=0)
+            return True, "ВКонтакте"
+        except Exception as e:
+            return False, f"VK API: {e}"
+    else:
+        user_notify = (
+            f"🔒 <b>Ваше обращение (Тикет #{ticket_id}) закрыто администрацией!</b>\n"
+            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"📝 <b>Тема обращения:</b> «<i>{html.escape(ticket.get('text', ''))}</i>»\n"
+            + (f"📌 <b>Причина закрытия:</b> <i>{html.escape(reason)}</i>\n\n" if reason else "\n")
+            + "<i>Если у вас возникнет новый вопрос, вы можете создать новое обращение: <code>поддержка [вопрос]</code>.</i>"
+        )
+        try:
+            await bot.send_message(ticket["user_id"], user_notify)
+            return True, "Telegram"
+        except Exception as e:
+            return False, f"Telegram: {e}"
+
 @router.message(Cmd("+ответ", "ответить тикет", "ответ на тикет", "ответить",
                     section=S_COMMUNITY, rank=0, group_only=False,
                     usage="+ответ [id_тикета] [текст ответа]", desc="Ответить пользователю на тикет в техподдержку"))
@@ -717,24 +808,11 @@ async def cmd_answer_ticket(message: Message, bot: Bot, args: str = "", **kw):
         return
 
     await db.answer_support_ticket(ticket_id, answer_text, answered_by=sender_id, answered_name="Администрация", is_ai=False)
-
-    # Отправляем ответ пользователю в личку: СТРОГО АНОНИМНО, БЕЗ ИМЕНИ АДМИНИСТРАТОРА!
-    user_notify = (
-        f"📩 🔔 <b>ВЫ ПОЛУЧИЛИ ОТВЕТ ОТ ТЕХПОДДЕРЖКИ! (Тикет #{ticket_id})</b>\n"
-        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-        f"📝 <b>Ваше обращение:</b>\n"
-        f"«<i>{html.escape(ticket['text'])}</i>»\n\n"
-        f"👨‍💻 <b>ОТВЕТ АДМИНИСТРАЦИИ:</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"{html.escape(answer_text)}\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"🔒 <i>Тикет закрыт администрацией. Если потребуется дополнительная помощь, вы можете подать новое обращение: <code>поддержка [вопрос]</code>.</i>"
-    )
-    try:
-        await bot.send_message(ticket["user_id"], user_notify)
-        await message.reply(f"✅ <b>Ответ успешно доставлен пользователю в тикет #{ticket_id}, тикет закрыт!</b>")
-    except Exception as e:
-        await message.reply(f"⚠️ Тикет закрыт в базе, но не удалось отправить ЛС пользователю (возможно, бот заблокирован): {e}")
+    ok, ch_info = await send_omnichannel_ticket_reply(bot, ticket, answer_text)
+    if ok:
+        await message.reply(f"✅ <b>Ответ успешно доставлен ({ch_info}) в тикет #{ticket_id}, тикет закрыт!</b>")
+    else:
+        await message.reply(f"⚠️ Тикет закрыт в базе, но не удалось доставить сообщение ({ch_info})")
 
 
 @router.message(Cmd("закрыть тикет", "закрытьтикет", "+закрыть тикет", "+закрыть", "тикет закрыть",
@@ -762,19 +840,7 @@ async def cmd_close_ticket(message: Message, bot: Bot, args: str = "", **kw):
         return await message.reply(f"⚠️ Тикет #{ticket_id} уже закрыт!")
 
     await db.close_support_ticket(ticket_id, closed_by=sender_id, closed_name="Администрация")
-
-    user_notify = (
-        f"🔒 <b>Ваше обращение (Тикет #{ticket_id}) закрыто администрацией!</b>\n"
-        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-        f"📝 <b>Тема обращения:</b> «<i>{html.escape(ticket['text'])}</i>»\n"
-        + (f"📌 <b>Причина закрытия:</b> <i>{html.escape(reason)}</i>\n\n" if reason else "\n")
-        + "<i>Если у вас возникнет новый вопрос, вы можете создать новое обращение: <code>поддержка [вопрос]</code>.</i>"
-    )
-    try:
-        await bot.send_message(ticket["user_id"], user_notify)
-    except Exception:
-        pass
-
+    await send_omnichannel_ticket_close(bot, ticket, reason)
     await message.reply(f"✅ <b>Тикет #{ticket_id} успешно закрыт!</b>" + (f" Причина: {html.escape(reason)}" if reason else ""))
 
 
@@ -812,23 +878,8 @@ async def cmd_auto_answer_ticket(message: Message, bot: Bot, args: str = "", **k
         return await message.reply(f"⚠️ Тикет #{ticket_id} уже закрыт!")
 
     await db.answer_support_ticket(ticket_id, answer_text, answered_by=sender_id, answered_name="Администрация", is_ai=False)
-
-    user_notify = (
-        f"📩 🔔 <b>ВЫ ПОЛУЧИЛИ ОТВЕТ ОТ ТЕХПОДДЕРЖКИ! (Тикет #{ticket_id})</b>\n"
-        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-        f"📝 <b>Ваше обращение:</b>\n"
-        f"«<i>{html.escape(ticket['text'])}</i>»\n\n"
-        f"👨‍💻 <b>ОТВЕТ АДМИНИСТРАЦИИ:</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"{html.escape(answer_text)}\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"🔒 <i>Тикет закрыт администрацией. Если потребуется дополнительная помощь, вы можете подать новое обращение: <code>поддержка [вопрос]</code>.</i>"
-    )
-    try:
-        await bot.send_message(ticket["user_id"], user_notify)
-        await message.reply(f"✅ <b>Тикет #{ticket_id} успешно закрыт автоответом:</b> «{tpl_title}»")
-    except Exception as e:
-        await message.reply(f"⚠️ Тикет закрыт в базе, но не удалось отправить ЛС пользователю: {e}")
+    ok, ch_info = await send_omnichannel_ticket_reply(bot, ticket, answer_text)
+    await message.reply(f"✅ <b>Тикет #{ticket_id} успешно закрыт автоответом:</b> «{tpl_title}» ({ch_info})")
 
 
 # --- Интерактивные callback-кнопки под тикетом ---
@@ -870,22 +921,7 @@ async def cb_supp_sendauto(cq: CallbackQuery, bot: Bot):
         return await cq.answer("⚠️ Тикет уже закрыт!", show_alert=True)
 
     await db.answer_support_ticket(ticket_id, answer_text, answered_by=sender_id, answered_name="Администрация", is_ai=False)
-
-    user_notify = (
-        f"📩 🔔 <b>ВЫ ПОЛУЧИЛИ ОТВЕТ ОТ ТЕХПОДДЕРЖКИ! (Тикет #{ticket_id})</b>\n"
-        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-        f"📝 <b>Ваше обращение:</b>\n"
-        f"«<i>{html.escape(ticket['text'])}</i>»\n\n"
-        f"👨‍💻 <b>ОТВЕТ АДМИНИСТРАЦИИ:</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"{html.escape(answer_text)}\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"🔒 <i>Тикет закрыт администрацией. Если потребуется дополнительная помощь, вы можете подать новое обращение: <code>поддержка [вопрос]</code>.</i>"
-    )
-    try:
-        await bot.send_message(ticket["user_id"], user_notify)
-    except Exception:
-        pass
+    await send_omnichannel_ticket_reply(bot, ticket, answer_text)
 
     try:
         await cq.message.edit_text(
@@ -913,17 +949,7 @@ async def cb_supp_close(cq: CallbackQuery, bot: Bot):
         return await cq.answer("⚠️ Тикет уже закрыт!", show_alert=True)
 
     await db.close_support_ticket(ticket_id, closed_by=sender_id, closed_name="Администрация")
-
-    user_notify = (
-        f"🔒 <b>Ваше обращение (Тикет #{ticket_id}) закрыто администрацией!</b>\n"
-        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-        f"📝 <b>Тема обращения:</b> «<i>{html.escape(ticket['text'])}</i>»\n\n"
-        f"<i>Если у вас возникнет новый вопрос, вы можете создать новое обращение: <code>поддержка [вопрос]</code>.</i>"
-    )
-    try:
-        await bot.send_message(ticket["user_id"], user_notify)
-    except Exception:
-        pass
+    await send_omnichannel_ticket_close(bot, ticket)
 
     try:
         await cq.message.edit_text(

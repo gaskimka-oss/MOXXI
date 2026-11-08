@@ -1833,6 +1833,15 @@
       `);
     }
 
+    let userCrystals = parseInt(localStorage.getItem("moxxi_crystals") || "10");
+
+    function saveEconomyState() {
+      try {
+        localStorage.setItem("moxxi_balance", userBalance.toString());
+        localStorage.setItem("moxxi_crystals", userCrystals.toString());
+      } catch (e) {}
+    }
+
     function openDonateModal() {
       showModal(`
         <h2 style="font-size: 18px; font-weight: 900; color: #facc15; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
@@ -1845,13 +1854,115 @@
           <div style="font-weight: 900; color: #facc15;">🌟 VIP+ Diamond Привилегия</div>
           <div style="font-size: 11px; color: #e2e8f0; margin-top: 4px;">20+ эксклюзивных команд, иммунитет от грабежей, x3 доход с предприятий и золотая аура!</div>
         </div>
-        <button class="action-btn cyan" style="margin-bottom: 8px;" onclick="sendActionToBot('обменник')">
+        <button class="action-btn cyan" style="margin-bottom: 8px;" onclick="openExchangeModal()">
           <span>💎</span> КУРС И ОБМЕН КРИСТАЛЛОВ
         </button>
-        <button class="action-btn" onclick="sendActionToBot('донат')">
+        <button class="action-btn" onclick="openPrivilegesModal()">
           <span>🛍</span> МАГАЗИН ПРИВИЛЕГИЙ В ЧАТЕ
         </button>
       `);
+    }
+
+    function openExchangeModal() {
+      triggerHaptic("light");
+      showModal(`
+        <h2 style="font-size: 18px; font-weight: 900; color: #00f2fe; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+          <span>💎</span> Обменник Кристаллов Moxxi
+        </h2>
+        <div style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 12px; margin-bottom: 14px;">
+          <div style="font-size: 13px; color: #cbd5e1; margin-bottom: 6px;">💰 Монеты: <b style="color: #4ade80;">${userBalance.toLocaleString('ru-RU')} 🪙</b></div>
+          <div style="font-size: 13px; color: #cbd5e1;">💎 Кристаллы: <b style="color: #38bdf8;">${userCrystals.toLocaleString('ru-RU')} 💎</b></div>
+          <div style="font-size: 11px; color: #94a3b8; margin-top: 6px;">Курс: 1 💎 = 1 000 000 🪙</div>
+        </div>
+        <button class="action-btn cyan" style="margin-bottom: 8px;" onclick="buyCrystal()">
+          <span>➕</span> Купить 1 💎 за 1 000 000 🪙
+        </button>
+        <button class="action-btn" style="margin-bottom: 12px;" onclick="sellCrystal()">
+          <span>➖</span> Продать 1 💎 за 1 000 000 🪙
+        </button>
+        <button class="action-btn gray" onclick="openDonateModal()">
+          <span>◀️</span> Назад в донаты
+        </button>
+      `);
+    }
+
+    function buyCrystal() {
+      triggerHaptic("medium");
+      if (userBalance < 1000000) {
+        showToast("Недостаточно монет для покупки кристалла!", "error");
+        return;
+      }
+      userBalance -= 1000000;
+      userCrystals += 1;
+      saveEconomyState();
+      updateUI();
+      showToast("Успешно куплен 1 Кристалл! 💎", "success");
+      openExchangeModal();
+    }
+
+    function sellCrystal() {
+      triggerHaptic("medium");
+      if (userCrystals < 1) {
+        showToast("У вас нет кристаллов для продажи!", "error");
+        return;
+      }
+      userCrystals -= 1;
+      userBalance += 1000000;
+      saveEconomyState();
+      updateUI();
+      showToast("Продан 1 Кристалл (+1 000 000 🪙)! 💰", "success");
+      openExchangeModal();
+    }
+
+    function openPrivilegesModal() {
+      triggerHaptic("light");
+      showModal(`
+        <h2 style="font-size: 18px; font-weight: 900; color: #a855f7; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+          <span>🛍</span> Магазин Привилегий Moxxi
+        </h2>
+        <div style="font-size: 12px; color: #94a3b8; margin-bottom: 12px;">Баланс: <b style="color: #38bdf8;">${userCrystals.toLocaleString('ru-RU')} 💎</b></div>
+        
+        <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 10px; margin-bottom: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <b style="color: #facc15;">👑 VIP Статус</b>
+            <button class="action-btn cyan" style="width: auto; padding: 6px 12px; font-size: 12px;" onclick="buyPrivilege('VIP', 10)">10 💎</button>
+          </div>
+          <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">Золотая корона в профиле и доступ к VIP-рулетке</div>
+        </div>
+
+        <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 10px; margin-bottom: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <b style="color: #38bdf8;">🛡 Анти-Ограбление</b>
+            <button class="action-btn cyan" style="width: auto; padding: 6px 12px; font-size: 12px;" onclick="buyPrivilege('Анти-Ограбление', 25)">25 💎</button>
+          </div>
+          <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">100% защита от карманников и воров в чатах</div>
+        </div>
+
+        <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 10px; margin-bottom: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <b style="color: #4ade80;">🚀 x3 Доход Империи</b>
+            <button class="action-btn cyan" style="width: auto; padding: 6px 12px; font-size: 12px;" onclick="buyPrivilege('x3 Доход', 50)">50 💎</button>
+          </div>
+          <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">Тройная пассивная прибыль со всех предприятий</div>
+        </div>
+
+        <button class="action-btn gray" onclick="openDonateModal()">
+          <span>◀️</span> Назад в донаты
+        </button>
+      `);
+    }
+
+    function buyPrivilege(name, cost) {
+      triggerHaptic("medium");
+      if (userCrystals < cost) {
+        showToast("Недостаточно кристаллов! Купите в обменнике.", "error");
+        return;
+      }
+      userCrystals -= cost;
+      saveEconomyState();
+      updateUI();
+      showToast(`Привилегия «${name}» успешно активирована! 🎉`, "success");
+      openPrivilegesModal();
     }
 
     function showHistoryModal() {

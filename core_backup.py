@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import gzip
+import html
 import logging
 import os
 import shutil
@@ -50,7 +51,7 @@ def backup_chat() -> int:
     return backup_chats()[0]
 
 
-def schedule_quick_backup(bot: Bot, delay_sec: float = 5.0) -> None:
+def schedule_quick_backup(bot: Bot, delay_sec: float = 1.0) -> None:
     """Запускает быстрый бэкап через N секунд с дебаунсом (после покупки бизнеса и т.д.)."""
     global _quick_backup_task
     if _quick_backup_task and not _quick_backup_task.done():
@@ -129,7 +130,9 @@ async def save(bot: Bot, note: str = "") -> bool:
     blob = await asyncio.to_thread(_snapshot)
     if not blob:
         return False
-    stamp = time.strftime("%d.%m.%Y %H:%M")
+    from datetime import datetime, timezone, timedelta
+    msk_tz = timezone(timedelta(hours=3))
+    stamp = datetime.now(msk_tz).strftime("%d.%m.%Y %H:%M")
     size_kb = len(blob) / 1024
     size_str = f"{size_kb:.1f} КБ" if size_kb < 1024 else f"{size_kb / 1024:.2f} МБ"
 
@@ -153,9 +156,11 @@ async def save(bot: Bot, note: str = "") -> bool:
                 except Exception:
                     pass
 
+            clean_note = html.escape(note) if note else ""
             msg = await bot.send_document(
                 chat, BufferedInputFile(blob, filename=ARCHIVE_NAME),
-                caption=caption + (f"\n{note}" if note else ""),
+                caption=caption + (f"\n{clean_note}" if clean_note else ""),
+                parse_mode="HTML",
                 disable_notification=True)
             delivered += 1
             _last_backup_msgs[chat] = msg.message_id

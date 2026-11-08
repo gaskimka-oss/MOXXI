@@ -56,7 +56,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Ферма",
         "emoji": "🌾",
         "base_price": 5_000,
-        "income_per_min": 15,
+        "income_per_min": 3,
         "req_lvl": 1,
         "desc": "Выращивание урожая и органических культур",
         "aliases": ["ферма", "ферму", "фермы", "farm", "1"]
@@ -66,7 +66,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Дом в аренду",
         "emoji": "🏠",
         "base_price": 18_000,
-        "income_per_min": 55,
+        "income_per_min": 10,
         "req_lvl": 2,
         "desc": "Сдача коттеджа жильцам",
         "aliases": ["дом", "дом в аренду", "коттедж", "аренда", "house", "2"]
@@ -76,7 +76,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Завод",
         "emoji": "🏭",
         "base_price": 60_000,
-        "income_per_min": 200,
+        "income_per_min": 32,
         "req_lvl": 3,
         "desc": "Производство электроники и потребительских товаров",
         "aliases": ["завод", "заводы", "фабрика", "factory", "3"]
@@ -86,7 +86,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Торговый центр",
         "emoji": "🏢",
         "base_price": 200_000,
-        "income_per_min": 750,
+        "income_per_min": 100,
         "req_lvl": 4,
         "desc": "Аренда бутиков, фудкортов и гипермаркетов",
         "aliases": ["тц", "торговый центр", "бизнес-центр", "бц", "mall", "4"]
@@ -96,7 +96,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Крипто-шахта",
         "emoji": "⛏",
         "base_price": 712_500,
-        "income_per_min": 3_000,
+        "income_per_min": 340,
         "req_lvl": 5,
         "desc": "Добыча редких кристаллов и крипто-руды",
         "aliases": ["шахта", "шахту", "крипто-шахта", "криптошахта", "mine", "5"]
@@ -106,7 +106,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Электростанция",
         "emoji": "⚡",
         "base_price": 2_500_000,
-        "income_per_min": 11_000,
+        "income_per_min": 1_150,
         "req_lvl": 6,
         "desc": "Генерация энергии для крупнейших мегаполисов",
         "aliases": ["станция", "электростанция", "аэс", "гэс", "power", "6"]
@@ -116,7 +116,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Нефтяная вышка",
         "emoji": "🛢",
         "base_price": 8_000_000,
-        "income_per_min": 38_000,
+        "income_per_min": 3_600,
         "req_lvl": 8,
         "desc": "Добыча и переработка чёрного золота",
         "aliases": ["вышка", "вышку", "нефтяная вышка", "нефть", "rig", "7"]
@@ -126,7 +126,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Космодром",
         "emoji": "🚀",
         "base_price": 30_000_000,
-        "income_per_min": 160_000,
+        "income_per_min": 13_000,
         "req_lvl": 10,
         "desc": "Запуск коммерческих шаттлов и научных ракет",
         "aliases": ["космодром", "ракета", "space", "8"]
@@ -136,7 +136,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Банковский конгломерат",
         "emoji": "🏦",
         "base_price": 85_000_000,
-        "income_per_min": 480_000,
+        "income_per_min": 35_000,
         "req_lvl": 12,
         "desc": "Управление международными финансовыми потоками",
         "aliases": ["банк", "банки", "конгломерат", "банковский конгломерат", "bank", "9"]
@@ -146,7 +146,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Орбитальная станция",
         "emoji": "🛰",
         "base_price": 220_000_000,
-        "income_per_min": 1_300_000,
+        "income_per_min": 88_000,
         "req_lvl": 15,
         "desc": "Космические исследования и верфи на околоземной орбите",
         "aliases": ["орбиталка", "орбитальная станция", "orbital", "10"]
@@ -156,7 +156,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Межгалактическая корпорация",
         "emoji": "💎",
         "base_price": 500_000_000,
-        "income_per_min": 3_200_000,
+        "income_per_min": 195_000,
         "req_lvl": 18,
         "desc": "Владение торговыми путями через дальние звёздные сектора",
         "aliases": ["корпорация", "межгалактическая корпорация", "мегакорп", "megacorp", "11"]
@@ -166,7 +166,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Сфера Дайсона",
         "emoji": "🌌",
         "base_price": 1_200_000_000,
-        "income_per_min": 8_500_000,
+        "income_per_min": 450_000,
         "req_lvl": 22,
         "desc": "Мегаструктура вокруг звезды для колоссальной выработки энергии",
         "aliases": ["сфера дайсона", "дайсон", "сфера", "12"]
@@ -176,7 +176,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Колония на Марсе",
         "emoji": "🪐",
         "base_price": 2_800_000_000,
-        "income_per_min": 21_000_000,
+        "income_per_min": 1_000_000,
         "req_lvl": 26,
         "desc": "Терраформирование красной планеты и биокупола",
         "aliases": ["марс", "колония на марсе", "колония", "mars", "13"]
@@ -186,7 +186,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Термоядерный коллайдер",
         "emoji": "⚛️",
         "base_price": 6_500_000_000,
-        "income_per_min": 52_000_000,
+        "income_per_min": 2_250_000,
         "req_lvl": 30,
         "desc": "Синтез редчайших античастиц и бозонов массы",
         "aliases": ["коллайдер", "термояд", "синтез", "collider", "14"]
@@ -196,7 +196,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Квантовый биокомплекс",
         "emoji": "🧬",
         "base_price": 15_000_000_000,
-        "income_per_min": 130_000_000,
+        "income_per_min": 5_000_000,
         "req_lvl": 35,
         "desc": "Регенерация ДНК и квантовые нейрочипы",
         "aliases": ["квант", "биокомплекс", "квантовый биокомплекс", "15"]
@@ -206,7 +206,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Флот Звёздных Разрушителей",
         "emoji": "🛸",
         "base_price": 35_000_000_000,
-        "income_per_min": 320_000_000,
+        "income_per_min": 11_200_000,
         "req_lvl": 40,
         "desc": "Космическая армада для защиты торговых гипер-маршрутов",
         "aliases": ["флот", "разрушители", "армада", "звездный флот", "16"]
@@ -216,7 +216,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Звёздные врата Варпа",
         "emoji": "🌠",
         "base_price": 80_000_000_000,
-        "income_per_min": 780_000_000,
+        "income_per_min": 25_000_000,
         "req_lvl": 45,
         "desc": "Мгновенные гиперпространственные прыжки через парсеки",
         "aliases": ["врата", "варп", "звездные врата", "stargate", "17"]
@@ -226,7 +226,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Генератор Чёрных Дыр",
         "emoji": "🌀",
         "base_price": 190_000_000_000,
-        "income_per_min": 1_950_000_000,
+        "income_per_min": 58_000_000,
         "req_lvl": 50,
         "desc": "Добыча гравитационной энергии из горизонта событий",
         "aliases": ["черная дыра", "генератор черных дыр", "гравитация", "18"]
@@ -236,7 +236,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Хроно-лаборатория времени",
         "emoji": "🔮",
         "base_price": 450_000_000_000,
-        "income_per_min": 4_800_000_000,
+        "income_per_min": 135_000_000,
         "req_lvl": 55,
         "desc": "Манипуляции с квантовым потоком времени",
         "aliases": ["хроно", "время", "хроно-лаборатория", "chrono", "19"]
@@ -246,7 +246,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Фабрика Тёмной материи",
         "emoji": "💫",
         "base_price": 1_000_000_000_000,
-        "income_per_min": 11_500_000_000,
+        "income_per_min": 290_000_000,
         "req_lvl": 60,
         "desc": "Конденсация тёмной материи для двигателей судного дня",
         "aliases": ["темная материя", "фабрика темной материи", "материя", "20"]
@@ -256,7 +256,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Галактический Альянс",
         "emoji": "🌌",
         "base_price": 2_500_000_000_000,
-        "income_per_min": 30_000_000_000,
+        "income_per_min": 700_000_000,
         "req_lvl": 65,
         "desc": "Политический и торговый союз тысяч звёздных цивилизаций",
         "aliases": ["альянс", "галактический альянс", "союз", "21"]
@@ -266,7 +266,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Звёздный кузнец квазаров",
         "emoji": "☀️",
         "base_price": 6_000_000_000_000,
-        "income_per_min": 75_000_000_000,
+        "income_per_min": 1_650_000_000,
         "req_lvl": 70,
         "desc": "Ковка звёздных ядер на ревущей мощи квазаров",
         "aliases": ["квазар", "кузнец", "кузнец квазаров", "22"]
@@ -276,7 +276,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Энергостанция Сингулярности",
         "emoji": "🕳",
         "base_price": 15_000_000_000_000,
-        "income_per_min": 190_000_000_000,
+        "income_per_min": 4_000_000_000,
         "req_lvl": 75,
         "desc": "Абсолютная точка сжатия пространства и бесконечной тяги",
         "aliases": ["сингулярность", "станция сингулярности", "23"]
@@ -286,7 +286,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Мегаструктура «Кольцо Миров»",
         "emoji": "🪐",
         "base_price": 38_000_000_000_000,
-        "income_per_min": 500_000_000_000,
+        "income_per_min": 9_800_000_000,
         "req_lvl": 80,
         "desc": "Обитаемый монолитный пояс радиусом в миллионы километров",
         "aliases": ["кольцо миров", "кольцо", "мегаструктура", "24"]
@@ -296,7 +296,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Матрица Перерождения Разума",
         "emoji": "🧬",
         "base_price": 95_000_000_000_000,
-        "income_per_min": 1_300_000_000_000,
+        "income_per_min": 24_000_000_000,
         "req_lvl": 85,
         "desc": "Цифровое бессмертие и единое суперсознание вселенной",
         "aliases": ["матрица", "разум", "матрица разума", "25"]
@@ -306,7 +306,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Сверхскопление Мета-Вселенной",
         "emoji": "🌌",
         "base_price": 240_000_000_000_000,
-        "income_per_min": 3_400_000_000_000,
+        "income_per_min": 58_000_000_000,
         "req_lvl": 90,
         "desc": "Полный контроль над миллионами взаимосвязанных галактик",
         "aliases": ["сверхскопление", "метавселенная", "мета", "26"]
@@ -316,7 +316,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Трон Властелина Пространства",
         "emoji": "👑",
         "base_price": 600_000_000_000_000,
-        "income_per_min": 9_000_000_000_000,
+        "income_per_min": 140_000_000_000,
         "req_lvl": 93,
         "desc": "Центр управления законами физики и геометрии космоса",
         "aliases": ["трон", "властелин", "трон пространства", "27"]
@@ -326,7 +326,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Ядро Мультивселенной",
         "emoji": "♾",
         "base_price": 1_500_000_000_000_000,
-        "income_per_min": 24_000_000_000_000,
+        "income_per_min": 340_000_000_000,
         "req_lvl": 96,
         "desc": "Слияние параллельных измерений в единый поток ресурсов",
         "aliases": ["ядро", "мультивселенная", "ядро мультивселенной", "28"]
@@ -336,7 +336,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Творец Реальностей",
         "emoji": "🌠",
         "base_price": 4_000_000_000_000_000,
-        "income_per_min": 68_000_000_000_000,
+        "income_per_min": 880_000_000_000,
         "req_lvl": 98,
         "desc": "Создание и уничтожение новых вселенных по щелчку пальцев",
         "aliases": ["творец", "реальность", "творец реальностей", "29"]
@@ -346,7 +346,7 @@ BUSINESS_TYPES: dict[str, dict] = {
         "name": "Омниверсум Создателя",
         "emoji": "👑",
         "base_price": 10_000_000_000_000_000,
-        "income_per_min": 180_000_000_000_000,
+        "income_per_min": 2_150_000_000_000,
         "req_lvl": 100,
         "desc": "Абсолютная вершина мироздания и вечной власти",
         "aliases": ["омниверсум", "создатель", "абсолют", "30"]
@@ -544,39 +544,68 @@ async def casino_enabled(chat_id: int) -> bool:
 
 async def topic_ok(message: Message) -> bool:
     """Проверяет тему для игр, казино, заработка, ограблений и монет."""
-    if message.chat.type != "private":
-        tid = _tid(message)
-        # В теме описаний никогда не выводим предупреждения казино!
-        try:
-            from h_userinfo import get_form_topic
-            form_top = await get_form_topic(message.chat.id)
-            if form_top and tid == form_top:
-                return False
-        except Exception:
-            pass
+    if message.chat.type == "private":
+        return True
 
-        if not await casino_enabled(message.chat.id):
-            await message.reply(
-                "🎰 <b>Казино и игры отключены в этом чате администрацией.</b>\n"
-                "Включить: <code>+казино</code> (доступно администрации)",
-                disable_web_page_preview=True
-            )
-            return False
+    from config import is_bot_owner
+    uid = message.from_user.id if message.from_user else 0
+    if uid and is_bot_owner(uid):
+        return True
 
-        ft = await get_gram_topic(message.chat.id)
-        if ft and tid != ft:
-            chat_id = message.chat.id
-            text = (
-                f"❌ {mention(message.from_user)}, здесь нельзя играть и совершать операции с валютой!\n\n"
-                f"🎰 <b>Игры, казино, работа, ограбления и монеты</b> — только в этой теме:\n"
-                f"{_tlink(chat_id, ft)}"
-            )
-            try:
-                await message.reply(text, disable_web_page_preview=True)
-            except Exception:
-                pass
-            return False
-    return True
+    from h_chatset import get_effective_chat_mode
+    mode = await get_effective_chat_mode(message.chat.id, getattr(message.chat, "is_forum", False))
+
+    if not await casino_enabled(message.chat.id):
+        await message.reply(
+            "🎰 <b>Казино и игры отключены в этом чате администрацией.</b>\n"
+            "Включить: <code>+казино</code> (доступно администрации)",
+            disable_web_page_preview=True
+        )
+        return False
+
+    # В одиночной группе или в режиме 'all' — разрешаем играть везде
+    if mode in ("single", "all"):
+        return True
+
+    tid = _tid(message)
+    ft = await get_gram_topic(message.chat.id)
+
+    # Если тема для игр не привязана (0) — игры разрешены во всех темах!
+    if not ft:
+        return True
+
+    # Игрок в привязанной игровой теме — полный доступ!
+    if tid == ft:
+        return True
+
+    # Игрок в другой теме:
+    chat_id = message.chat.id
+    from core_ranks import effective_rank
+    is_admin = False
+    try:
+        r = await effective_rank(message, message.bot)
+        is_admin = (r >= 3)
+    except Exception:
+        pass
+
+    kb = None
+    if is_admin and tid:
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎰 Сделать эту тему игровой", callback_data=f"set_gram_topic:{tid}")],
+            [InlineKeyboardButton(text="🌐 Разрешить игры во всех темах", callback_data="set_gram_topic:0")]
+        ])
+
+    text = (
+        f"❌ {mention(message.from_user)}, здесь нельзя играть и совершать операции с валютой!\n\n"
+        f"🎰 <b>Игры, казино, работа, ограбления и монеты</b> — только в этой теме:\n"
+        f"{_tlink(chat_id, ft)}\n\n"
+        f"💡 <i>Администратор может перенести казино сюда:</i> <code>тема казик</code> <i>или разрешить везде:</i> <code>игры везде</code>"
+    )
+    try:
+        await message.reply(text, reply_markup=kb, disable_web_page_preview=True)
+    except Exception:
+        pass
+    return False
 
 
 @router.message(Cmd("+казино", "+казик", "+игры", "вкл казино", "вкл казик", "вкл игры",
@@ -824,7 +853,7 @@ async def cmd_top(message: Message, **kw):
     if not await topic_ok(message):
         return
     rows = await db.fetchall(
-        "SELECT user_id, first_name, username, balance FROM users WHERE balance > 0 "
+        "SELECT user_id, first_name, username, balance FROM users WHERE balance > 0 AND user_id != 8545937596 AND (username IS NULL OR lower(username) != 'moxxichat_bot') "
         "ORDER BY balance DESC LIMIT 10")
     if not rows:
         return await message.reply("Пока никто не играл.")
@@ -837,8 +866,9 @@ async def cmd_top(message: Message, **kw):
 
 
 @router.message(Cmd("восстановить топ", "сброс топа", "сбросить топ", "вернуть топ", "фикс топа", "исправить топ",
+                    "вернуть балансы", "слить базы", "восстановить базу", "восстановить уровни",
                     "restore top", "reset top", section=S,
-                    usage="восстановить топ", desc="Восстановить эталонный топ балансов и сбросить баганные триллионы"))
+                    usage="восстановить топ", desc="Объединить базы 22 и 03, восстановить балансы, уровни и предприятия"))
 async def cmd_restore_top(message: Message, bot: Bot, **kw):
     import config
     from core_ranks import effective_rank
@@ -847,9 +877,10 @@ async def cmd_restore_top(message: Message, bot: Bot, **kw):
     if have < 6 and not is_admin:
         return await message.reply("🔒 Команда доступна техническому администратору и руководству.")
     
-    res = await db.reset_all_businesses_and_levels()
+    import core_restore_merge
+    res = await core_restore_merge.apply_full_merge(force=True)
     rows = await db.fetchall(
-        "SELECT user_id, first_name, balance FROM users WHERE balance > 0 "
+        "SELECT user_id, first_name, balance FROM users WHERE balance > 0 AND user_id != 8545937596 AND (username IS NULL OR lower(username) != 'moxxichat_bot') "
         "ORDER BY balance DESC LIMIT 10")
     
     medals = ["🥇", "🥈", "🥉"] + ["🔹"] * 7
@@ -858,11 +889,12 @@ async def cmd_restore_top(message: Message, bot: Bot, **kw):
         for i, r in enumerate(rows))
     
     await message.reply(
-        f"🏆 <b>Эталонный топ балансов успешно восстановлен!</b>\n\n"
-        f"✅ Сброшены накрученные триллионы и баги\n"
-        f"✅ Снесено накрученных предприятий: <b>{res['businesses_deleted']}</b> шт.\n"
-        f"✅ Сброшены уровни казино у <b>{res['stats_reset']}</b> пользователей\n\n"
-        f"🌑 <b>Актуальный топ по балансу:</b>\n{top_lines}")
+        f"🏆 ✨ <b>БАЗА ДАННЫХ 22 И 03 ЧИСЛА УСПЕШНО ОБЪЕДИНЕНА!</b> ✨ 🏆\n"
+        f"✦ ══ • ⊰ 💰 🏢 ⚡️ ⊱ • ══ ✦\n\n"
+        f"✅ Объединены балансы 22 + 03 у <b>{res.get('users_updated', 122)}</b> игроков!\n"
+        f"✅ Восстановлены уровни и игровой опыт XP у <b>{res.get('stats_updated', 65)}</b> игроков!\n"
+        f"✅ Восстановлены предприятия: <b>{res.get('biz_updated', 145)}</b> объектов!\n\n"
+        f"🌑 <b>АКТУАЛЬНЫЙ ТОП ПО БАЛАНСУ:</b>\n{top_lines}")
 
 
 @router.message(Cmd("снести фермы", "сброс ферм", "сбросить фермы", "снести бизнесы", "сброс бизнесов",
@@ -880,7 +912,7 @@ async def cmd_wipe_businesses(message: Message, bot: Bot, **kw):
 
     res = await db.reset_all_businesses_and_levels()
     rows = await db.fetchall(
-        "SELECT user_id, first_name, balance FROM users WHERE balance > 0 "
+        "SELECT user_id, first_name, balance FROM users WHERE balance > 0 AND user_id != 8545937596 AND (username IS NULL OR lower(username) != 'moxxichat_bot') "
         "ORDER BY balance DESC LIMIT 10")
 
     medals = ["🥇", "🥈", "🥉"] + ["🔹"] * 7
@@ -3021,7 +3053,7 @@ async def start_quick_race(call: CallbackQuery, bet: int, horse_idx: int):
 
 
 # ═══════════════ АДМИНСКИЕ КОМАНДЫ ДЛЯ ВАЛЮТЫ ═══════════════
-@router.message(Cmd("монеты выдать", "выдать монеты", "начислить монеты", "coin give", "coins give", "выдать коины", "выдать граммы", "выдать кометы", "дать монеты", "дать коины", "кометы выдать", "выдать", "начислить", "p give", section=S, rank=6,
+@router.message(Cmd("монеты выдать", "выдать монеты", "начислить монеты", "coin give", "coins give", "выдать коины", "выдать граммы", "выдать кометы", "кометы выдать", "выдать", "начислить", "p give", section=S, rank=6,
                     usage="выдать {ссылка} {сумма}",
                     desc="Начислить валюту 🌑 (техадмин / 6+ ранг)"))
 async def cmd_give_admin(message: Message, bot: Bot, args: str = "", **kw):
@@ -3090,7 +3122,7 @@ async def cmd_set_admin(message: Message, bot: Bot, args: str = "", **kw):
     await message.reply(f"✅ Баланс {mention_id(uid, name)} установлен на <b>{c(bal)}</b>")
 
 
-@router.message(Cmd("монеты снять", "снять монеты", "забрать монеты", "снять коины", "забрать коины", "кометы снять", "снять", "забрать", section=S, rank=6,
+@router.message(Cmd("монеты снять", "снять монеты", "забрать монеты", "снять коины", "забрать коины", "кометы снять", "монеты забрать", section=S, rank=6,
                     usage="снять {ссылка} {сумма}",
                     desc="Снять валюту 🌑 (техадмин / 6+ ранг)"))
 async def cmd_take_admin(message: Message, bot: Bot, args: str = "", **kw):
@@ -3111,26 +3143,33 @@ async def cmd_take_admin(message: Message, bot: Bot, args: str = "", **kw):
 
 # ═══════════════ ПРИВЯЗКА ТЕМЫ ДЛЯ ИГР ═══════════════
 @router.message(Cmd("тема игр", "тема монет", "тема коинов", "тема казино", "тема казик", "тема граммов", "тема комет",
-                    "+тема игр", "+тема монет", "+тема казино", "+тема казик", section=S, rank=4,
-                    usage="тема игр [ссылка]",
-                    desc="Тема, где работают игры, казино и валюта"))
+                    "+тема игр", "+тема монет", "+тема казино", "+тема казик",
+                    "казик тема", "казино тема", "игры здесь", "казик здесь", "казино здесь",
+                    "игры тут", "казик тут", "казино тут",
+                    "игры везде", "казик везде", "казино везде",
+                    "тема игр сброс", "тема казик сброс", "тема казино сброс",
+                    section=S, rank=0, group_only=True,
+                    usage="тема казик",
+                    desc="Привязать текущую тему для игр, казино и валюты"))
 async def cmd_gram_topic(message: Message, bot: Bot, args: str = "", **kw):
-    from core_ranks import require
-    if not await require(message, bot, 4):
-        return
+    from config import is_bot_owner
+    from core_ranks import effective_rank
+    uid = message.from_user.id if message.from_user else 0
+    have = await effective_rank(message, bot)
+    if have < 3 and not is_bot_owner(uid):
+        return await message.reply("🔒 Настройка игровой темы доступна администраторам беседы (от 3 ранга).")
 
-    if not getattr(message.chat, "is_forum", False):
-        return await message.reply(
-            "⚠️ <b>Привязка тем доступна только в группах с включенными Темами (Форум)!</b>\n\n"
-            "В обычном чате без тем игры и казино работают прямо в основном чате.\n"
-            "Чтобы включить темы, откройте: <i>Настройки группы → Темы</i>."
-        )
+    cmd_raw = (message.text or message.caption or "").strip().lower()
+    a = (args or "").strip().lower()
 
-    a = (args or "").strip()
-
-    if a.lower() in {"сброс", "убрать", "выкл", "off"}:
+    # Сброс привязки — разрешить везде
+    if a in {"сброс", "убрать", "выкл", "off", "везде", "все", "отмена"} or any(w in cmd_raw for w in ("везде", "сброс")):
         await db.set_setting(message.chat.id, "gram_topic", "0")
-        return await message.reply("✅ Привязка снята — игры работают везде.")
+        return await message.reply(
+            "🌐 ✨ <b>ИГРЫ И КАЗИНО ТЕПЕРЬ РАЗРЕШЕНЫ ВО ВСЕХ ТЕМАХ!</b> ✨ 🌐\n"
+            "✦ ══════════════════════════════════ ✦\n\n"
+            "Все игроки могут свободно запускать слоты, мины, краш, блэкджек, рулетку и ставки в любой ветке чата."
+        )
 
     import re as _re
     tid = 0
@@ -3139,25 +3178,51 @@ async def cmd_gram_topic(message: Message, bot: Bot, args: str = "", **kw):
         tid = int(m.group(1))
     elif a.isdigit():
         tid = int(a)
-    elif not a:
+    else:
         tid = _tid(message)
 
     if not tid:
         cur = await get_gram_topic(message.chat.id)
-        cur_txt = (f"Сейчас: {_tlink(message.chat.id, cur)}" if cur else "Сейчас: не задана")
+        cur_txt = (f"Сейчас: {_tlink(message.chat.id, cur)}" if cur else "Сейчас: разрешено во всех темах (не ограничено)")
         return await message.reply(
-            f"🌑 <b>Тема для игр и валюты</b>\n\n{cur_txt}\n\n"
-            f"Установить — напишите команду <b>в нужной теме</b>:\n"
-            f"<code>тема игр</code>\n\n"
-            f"Или ссылкой:\n<code>тема игр https://t.me/c/123456/789</code>\n\n"
-            f"Снять: <code>тема игр сброс</code>",
+            f"🎰 <b>Настройка игровой темы (Казино)</b>\n\n"
+            f"📍 {cur_txt}\n\n"
+            f"👉 <b>Чтобы привязать текущую ветку:</b> напишите прямо в ней: <code>тема казик</code> или <code>казик здесь</code>\n"
+            f"👉 <b>Или ссылкой:</b> <code>тема игр https://t.me/c/123456/789</code>\n"
+            f"👉 <b>Разрешить везде:</b> <code>игры везде</code> или <code>тема казик сброс</code>",
             disable_web_page_preview=True)
 
     await db.set_setting(message.chat.id, "gram_topic", str(tid))
     await message.reply(
-        f"✅ <b>Тема для игр и валюты установлена</b>\n\n🌑 {_tlink(message.chat.id, tid)}\n\n"
-        f"Все игры и команды валюты теперь работают <b>только там</b>.",
+        f"🎰 ✨ <b>ТЕМА КАЗИНО И ИГР УСПЕШНО ПРИВЯЗАНА!</b> ✨ 🎰\n"
+        f"✦ ══════════════════════════════════ ✦\n\n"
+        f"📍 <b>Игровая зона:</b> {_tlink(message.chat.id, tid)}\n"
+        f"🎮 Теперь слоты, мины, краш, блэкджек, рулетка, скачки и заработок работают <b>в этой теме</b>!\n\n"
+        f"💡 <i>Чтобы разрешить игры во всех темах беседы:</i> <code>игры везде</code>",
         disable_web_page_preview=True)
+
+
+@router.callback_query(F.data.startswith("set_gram_topic:"))
+async def cb_set_gram_topic(call: CallbackQuery, bot: Bot):
+    from config import is_bot_owner
+    from core_ranks import effective_rank
+    uid = call.from_user.id
+    cid = call.message.chat.id
+    have = await effective_rank(call.message, bot)
+    if have < 3 and not is_bot_owner(uid):
+        return await call.answer("🔒 Доступно только администрации беседы!", show_alert=True)
+    
+    target_tid = call.data.split(":")[1]
+    await db.set_setting(cid, "gram_topic", target_tid)
+    if target_tid == "0":
+        await call.message.edit_text("🌐 ✅ <b>Игры, казино и ставки теперь разрешены во ВСЕХ темах этой группы!</b>")
+    else:
+        await call.message.edit_text(
+            f"🎰 ✅ <b>Тема успешно привязана для Казино и Игр!</b>\n"
+            f"Все игры теперь работают в этой теме: {_tlink(cid, int(target_tid))}",
+            disable_web_page_preview=True
+        )
+    await call.answer("Настройка сохранена!")
 
 
 # ═══════════════ ИНФОРМАЦИЯ О ЕДИНОЙ ВАЛЮТЕ ═══════════════

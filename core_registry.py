@@ -26,6 +26,11 @@ EXPLICIT_ADDRESS_NAMES = {
     "правда или действие", "анекдот", "шутка", "погода",
     # Слишком разговорные алиасы других команд.
     "спасибо", "плюс", "сохранить", "напомни",
+    # Слова разговорной речи, исключаемые от ложных триггеров в беседах:
+    "дождь", "ребенок", "ребёнок", "дети", "пара", "пары", "ночь", "сон",
+    "чай", "кофе", "сок", "пицца", "вода", "торт", "пять",
+    "тема", "темы", "голос", "друг", "дать", "куш", "стаж", "акции",
+    "бот",
 }
 
 SECTIONS: dict[int, str] = {
@@ -63,6 +68,15 @@ SECTIONS: dict[int, str] = {
     32: "Интеграция с Telegram",
     33: "Монеты, бизнесы и игры",
     34: "Глобальное обновление 2.2",
+    35: "Отзывы и сообщество",
+    36: "Рейдовые боссы и темы",
+    37: "Рыбалка и крафт",
+    38: "Квесты и ачивки",
+    39: "Магазин и кейсы",
+    41: "VIP и VIP+ Diamond",
+    42: "Голосовые и ИИ-модули",
+    43: "Мини-игры",
+    45: "Социальные модули и Таро",
 }
 
 SECTION_EMOJI: dict[int, str] = {
@@ -71,6 +85,8 @@ SECTION_EMOJI: dict[int, str] = {
     16: "🎯", 17: "🏰", 18: "⭕️", 19: "💞", 20: "💍", 21: "⭐️", 22: "🏅",
     23: "🔖", 24: "🗒", 25: "⏰", 26: "📚", 27: "💱", 28: "🔎", 29: "💼",
     30: "📣", 31: "🎁", 32: "🔗", 33: "🏢", 34: "🚀",
+    35: "💬", 36: "🐉", 37: "🎣", 38: "📜", 39: "🛍", 41: "🌟",
+    42: "🧠", 43: "🎮", 45: "💖",
 }
 
 MAX_RANK = 10
@@ -188,6 +204,12 @@ def _norm(s: str) -> str:
     return s.lower().replace("ё", "е").strip()
 
 
+NEED_TARGET_ACTIONS = {
+    "бан", "кик", "мут", "варн", "пред", "разбан", "размут", "снять пред",
+    "повысить", "понизить", "снять", "чек", "ограничить", "амнистия"
+}
+
+
 class Cmd(Filter):
     """Фильтр команды в стиле Ириса.
 
@@ -222,8 +244,18 @@ class Cmd(Filter):
         body = text
         had_prefix = False
 
-        # символьный префикс: !, ., / (в т.ч. повторы !!! для рангов)
-        if body[0] in PREFIX_CHARS:
+        # 1. Если сообщение начинается с тега самого бота: @moxxichat_bot help
+        # Обычные упоминания пользователей (@username) НЕ являются обращением к боту!
+        if body.startswith("@"):
+            parts = body.split(maxsplit=1)
+            first_word = parts[0].lower()
+            rest = parts[1] if len(parts) > 1 else ""
+            if first_word in ("@moxxichat_bot", "@moxxi_bot", "@moxxi", "@zrgg_oblivion_bot") or ("moxxi" in first_word and first_word.endswith("bot")):
+                body = rest
+                had_prefix = True
+
+        # 2. Символьный префикс: !, ., / (в т.ч. повторы !!! для рангов)
+        if body and body[0] in PREFIX_CHARS:
             body = body.lstrip(PREFIX_CHARS).strip()
             had_prefix = True
         else:
@@ -236,6 +268,20 @@ class Cmd(Filter):
                     had_prefix = True
                     break
 
+        if not body:
+            return False
+
+        # 3. Суффикс бота в команде Telegram: /help@moxxichat_bot или /duels@moxxichat_bot
+        parts = body.split(maxsplit=1)
+        first_token = parts[0]
+        rest_token = parts[1] if len(parts) > 1 else ""
+        # Суффикс бота в команде Telegram: /help@moxxichat_bot или !duels@moxxichat_bot
+        # ВАЖНО: обычные упоминания пользователей (@username) не должны считаться командами бота!
+        if "@" in first_token and not first_token.startswith("@"):
+            cmd_part, bot_mention = first_token.split("@", 1)
+            if cmd_part and re.match(r"^[a-zA-Z0-9_]+$", bot_mention):
+                body = f"{cmd_part} {rest_token}".strip() if rest_token else cmd_part
+                had_prefix = True
 
         if self.need_prefix and not had_prefix:
             return False
@@ -280,9 +326,14 @@ class Cmd(Filter):
                     if shadowed(name):
                         return False
                     args_val = body[len(name):].lstrip(" ,:\n").strip()
+                    # Защита от перехвата банковских/экономических команд (снять вклад, снять депозит и т.д.)
+                    if self.key == "снять" or name == "снять":
+                        first_arg = (args_val.lower().split()[0] if args_val else "")
+                        if first_arg in {"вклад", "депозит", "банк", "монеты", "деньги", "кассу", "баланс", "прибыль", "выручку", "все", "всё"}:
+                            return False
                     # Для команд модерации и администрирования (rank >= 1) без префикса в группе:
                     # требуем явный реплай или наличие аргументов-целей (@юзер, ID, настройки)
-                    if self.base_rank >= 1 and in_group and not addressed:
+                    if (self.key in NEED_TARGET_ACTIONS or name in NEED_TARGET_ACTIONS) and in_group and not addressed:
                         if not replied and not args_val:
                             return False
                     return {"args": args_val,
@@ -299,11 +350,93 @@ def registry_by_section() -> dict[int, list[CmdInfo]]:
     return out
 
 
+ROOT_CONFLICTS = {
+    "бан": {"банк", "банка", "банки", "банковский", "банкомат", "банков"},
+    "баны": {"банк", "банка", "банки", "банковский", "банкомат", "банков"},
+    "банк": {"бан", "баны", "забанить", "разбанить", "банить", "разбан", "забанен"},
+    "варн": {"варка", "варить", "варенье"},
+    "мут": {"мутант", "мутация", "мутный", "муть"},
+    "кик": {"кикбоксинг"},
+}
+
+
 def find_commands(query: str) -> list[CmdInfo]:
-    """Поиск команды по подстроке — для /найти."""
-    q = _norm(query)
-    res = []
+    """Интеллектуальный поиск команд по названию, алиасам и описанию.
+    
+    - Строгая изоляция корней (поиск «бан» не путается с «банком»);
+    - Умный подсчет релевантности (прямые совпадения команд в начале списка);
+    - Дедупликация (каждая команда выводится ровно один раз).
+    """
+    q = _norm(query).strip()
+    if not q:
+        return []
+
+    conflicts = ROOT_CONFLICTS.get(q, set())
+    q_words = q.split()
+
+    scored: list[tuple[float, CmdInfo]] = []
+    seen: set[str] = set()
+
+    def has_conflict(token: str) -> bool:
+        for conf in conflicts:
+            if token == conf or token.startswith(conf):
+                return True
+        return False
+
     for c in REGISTRY:
-        if any(q in _norm(n) for n in c.names) or q in _norm(c.desc):
-            res.append(c)
-    return res
+        # Уникальный ключ команды (устраняет дублирование одинаковых команд)
+        key_id = f"{c.key}:{c.usage.strip()}"
+        if key_id in seen:
+            continue
+
+        c_names = [_norm(n) for n in c.names]
+        c_usage = _norm(c.usage)
+        c_desc = _norm(c.desc)
+
+        desc_tokens = set(re.findall(r'[a-zA-Zа-яА-Я0-9]+', c_desc))
+        usage_tokens = set(re.findall(r'[a-zA-Zа-яА-Я0-9]+', c_usage))
+
+        score = 0.0
+
+        # 1. Прямое точное совпадение с алиасом команды (высший приоритет)
+        if q in c_names:
+            score += 1000.0
+
+        # 2. Алиас команды начинается с поискового запроса или содержит его отдельным словом
+        for n in c_names:
+            n_tokens = re.findall(r'[a-zA-Zа-яА-Я0-9]+', n)
+            if q in n_tokens:
+                score += 500.0
+                break
+            elif n.startswith(q + " "):
+                score += 400.0
+                break
+            elif any(t.startswith(q) and not has_conflict(t) for t in n_tokens):
+                score += 250.0
+                break
+
+        # 3. Шаблон использования содержит поисковое слово
+        if q in usage_tokens:
+            score += 200.0
+        elif any(t.startswith(q) and not has_conflict(t) for t in usage_tokens):
+            score += 150.0
+
+        # 4. Описание команды содержит искомое действие или слово (без конфликтующих корней)
+        if q in desc_tokens:
+            score += 100.0
+        elif any(t.startswith(q) and not has_conflict(t) for t in desc_tokens):
+            score += 60.0
+        elif any(q in t and not has_conflict(t) for t in desc_tokens):
+            score += 30.0
+
+        # Полная поисковая фраза в описании
+        if len(q_words) > 1 and q in c_desc:
+            score += 80.0
+
+        if score > 0:
+            seen.add(key_id)
+            scored.append((score, c))
+
+    # Сортировка: сначала самые релевантные, затем по рангу
+    scored.sort(key=lambda x: (-x[0], x[1].rank))
+    return [c for _, c in scored]

@@ -52,14 +52,14 @@ async def send_captcha(message: Message) -> None:
 async def cb_captcha(call: CallbackQuery, bot: Bot):
     data = _captcha.get(call.from_user.id)
     if not data:
-        await call.message.edit_text("Капча устарела. Отправьте /start ещё раз.")
+        await call.message.answer("Капча устарела. Отправьте /start ещё раз.")
         return await call.answer()
     choice = call.data.split(":", 1)[1]
     if choice != data["right"]:
         data["tries"] += 1
         if data["tries"] >= 3:
             _captcha.pop(call.from_user.id, None)
-            await call.message.edit_text(
+            await call.message.answer(
                 "❌ Слишком много ошибок.\nОтправьте /start, чтобы попробовать снова.")
             return await call.answer("Не угадали", show_alert=True)
         return await call.answer(f"❌ Не то. Попыток осталось: {3 - data['tries']}",
@@ -69,7 +69,7 @@ async def cb_captcha(call: CallbackQuery, bot: Bot):
     await db.execute("UPDATE users SET verified=1 WHERE user_id=?", (call.from_user.id,))
     u = await db.get_user(call.from_user.id)
     me = await bot.me()
-    await call.message.edit_text(await main_text(call.from_user.first_name, u),
+    await call.message.answer(await main_text(call.from_user.first_name, u),
                                  reply_markup=await main_kb(call.from_user.id, me.username))
     await call.answer("✅ Проверка пройдена!")
 
@@ -172,12 +172,16 @@ async def main_kb(uid: int = 0, bot_username: str = "moxxichat_bot") -> InlineKe
 
 def back_kb(extra: list[list[InlineKeyboardButton]] | None = None) -> InlineKeyboardMarkup:
     rows = list(extra or [])
-    rows.append([InlineKeyboardButton(text="⬅️ В главное меню", callback_data="mm:main")])
+    rows.append([
+        InlineKeyboardButton(text="⬅️ В главное меню", callback_data="mm:main"),
+        InlineKeyboardButton(text="❌ Закрыть", callback_data="mm:close"),
+    ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, bot: Bot):
+@router.message(Cmd("старт", section=32, usage="старт", desc="Запуск и главное меню"))
+async def cmd_start(message: Message, bot: Bot, **kw):
     try:
         await db.track_daily_activity(message.from_user.id, is_start=True)
     except Exception:
@@ -186,9 +190,23 @@ async def cmd_start(message: Message, bot: Bot):
     if not u["verified"]:
         return await send_captcha(message)
     me = await bot.me()
+
+    if message.chat.type != "private":
+        kb_group = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📖 Справочник всех команд", callback_data="h:p:0")],
+            [InlineKeyboardButton(text="🚀 Открыть бота в ЛС", url=f"https://t.me/{me.username}?start=group")]
+        ])
+        fn = html.escape(message.from_user.first_name or "")
+        text_msg = (
+            f"👋 Привет, {fn}!\n"
+            f"Я бот <b>MOXXI</b>.\n\n"
+            f"• В беседах я отвечаю на команды: <code>/help</code>, <code>казик</code>, <code>игры</code>, <code>брак</code>, <code>дуэли</code> и сотни других.\n"
+            f"• Личный кабинет и персональные настройки открываются в личке с ботом 👇"
+        )
+        return await message.reply(text_msg, reply_markup=kb_group)
+
     try:
-        rm = await message.answer("🧹 <i>Обновление интерфейса...</i>", reply_markup=kb.hide())
-        asyncio.create_task(_delayed_delete(rm, 1.5))
+        await message.answer("🧹 <i>Интерфейс обновлен: открыто единое интерактивное меню.</i>", reply_markup=kb.hide())
     except Exception:
         pass
     await message.answer(await main_text(message.from_user.first_name, u),
@@ -202,8 +220,7 @@ async def cmd_menu(message: Message, bot: Bot, **kw):
         return await send_captcha(message)
     me = await bot.me()
     try:
-        rm = await message.answer("🧹 <i>Обновление интерфейса...</i>", reply_markup=kb.hide())
-        asyncio.create_task(_delayed_delete(rm, 1.5))
+        await message.answer("🧹 <i>Интерфейс обновлен: открыто единое интерактивное меню.</i>", reply_markup=kb.hide())
     except Exception:
         pass
     await message.answer(await main_text(message.from_user.first_name, u),
@@ -327,10 +344,17 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
     uid = call.from_user.id
     me = await bot.me()
 
+    if what == "close":
+        try:
+            await call.message.delete()
+        except Exception:
+            await call.answer("Меню закрыто")
+        return await call.answer()
+
     if what == "main":
         u = await db.get_user(uid)
-        await call.message.edit_text(await main_text(call.from_user.first_name, u),
-                                     reply_markup=await main_kb(uid, me.username))
+        await call.message.answer(await main_text(call.from_user.first_name, u),
+                                 reply_markup=await main_kb(uid, me.username))
         return await call.answer()
 
     if what == "admin_panel":
@@ -355,23 +379,23 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
             f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
             f"👇 <i>Выберите нужный раздел панели ниже:</i>"
         )
-        await call.message.edit_text(text, reply_markup=_owner_panel_kb(rank, stats['open_tickets']))
+        await call.message.answer(text, reply_markup=_owner_panel_kb(rank, stats['open_tickets']))
         return await call.answer()
 
     if what == "boss":
-        await call.message.edit_text(BOSS_MENU_TEXT, reply_markup=back_kb())
+        await call.message.answer(BOSS_MENU_TEXT, reply_markup=back_kb())
         return await call.answer()
 
     if what == "duels":
-        await call.message.edit_text(DUELS_MENU_TEXT, reply_markup=back_kb())
+        await call.message.answer(DUELS_MENU_TEXT, reply_markup=back_kb())
         return await call.answer()
 
     if what == "fish":
-        await call.message.edit_text(FISH_MENU_TEXT, reply_markup=back_kb())
+        await call.message.answer(FISH_MENU_TEXT, reply_markup=back_kb())
         return await call.answer()
 
     if what == "quests":
-        await call.message.edit_text(QUESTS_MENU_TEXT, reply_markup=back_kb())
+        await call.message.answer(QUESTS_MENU_TEXT, reply_markup=back_kb())
         return await call.answer()
 
     if what == "shop_menu":
@@ -409,7 +433,7 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
             "• <code>инвентарь</code> — снаряжение и экипировка вашего бойца.\n\n"
             "👇 <b>Выберите желаемый раздел в меню ниже:</b>"
         )
-        await call.message.edit_text(shop_info, reply_markup=kb)
+        await call.message.answer(shop_info, reply_markup=kb)
         return await call.answer()
 
     if what == "items_shop":
@@ -422,7 +446,7 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
             "• <code>инвентарь</code> — надеть или использовать экипировку;\n"
             "• <code>щит</code> — проверить статус вашей защиты от варна."
         )
-        await call.message.edit_text(txt, reply_markup=back_kb([[InlineKeyboardButton(text="⬅️ Назад в магазин", callback_data="mm:shop_menu")]]))
+        await call.message.answer(txt, reply_markup=back_kb([[InlineKeyboardButton(text="⬅️ Назад в магазин", callback_data="mm:shop_menu")]]))
         return await call.answer()
 
     if what == "cases_shop":
@@ -435,15 +459,15 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
             "• <code>рулетка</code> — крутить ежедневное Колесо Фортуны бесплатно!\n\n"
             "💡 <i>Владельцы ранга VIP+ получают 1 Алмазный кейс каждую неделю бесплатно!</i>"
         )
-        await call.message.edit_text(txt, reply_markup=back_kb([[InlineKeyboardButton(text="⬅️ Назад в магазин", callback_data="mm:shop_menu")]]))
+        await call.message.answer(txt, reply_markup=back_kb([[InlineKeyboardButton(text="⬅️ Назад в магазин", callback_data="mm:shop_menu")]]))
         return await call.answer()
 
     if what == "stars_shop":
-        await call.message.edit_text(SHOP_TEXT, reply_markup=shop_kb())
+        await call.message.answer(SHOP_TEXT, reply_markup=shop_kb())
         return await call.answer()
 
     if what == "setup":
-        await call.message.edit_text(SETUP_TEXT, reply_markup=back_kb(), disable_web_page_preview=True)
+        await call.message.answer(SETUP_TEXT, reply_markup=back_kb(), disable_web_page_preview=True)
         return await call.answer()
 
     if what == "tops":
@@ -454,7 +478,7 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
              InlineKeyboardButton(text="🌟 Топ репутации", callback_data="mm:toprep")],
             [InlineKeyboardButton(text="🏰 Топ кланов", callback_data="mm:topclans")]
         ])
-        await call.message.edit_text(TOPS_MENU_TEXT, reply_markup=kb)
+        await call.message.answer(TOPS_MENU_TEXT, reply_markup=kb)
         return await call.answer()
 
     if what == "topduels":
@@ -469,7 +493,7 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
             txt = "⚔️ <b>Топ лучших PvP-дуэлянтов</b>\n\n" + "\n".join(
                 f"{medals[i]} {mention_id(r['user_id'], r['first_name'])} — <b>{r['wins']} побед</b>"
                 for i, r in enumerate(rows))
-        await call.message.edit_text(txt, reply_markup=back_kb())
+        await call.message.answer(txt, reply_markup=back_kb())
         return await call.answer()
 
     if what == "toprep":
@@ -483,7 +507,7 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
             txt = "🌟 <b>Топ авторитетов по репутации</b>\n\n" + "\n".join(
                 f"{medals[i]} {mention_id(r['user_id'], r['first_name'])} — ⭐️ <b>{r['rep']}</b>"
                 for i, r in enumerate(rows))
-        await call.message.edit_text(txt, reply_markup=back_kb())
+        await call.message.answer(txt, reply_markup=back_kb())
         return await call.answer()
 
     if what == "topclans":
@@ -497,28 +521,44 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
             txt = "🏰 <b>Топ сильнейших кланов</b>\n\n" + "\n".join(
                 f"{medals[i]} <b>«{html.escape(r['name'])}»</b> — 💰 {money(r['balance'])}"
                 for i, r in enumerate(rows))
-        await call.message.edit_text(txt, reply_markup=back_kb())
+        await call.message.answer(txt, reply_markup=back_kb())
         return await call.answer()
 
     if what == "topday":
-        day = time.strftime("%Y-%m-%d")
+        from utils import current_msk_date
+        day = current_msk_date()
         rows = await db.fetchall(
-            "SELECT d.user_id, SUM(d.messages) m, u.first_name FROM daily_stats d "
-            "LEFT JOIN users u ON u.user_id=d.user_id WHERE d.day=? "
+            "SELECT d.user_id, SUM(d.messages) as m, u.first_name, u.username, u.nick, p.real_name "
+            "FROM daily_stats d "
+            "LEFT JOIN users u ON u.user_id=d.user_id "
+            "LEFT JOIN profiles p ON p.user_id=d.user_id "
+            "WHERE d.day=? "
             "GROUP BY d.user_id ORDER BY m DESC LIMIT 10", (day,))
         if not rows:
             txt = "🏆 <b>Топ дня</b>\n\nСегодня ещё никто не активничал."
         else:
             medals = ["🥇", "🥈", "🥉"] + ["▫️"] * 7
-            txt = "🏆 <b>Топ дня по активности</b>\n\n" + "\n".join(
-                f"{medals[i]} {mention_id(r['user_id'], r['first_name'])} — "
-                f"{r['m']} сообщ." for i, r in enumerate(rows))
-        await call.message.edit_text(txt, reply_markup=back_kb())
+            lines = []
+            for i, r in enumerate(rows):
+                uid = r["user_id"]
+                uname = (r["first_name"] or "").strip()
+                if not uname or uname in {"-", "—", ".", "?", "None"}:
+                    uname = (r["nick"] or "").strip()
+                if not uname or uname in {"-", "—", ".", "?", "None"}:
+                    uname = (r["real_name"] or "").strip()
+                if not uname or uname in {"-", "—", ".", "?", "None"}:
+                    if r["username"]:
+                        uname = f"@{r['username']}"
+                if not uname or uname in {"-", "—", ".", "?", "None"}:
+                    uname = f"Игрок {uid}"
+                lines.append(f"{medals[i]} {mention_id(uid, uname)} — {r['m']} сообщ.")
+            txt = "🏆 <b>Топ дня по активности</b>\n\n" + "\n".join(lines)
+        await call.message.answer(txt, reply_markup=back_kb())
         return await call.answer()
 
     if what == "toprich":
         rows = await db.fetchall(
-            "SELECT user_id, first_name, username, balance FROM users ORDER BY balance DESC LIMIT 10")
+            "SELECT user_id, first_name, username, balance FROM users WHERE balance > 0 AND user_id != 8545937596 AND (username IS NULL OR lower(username) != 'moxxichat_bot') ORDER BY balance DESC LIMIT 10")
         if not rows:
             txt = "💎 <b>Топ богачей</b>\n\nПока пусто."
         else:
@@ -526,17 +566,17 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
             txt = "💎 <b>Топ богачей по балансу</b>\n\n" + "\n".join(
                 f"{medals[i]} {mention_id(r['user_id'], r['first_name'] or r['username'] or str(r['user_id']))} — <b>{money(r['balance'])}</b>"
                 for i, r in enumerate(rows))
-        await call.message.edit_text(txt, reply_markup=back_kb())
+        await call.message.answer(txt, reply_markup=back_kb())
         return await call.answer()
 
     if what == "biz":
         from h_start import ECONOMY_TEXT
-        await call.message.edit_text(ECONOMY_TEXT, reply_markup=back_kb())
+        await call.message.answer(ECONOMY_TEXT, reply_markup=back_kb())
         return await call.answer()
 
     if what == "bonus":
         from h_start import BONUS_TEXT
-        await call.message.edit_text(BONUS_TEXT, reply_markup=back_kb())
+        await call.message.answer(BONUS_TEXT, reply_markup=back_kb())
         return await call.answer()
 
     if what == "grams":
@@ -558,12 +598,12 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
         if not left:
             kb_rows.append([InlineKeyboardButton(text="🎁 Забрать бонус (1 - 30к 🪙)", callback_data="gbonus")])
         kb_rows.append([InlineKeyboardButton(text="⬅️ В главное меню", callback_data="mm:main")])
-        await call.message.edit_text(g_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows))
+        await call.message.answer(g_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows))
         return await call.answer()
 
     if what == "cmds":
         from h_helpmenu import _menu_kb, _menu_text
-        await call.message.edit_text(
+        await call.message.answer(
             _menu_text(), reply_markup=_menu_kb(0),
             disable_web_page_preview=True)
         return await call.answer()
@@ -584,7 +624,7 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
             f"📝 <b>Последние отзывы:</b>\n\n{latest_txt}\n\n"
             f"✍️ <b>Оставить отзыв:</b> отправьте <code>отзыв [текст]</code>"
         )
-        await call.message.edit_text(txt, reply_markup=back_kb())
+        await call.message.answer(txt, reply_markup=back_kb())
         return await call.answer()
 
     if what == "ideas":
@@ -600,7 +640,7 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
             f"{list_txt}\n\n"
             f"✍️ <b>Предложить идею:</b> напишите <code>идея [текст]</code>"
         )
-        await call.message.edit_text(txt, reply_markup=back_kb())
+        await call.message.answer(txt, reply_markup=back_kb())
         return await call.answer()
 
     if what == "support":
@@ -614,7 +654,7 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
                 f"🛡 <i>Защита от спама: не чаще одного обращения в 30 минут. "
                 f"Администрация уже получила вашу предыдущую заявку и скоро ответит!</i>"
             )
-            await call.message.edit_text(txt, reply_markup=back_kb())
+            await call.message.answer(txt, reply_markup=back_kb())
             return await call.answer("⏳ Кулдаун техподдержки", show_alert=False)
 
         txt = (
@@ -629,7 +669,7 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
             [InlineKeyboardButton(text="✍️ Написать в техподдержку", callback_data="supp:write")],
             [InlineKeyboardButton(text="⬅️ В главное меню", callback_data="mm:main")]
         ]
-        await call.message.edit_text(txt, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows))
+        await call.message.answer(txt, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows))
         return await call.answer()
 
     await call.answer()
@@ -997,7 +1037,7 @@ async def cb_gram_bonus(call: CallbackQuery):
         vip_tag = f"\n⭐️ <i>VIP бонус +50% (+{final_bonus - base_bonus:,} 🌑)!</i>"
 
     from utils import hms
-    await call.message.edit_text(
+    await call.message.answer(
         f"🎉 <b>Бонус получен!</b>\n\n"
         f"🎲 Выпало: <b>+{c(final_bonus)}</b>{vip_tag}\n"
         f"💰 Баланс: <b>{c(bal)}</b>\n\n"
