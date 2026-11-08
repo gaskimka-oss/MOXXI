@@ -1139,6 +1139,10 @@ async def _migrate() -> None:
             ("warns", "INTEGER NOT NULL DEFAULT 0"),
             ("muted_until", "INTEGER NOT NULL DEFAULT 0"),
         ],
+        "support_tickets": [
+            ("platform", "TEXT NOT NULL DEFAULT 'tg'"),
+            ("platform_peer_id", "INTEGER NOT NULL DEFAULT 0"),
+        ],
     }
     for table, cols in wanted.items():
         try:
@@ -2811,11 +2815,11 @@ async def get_suggestions(limit: int = 10, status: str | None = None) -> list[di
 
 
 # --- Служба техподдержки и тикетов -----------------------------------------
-async def create_support_ticket(user_id: int, user_name: str, text: str, status: str = "open") -> int:
+async def create_support_ticket(user_id: int, user_name: str, text: str, status: str = "open", platform: str = "tg", platform_peer_id: int = 0) -> int:
     now = int(time.time())
     async with conn().execute(
-        "INSERT INTO support_tickets (user_id, user_name, text, status, created_at) VALUES (?, ?, ?, ?, ?)",
-        (user_id, user_name, text, status, now)
+        "INSERT INTO support_tickets (user_id, user_name, text, status, platform, platform_peer_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (user_id, user_name, text, status, platform, platform_peer_id, now)
     ) as cur:
         await conn().commit()
         return int(cur.lastrowid)
