@@ -63,7 +63,7 @@ async def on_added(event: ChatMemberUpdated, bot: Bot):
             if adm.status == "creator" and adm.user and not adm.user.is_bot:
                 await set_rank(event.chat.id, adm.user.id, MAX_RANK, by=0)
                 await db.touch_user(adm.user.id, adm.user.username, adm.user.first_name)
-                creator_info = f"\n\n👑 <b>Создателю беседы {mention_id(adm.user.id, adm.user.first_name)} присвоен высший ранг: ⭐⭐⭐⭐⭐⭐⭐ Лидер чата!</b>"
+                creator_info = f"\n\n👑 <b>Создателю беседы {mention_id(adm.user.id, adm.user.first_name)} присвоен высший ранг: ⭐⭐⭐⭐⭐⭐⭐ Владелец чата!</b>"
                 break
     except Exception:
         pass
@@ -389,7 +389,7 @@ async def transcribe_voice(message: Message, bot: Bot) -> None:
             pass
     except Exception as e:
         import logging
-        logging.getLogger("irisbot").warning("расшифровка: %s", str(e)[:150])
+        logging.getLogger("moxxibot").warning("расшифровка: %s", str(e)[:150])
 
 
 # ── Медиа от тех, кто без описания ──────────────────────────────────

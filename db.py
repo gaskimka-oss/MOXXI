@@ -1142,6 +1142,9 @@ async def _migrate() -> None:
         "support_tickets": [
             ("platform", "TEXT NOT NULL DEFAULT 'tg'"),
             ("platform_peer_id", "INTEGER NOT NULL DEFAULT 0"),
+            ("claimed_by", "INTEGER NOT NULL DEFAULT 0"),
+            ("claimed_name", "TEXT NOT NULL DEFAULT ''"),
+            ("claimed_at", "INTEGER NOT NULL DEFAULT 0"),
         ],
     }
     for table, cols in wanted.items():
@@ -2590,7 +2593,7 @@ async def upgrade_business_level(user_id: int, biz_key: str, levels: int = 1) ->
 
     bal = await get_balance(user_id)
     if bal < total_cost:
-        return False, cur_lvl, f"Недостаточно ирисок. Требуется: <b>{total_cost:,}</b>, ваш баланс: <b>{bal:,}</b>."
+        return False, cur_lvl, f"Недостаточно монет. Требуется: <b>{total_cost:,}</b>, ваш баланс: <b>{bal:,}</b>."
 
     await add_coins(user_id, -total_cost, "upgrade_biz", f"{biz_key}:{new_lvl}")
     await execute(
@@ -2865,6 +2868,29 @@ async def close_support_ticket(ticket_id: int, closed_by: int = 0, closed_name: 
         (closed_by, closed_name, now, ticket_id)
     )
     return True
+
+async def claim_support_ticket(ticket_id: int, staff_id: int, staff_name: str) -> bool:
+    now = int(time.time())
+    cur = await execute(
+        "UPDATE support_tickets SET status='claimed', claimed_by=?, claimed_name=?, claimed_at=? WHERE id=? AND status IN ('open', 'claimed')",
+        (staff_id, staff_name, now, ticket_id)
+    )
+    return bool(cur.rowcount > 0)
+
+async def release_support_ticket(ticket_id: int) -> bool:
+    cur = await execute(
+        "UPDATE support_tickets SET status='open', claimed_by=0, claimed_name='', claimed_at=0 WHERE id=?",
+        (ticket_id,)
+    )
+    return bool(cur.rowcount > 0)
+
+async def get_stale_claimed_tickets(timeout_sec: int = 3600) -> list[dict]:
+    threshold = int(time.time()) - timeout_sec
+    rows = await fetchall(
+        "SELECT * FROM support_tickets WHERE status='claimed' AND claimed_at > 0 AND claimed_at < ?",
+        (threshold,)
+    )
+    return [dict(r) for r in rows]
 
 
 # ══════════════════ АНОНСЫ И ПЕРЕКЛИЧКИ С ИИ ══════════════════

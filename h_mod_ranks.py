@@ -19,7 +19,7 @@ from utils import mention_id
 router = Router(name="mod_ranks")
 S = 1
 
-# «Ирис»-стиль: 🏐 в чате, ➖ вышел из чата
+# Стиль MOXXI: 🏐 в чате, ➖ вышел из чата
 IN_CHAT, LEFT_CHAT = "🏐", "➖"
 
 
@@ -974,7 +974,7 @@ def parse_staff_list(text: str) -> list[tuple[str, str, int, bool]]:
             out.append((at_user, at_user, cur_rank, left))
         elif plain:
             name = plain.strip(" *_")
-            if not name or name.lower().startswith(("http", "ирис")):
+            if not name or name.lower().startswith(("http", "бот", "мокси")):
                 continue
             if len(name) > 64:
                 continue

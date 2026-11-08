@@ -536,18 +536,18 @@ async def catalog_add(message: Message, bot: Bot, **kw):
     await message.reply("✅ Чат добавлен в каталог.")
 
 
-# ================= 27. ИРИС-БИРЖА =================
+# ================= 27. БИРЖА MOXXI =================
 @router.message(Cmd("биржа", "маркет", section=S_MARKET, usage="биржа",
                     desc="Активные заявки биржи"))
 async def market(message: Message, **kw):
     rows = await db.fetchall("SELECT m.*, u.first_name FROM market m LEFT JOIN users u "
                              "ON u.user_id=m.user_id ORDER BY m.id DESC LIMIT 15")
     if not rows:
-        return await message.reply("💱 <b>Ирис-биржа</b>\nЗаявок нет.\n"
+        return await message.reply("💱 <b>Биржа MOXXI</b>\nЗаявок нет.\n"
                                    "Создать: <code>продать 1000 за 500</code>")
     lines = [f"#{r['id']} {mention_id(r['user_id'], r['first_name'])} — "
              f"{r['kind']} {money(r['amount'])} за {money(r['price'])}" for r in rows]
-    await message.reply("💱 <b>Ирис-биржа</b>\n" + "\n".join(lines))
+    await message.reply("💱 <b>Биржа MOXXI</b>\n" + "\n".join(lines))
 
 
 @router.message(Cmd("продать на бирже", "биржа продать", "маркет продать", section=S_MARKET, usage="биржа продать {кол-во} за {цена}",
@@ -562,7 +562,7 @@ async def market_sell(message: Message, args: str = "", **kw):
     if not amount or not price:
         return await message.reply("Некорректные числа.")
     if amount > u["balance"]:
-        return await message.reply("Недостаточно ирисок.")
+        return await message.reply("Недостаточно монет.")
     await db.add_balance(message.from_user.id, -amount, "market_lock")
     await db.execute("INSERT INTO market (user_id,kind,amount,price,ts) VALUES (?,?,?,?,?)",
                      (message.from_user.id, "продажа", amount, price, int(time.time())))

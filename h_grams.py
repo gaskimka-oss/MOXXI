@@ -847,7 +847,7 @@ async def cmd_daily(message: Message, **kw):
     )
 
 
-@router.message(Cmd("топ", "топ монет", "топ игроков", "топ коинов", "топ грамм", "топ граммов", "топ грами", "топ богатых", "топ баланс", "топ по ирискам", "топ ирисок", section=S,
+@router.message(Cmd("топ", "топ монет", "топ игроков", "топ коинов", "топ грамм", "топ граммов", "топ грами", "топ богатых", "топ баланс", section=S,
                     usage="топ", desc="Богатейшие игроки"))
 async def cmd_top(message: Message, **kw):
     if not await topic_ok(message):

@@ -1,4 +1,4 @@
-"""Разделы 13–16: бонусы/ириски/VIP, развлечения, дуэли, кубы."""
+"""Разделы 13–16: бонусы/монеты/VIP, развлечения, дуэли, кубы."""
 from __future__ import annotations
 
 import asyncio
@@ -272,8 +272,8 @@ async def cmd_coin(message: Message, args: str = "", **kw):
 async def cmd_truth(message: Message, **kw):
     truths = ["Какой твой самый большой страх?", "О чём ты жалеешь?",
               "Самый неловкий момент в жизни?", "Кому последнему ты врал?"]
-    acts = ["Отправь последнее фото из галереи", "Напиши статус «я люблю Ирис» на час",
-            "Позвони другу и спой", "Смени ник на «Ириска» на сутки"]
+    acts = ["Отправь последнее фото из галереи", "Напиши статус «я люблю MOXXI» на час",
+            "Позвони другу и спой", "Смени ник на «MOXXI Котик» на сутки"]
     await message.reply(random.choice([f"❓ <b>Правда:</b> {random.choice(truths)}",
                                        f"🎬 <b>Действие:</b> {random.choice(acts)}"]))
 
@@ -462,7 +462,7 @@ async def cmd_slots(message: Message, args: str = "", **kw):
 
 
 @router.message(Cmd("дартс", "darts", section=S_CUBE, usage="дартс {ставка}",
-                    desc="Дартс на ириски"))
+                    desc="Дартс на монеты"))
 async def cmd_darts(message: Message, args: str = "", **kw):
     bet = await _bet_of(message, args)
     if bet is None:
@@ -488,7 +488,7 @@ async def cmd_darts(message: Message, args: str = "", **kw):
 
 
 @router.message(Cmd("боулинг", "кегли", "bowling", section=S_CUBE, usage="боулинг {ставка}",
-                    desc="Боулинг на ириски"))
+                    desc="Боулинг на монеты"))
 async def cmd_bowling(message: Message, args: str = "", **kw):
     bet = await _bet_of(message, args)
     if bet is None:
@@ -511,7 +511,7 @@ async def cmd_bowling(message: Message, args: str = "", **kw):
 
 
 @router.message(Cmd("футбол", "пенальти", "football", "penalty", section=S_CUBE, usage="футбол {ставка}",
-                    desc="Пенальти на ириски"))
+                    desc="Пенальти на монеты"))
 async def cmd_football(message: Message, args: str = "", **kw):
     bet = await _bet_of(message, args)
     if bet is None:
@@ -533,7 +533,7 @@ async def cmd_football(message: Message, args: str = "", **kw):
 
 
 @router.message(Cmd("баскетбол", "basketball", section=S_CUBE, usage="баскетбол {ставка}",
-                    desc="Баскетбол на ириски"))
+                    desc="Баскетбол на монеты"))
 async def cmd_basketball(message: Message, args: str = "", **kw):
     bet = await _bet_of(message, args)
     if bet is None:
@@ -839,8 +839,8 @@ async def cb_game_replay(call: CallbackQuery, bot: Bot):
 
 
 # ---------- Магазин и топ дня (работают и в группе, и в личке) ----------
-@router.message(Cmd("магазин", "купить ириски", "shop", "донат", section=S_BONUS,
-                    usage="магазин", desc="Купить ириски и VIP за Telegram Stars"))
+@router.message(Cmd("магазин", "купить монеты", "shop", "донат", section=S_BONUS,
+                    usage="магазин", desc="Купить монеты и VIP за Telegram Stars"))
 async def cmd_shop(message: Message, **kw):
     from h_start import SHOP_TEXT, shop_kb
     await message.reply(SHOP_TEXT, reply_markup=shop_kb())

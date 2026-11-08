@@ -1,4 +1,4 @@
-"""Система рангов модераторов (0–5), как в Ирисе."""
+"""Система рангов модераторов (0–5), в системе MOXXI."""
 from __future__ import annotations
 
 import time
@@ -125,7 +125,7 @@ async def require(message: Message, bot: Bot, need: int, key: str = "") -> bool:
     text = (message.text or message.caption or "").strip()
     if text and text[0] not in "!./":
         low = text.lower()
-        if not (low.startswith("ирис") or low.startswith("ириска")):
+        if not low.startswith(("мокси", "моккси", "moxxi", "бот")):
             return False
 
     cmd_name = (key or "").strip()

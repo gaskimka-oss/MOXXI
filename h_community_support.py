@@ -365,13 +365,27 @@ AUTO_ANSWERS = {
 }
 
 
-def ticket_admin_kb(ticket_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="⚡️ Быстрый автоответ", callback_data=f"supp_autokb:{ticket_id}"),
-            InlineKeyboardButton(text="🔒 Закрыть тикет", callback_data=f"supp_close:{ticket_id}")
-        ]
-    ])
+def ticket_admin_kb(ticket_id: int, claimed_by: int = 0, claimed_name: str = "") -> InlineKeyboardMarkup:
+    if not claimed_by:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="💬 Взять в работу / Ответить", callback_data=f"supp_claim:{ticket_id}"),
+                InlineKeyboardButton(text="⛔️ Быстрый отказ", callback_data=f"supp_close:{ticket_id}")
+            ]
+        ])
+    else:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text=f"🔒 Занят: {claimed_name}", callback_data=f"supp_busy:{ticket_id}")
+            ],
+            [
+                InlineKeyboardButton(text="⚡️ Быстрый автоответ", callback_data=f"supp_autokb:{ticket_id}"),
+                InlineKeyboardButton(text="🔄 Сложная ситуация / Освободить", callback_data=f"supp_release:{ticket_id}")
+            ],
+            [
+                InlineKeyboardButton(text="🔒 Закрыть тикет", callback_data=f"supp_close:{ticket_id}")
+            ]
+        ])
 
 
 def _auto_answer_templates_kb(ticket_id: int) -> InlineKeyboardMarkup:
@@ -933,6 +947,63 @@ async def cb_supp_sendauto(cq: CallbackQuery, bot: Bot):
     await cq.answer("✅ Автоответ отправлен, тикет закрыт!")
 
 
+@router.callback_query(F.data.startswith("supp_claim:"))
+async def cb_supp_claim(cq: CallbackQuery, bot: Bot):
+    sender_id = cq.from_user.id if cq.from_user else 0
+    staff_rank = await db.get_bot_staff_rank(sender_id)
+    if not (config.is_bot_owner(sender_id) or sender_id in config.ADMINS or staff_rank >= 1):
+        return await cq.answer("⛔️ Брать тикеты в работу может только официальная администрация бота!", show_alert=True)
+
+    ticket_id = int(cq.data.split(":", 1)[1])
+    ticket = await db.get_support_ticket(ticket_id)
+    if not ticket:
+        return await cq.answer("❌ Тикет не найден!", show_alert=True)
+    if ticket.get("status") == "closed":
+        return await cq.answer("⚠️ Тикет уже закрыт!", show_alert=True)
+
+    claimed_by = ticket.get("claimed_by", 0)
+    if claimed_by and claimed_by != sender_id:
+        c_name = ticket.get("claimed_name") or f"ID {claimed_by}"
+        return await cq.answer(f"🔒 Этот тикет уже занят сотрудником: {c_name}!", show_alert=True)
+
+    staff_name = cq.from_user.first_name or "Стафф"
+    await db.claim_support_ticket(ticket_id, sender_id, staff_name)
+    try:
+        new_text = cq.message.html_text + f"\n\n🔒 <b>ВЗЯТ В РАБОТУ:</b> {mention_id(sender_id, staff_name)}"
+        await cq.message.edit_text(new_text, reply_markup=ticket_admin_kb(ticket_id, claimed_by=sender_id, claimed_name=staff_name))
+    except Exception:
+        pass
+    await cq.answer(f"✅ Вы взяли тикет #{ticket_id} в работу! Напишите ответ: +ответ {ticket_id} [текст]", show_alert=True)
+
+@router.callback_query(F.data.startswith("supp_release:"))
+async def cb_supp_release(cq: CallbackQuery, bot: Bot):
+    sender_id = cq.from_user.id if cq.from_user else 0
+    ticket_id = int(cq.data.split(":", 1)[1])
+    ticket = await db.get_support_ticket(ticket_id)
+    if not ticket:
+        return await cq.answer("❌ Тикет не найден!", show_alert=True)
+
+    claimed_by = ticket.get("claimed_by", 0)
+    is_owner = config.is_bot_owner(sender_id)
+    if claimed_by and claimed_by != sender_id and not is_owner:
+        return await cq.answer("❌ Освободить тикет может только тот сотрудник, который взял его в работу!", show_alert=True)
+
+    await db.release_support_ticket(ticket_id)
+    staff_name = cq.from_user.first_name or "Стафф"
+    try:
+        new_text = cq.message.html_text + f"\n\n🔄 <i>Сотрудник {staff_name} освободил тикет (сложная ситуация). Тикет возвращён в общий пул.</i>"
+        await cq.message.edit_text(new_text, reply_markup=ticket_admin_kb(ticket_id, claimed_by=0, claimed_name=""))
+    except Exception:
+        pass
+    await cq.answer(f"🔄 Тикет #{ticket_id} успешно освобождён и передан другим сотрудникам!")
+
+@router.callback_query(F.data.startswith("supp_busy:"))
+async def cb_supp_busy(cq: CallbackQuery):
+    ticket_id = int(cq.data.split(":", 1)[1])
+    ticket = await db.get_support_ticket(ticket_id)
+    c_name = (ticket.get("claimed_name") if ticket else "") or "другим сотрудником"
+    await cq.answer(f"🔒 Этот тикет сейчас в процессе решения сотрудником {c_name}!", show_alert=True)
+
 @router.callback_query(F.data.startswith("supp_close:"))
 async def cb_supp_close(cq: CallbackQuery, bot: Bot):
     sender_id = cq.from_user.id if cq.from_user else 0
@@ -966,7 +1037,33 @@ async def cb_supp_close(cq: CallbackQuery, bot: Bot):
 # ═══════════════════════════════════════════════════════════════
 
 async def check_unanswered_support_tickets(bot: Bot) -> None:
-    """Проверяет открытые тикеты старше 6 часов и отправляет умный ИИ-ответ."""
+    """Проверяет открытые тикеты старше 6 часов и проверяет 1-часовой анти-АФК таймаут стаффа."""
+    try:
+        # 1. Анти-АФК: если сотрудник взял тикет и не ответил за 1 час (3600 сек)
+        stale_tickets = await db.get_stale_claimed_tickets(timeout_sec=3600)
+        for st in stale_tickets:
+            st_id = st["id"]
+            c_name = st.get("claimed_name") or "Сотрудник"
+            await db.release_support_ticket(st_id)
+            log.info("Тикет #%d освобождён в общий пул (1 час без ответа от %s)", st_id, c_name)
+            supp_chat = await db.get_global_setting("global_support_chat", "")
+            supp_topic = await db.get_global_setting("global_support_chat_topic", "")
+            if supp_chat:
+                try:
+                    target_cid = int(supp_chat) if (supp_chat.startswith("-") or supp_chat.isdigit()) else supp_chat
+                    tid_top = int(supp_topic) if supp_topic and supp_topic.isdigit() else None
+                    alert_msg = (
+                        f"⏰ ⚠️ <b>ВНИМАНИЕ! АНТИ-АФК ТАЙМАУТ ПО ТИКЕТУ #{st_id}</b>\n\n"
+                        f"Сотрудник <b>{c_name}</b> удерживал тикет более <b>1 часа</b> без ответа пользователю.\n"
+                        f"🔄 <b>Тикет автоматически возвращён в общий пул администрации!</b>\n"
+                        f"📝 <i>Текст обращения:</i> «{html.escape(st.get('text', ''))}»"
+                    )
+                    await bot.send_message(target_cid, alert_msg, reply_markup=ticket_admin_kb(st_id, claimed_by=0), message_thread_id=tid_top)
+                except Exception:
+                    pass
+    except Exception as e:
+        log.warning("anti-afk check error: %s", e)
+
     try:
         overdue_tickets = await db.get_unanswered_tickets_older_than(6 * 3600)
         for t in overdue_tickets:

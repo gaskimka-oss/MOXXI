@@ -1,4 +1,4 @@
-"""Карточка пользователя «ирис инфа», описание и обязательная анкета."""
+"""Карточка пользователя «инфа», описание и обязательная анкета."""
 from __future__ import annotations
 
 import asyncio
@@ -225,9 +225,9 @@ async def is_tg_admin(bot: Bot, chat_id: int, uid: int) -> str | None:
     return None
 
 
-# ---------------- ИРИС ИНФА ----------------
+# ---------------- КАРТОЧКА УЧАСТНИКА MOXXI ----------------
 async def render_card(message: Message, bot: Bot, uid: int, name: str | None) -> str:
-    """Карточка участника в стиле Ириса."""
+    """Карточка участника в стиле MOXXI."""
     u = await db.get_user(uid)
     p = await _profile(uid, message.chat.id)
     rank = await get_rank(message.chat.id, uid)
@@ -389,7 +389,7 @@ async def render_card(message: Message, bot: Bot, uid: int, name: str | None) ->
     return "\n".join(out)
 
 
-@router.message(Cmd("инфа", "ирис инфа", "инфо", "кто это", "профиль игрока",
+@router.message(Cmd("инфа", "инфо", "кто это", "профиль игрока",
                     section=S, group_only=True, usage="инфа {ссылка}",
                     desc="Карточка участника: ранг, актив, описание"))
 async def cmd_info(message: Message, bot: Bot, args: str = "", **kw):
