@@ -1086,7 +1086,7 @@
     <div class="daily-bonus-card">
       <div class="daily-bonus-info">
         <span class="daily-bonus-title">🎁 ЕЖЕДНЕВНЫЙ БОНУС</span>
-        <span class="daily-bonus-amount">до +40 000 🪙 · серия x4.0</span>
+        <span class="daily-bonus-amount">до +7 500 🪙 · серия x4.0</span>
       </div>
       <button class="btn-claim-bonus" id="btnDailyBonus" onclick="claimDailyBonus()">
         ЗАБРАТЬ
@@ -1295,7 +1295,7 @@
 
     let soundEnabled = true;
     let hapticEnabled = true;
-    let userBalance = 750105297;
+    let userBalance = 10000;
     let currentSlotBet = 500;
     let gameHistory = [];
 
@@ -1457,7 +1457,7 @@
     function claimDailyBonus() {
       const btn = document.getElementById("btnDailyBonus");
       if (btn.disabled) return;
-      const reward = 10000;
+      const reward = Math.floor(Math.random() * (7500 - 2500 + 1)) + 2500;
       userBalance += reward;
       updateBalanceUI();
       triggerHaptic("success");

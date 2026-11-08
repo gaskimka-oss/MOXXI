@@ -1086,7 +1086,7 @@
     <div class="daily-bonus-card">
       <div class="daily-bonus-info">
         <span class="daily-bonus-title">🎁 ЕЖЕДНЕВНЫЙ БОНУС</span>
-        <span class="daily-bonus-amount">до +40 000 🪙 · серия x4.0</span>
+        <span class="daily-bonus-amount">до +7 500 🪙 · серия x4.0</span>
       </div>
       <button class="btn-claim-bonus" id="btnDailyBonus" onclick="claimDailyBonus()">
         ЗАБРАТЬ
@@ -1295,21 +1295,42 @@
 
     let soundEnabled = true;
     let hapticEnabled = true;
-    let userBalance = 750105297;
+    let userBalance = 10000;
     let currentSlotBet = 500;
     let gameHistory = [];
 
     // Загрузка данных пользователя из Telegram WebApp
     function initUser() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const paramName = urlParams.get("name") || urlParams.get("user") || urlParams.get("first_name");
+      const paramPlatform = (urlParams.get("platform") || "").toUpperCase();
+
       const u = tg?.initDataUnsafe?.user;
-      if (u) {
-        const name = u.first_name || "Боец";
-        document.getElementById("uName").innerText = name;
-        document.getElementById("uAvatar").innerText = name.charAt(0).toUpperCase();
-        if (u.photo_url) {
-          document.getElementById("uAvatar").innerHTML = `<img src="${u.photo_url}" alt="avatar">`;
+      let finalName = "Боец";
+      if (paramName) {
+        finalName = decodeURIComponent(paramName);
+      } else if (u?.first_name) {
+        finalName = u.first_name;
+      }
+
+      const nameEl = document.getElementById("uName");
+      if (nameEl) nameEl.innerText = finalName;
+
+      const avatarEl = document.getElementById("uAvatar");
+      if (avatarEl) {
+        avatarEl.innerText = finalName.charAt(0).toUpperCase();
+        if (u?.photo_url) {
+          avatarEl.innerHTML = `<img src="${u.photo_url}" alt="avatar">`;
         }
       }
+
+      if (paramPlatform) {
+        const subinfo = document.querySelector(".user-subinfo");
+        if (subinfo) {
+          subinfo.innerHTML = `<span class="vip-badge">✦ ${paramPlatform} EDITION</span> <span>• VIP 5</span>`;
+        }
+      }
+
       // Загрузка локального баланса
       const savedBal = localStorage.getItem("moxxi_bal_v3");
       if (savedBal) {
@@ -1325,11 +1346,19 @@
 
     // Звуки и виброотклик
     function triggerHaptic(type = "light") {
-      if (!hapticEnabled || !tg?.HapticFeedback) return;
-      if (type === "success") tg.HapticFeedback.notificationOccurred("success");
-      else if (type === "error") tg.HapticFeedback.notificationOccurred("error");
-      else if (type === "medium") tg.HapticFeedback.impactOccurred("medium");
-      else tg.HapticFeedback.impactOccurred("light");
+      if (!hapticEnabled) return;
+      if (tg?.HapticFeedback) {
+        if (type === "success") tg.HapticFeedback.notificationOccurred("success");
+        else if (type === "error") tg.HapticFeedback.notificationOccurred("error");
+        else if (type === "medium") tg.HapticFeedback.impactOccurred("medium");
+        else tg.HapticFeedback.impactOccurred("light");
+      } else if (typeof navigator !== "undefined" && navigator.vibrate) {
+        try {
+          if (type === "error") navigator.vibrate([40, 60, 40]);
+          else if (type === "success") navigator.vibrate([30, 50]);
+          else navigator.vibrate(20);
+        } catch (e) {}
+      }
     }
 
     function toggleSound() {
@@ -1428,7 +1457,7 @@
     function claimDailyBonus() {
       const btn = document.getElementById("btnDailyBonus");
       if (btn.disabled) return;
-      const reward = 10000;
+      const reward = Math.floor(Math.random() * (7500 - 2500 + 1)) + 2500;
       userBalance += reward;
       updateBalanceUI();
       triggerHaptic("success");
