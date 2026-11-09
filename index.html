@@ -1060,7 +1060,7 @@
       <div class="balance-capsule-lbl">БАЛАНС</div>
       <div class="balance-capsule-val">
         <div class="coin-ico">M</div>
-        <span id="uBalance">750 105 297</span>
+        <span id="uBalance">0</span>
       </div>
     </div>
   </header>
@@ -1331,12 +1331,28 @@
         }
       }
 
-      // Загрузка локального баланса
-      const savedBal = localStorage.getItem("moxxi_bal_v3");
-      if (savedBal) {
-        userBalance = parseInt(savedBal) || userBalance;
+      // Загрузка баланса: синхронизация из параметров бота (Discord, TG, VK)
+      const paramBal = urlParams.get("balance") || urlParams.get("bal") || urlParams.get("coins");
+      if (paramBal !== null && !isNaN(parseInt(paramBal))) {
+        userBalance = Math.max(0, parseInt(paramBal));
+        localStorage.setItem("moxxi_bal_v3", userBalance);
+      } else {
+        const savedBal = localStorage.getItem("moxxi_bal_v3");
+        const parsed = parseInt(savedBal);
+        if (savedBal !== null && !isNaN(parsed) && parsed < 500000000) {
+          userBalance = Math.max(0, parsed);
+        } else {
+          userBalance = 1000;
+          localStorage.setItem("moxxi_bal_v3", userBalance);
+        }
       }
       updateBalanceUI();
+
+      // Автоматическое открытие разделов по параметрам URL
+      const autoOpen = urlParams.get("open") || urlParams.get("tab");
+      if (autoOpen === "biz" || autoOpen === "business" || autoOpen === "businesses") {
+        setTimeout(() => openBusinessModal(), 350);
+      }
     }
 
     function updateBalanceUI() {
@@ -1801,33 +1817,162 @@
       { id: 15, name: "Колония на Марсе", emoji: "🪐", price: 2800000000, income: 1000000, lvl: 26 }
     ];
 
+    function showToast(message, type = "info") {
+      let toast = document.getElementById("moxxiToast");
+      if (!toast) {
+        toast = document.createElement("div");
+        toast.id = "moxxiToast";
+        toast.style.cssText = "position: fixed; top: 18px; left: 50%; transform: translateX(-50%); z-index: 999999; padding: 12px 22px; border-radius: 14px; font-weight: 700; font-size: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); backdrop-filter: blur(16px); transition: all 0.3s ease; opacity: 0; pointer-events: none; text-align: center; max-width: 90%;";
+        document.body.appendChild(toast);
+      }
+      if (type === "success") {
+        toast.style.background = "linear-gradient(135deg, rgba(16,185,129,0.95), rgba(5,150,105,0.95))";
+        toast.style.color = "#ffffff";
+        toast.style.border = "1px solid rgba(52,211,153,0.5)";
+      } else if (type === "error") {
+        toast.style.background = "linear-gradient(135deg, rgba(239,68,68,0.95), rgba(185,28,28,0.95))";
+        toast.style.color = "#ffffff";
+        toast.style.border = "1px solid rgba(248,113,113,0.5)";
+      } else {
+        toast.style.background = "linear-gradient(135deg, rgba(14,165,233,0.95), rgba(30,58,138,0.95))";
+        toast.style.color = "#ffffff";
+        toast.style.border = "1px solid rgba(56,189,248,0.5)";
+      }
+      toast.innerText = message;
+      toast.style.opacity = "1";
+      toast.style.transform = "translateX(-50%) translateY(0px)";
+      if (window._moxxiToastTimeout) clearTimeout(window._moxxiToastTimeout);
+      window._moxxiToastTimeout = setTimeout(() => {
+        toast.style.opacity = "0";
+        toast.style.transform = "translateX(-50%) translateY(-10px)";
+      }, 3000);
+    }
+
+    function getOwnedBusinesses() {
+      try {
+        const raw = localStorage.getItem("moxxi_owned_biz_v3");
+        return raw ? JSON.parse(raw) : {};
+      } catch (e) {
+        return {};
+      }
+    }
+
+    function saveOwnedBusinesses(owned) {
+      localStorage.setItem("moxxi_owned_biz_v3", JSON.stringify(owned));
+    }
+
+    function buyBusinessInApp(bizId) {
+      const biz = BUSINESSES_DATA.find(b => b.id === bizId);
+      if (!biz) return;
+
+      if (userBalance < biz.price) {
+        triggerHaptic("error");
+        showToast(`❌ Недостаточно средств! Нужно: ${biz.price.toLocaleString("ru-RU")} 🪙`, "error");
+        return;
+      }
+
+      userBalance -= biz.price;
+      updateBalanceUI();
+
+      const owned = getOwnedBusinesses();
+      owned[bizId] = (owned[bizId] || 0) + 1;
+      saveOwnedBusinesses(owned);
+
+      if (!localStorage.getItem("moxxi_biz_last_collect")) {
+        localStorage.setItem("moxxi_biz_last_collect", Date.now());
+      }
+
+      triggerHaptic("success");
+      showToast(`🎉 Вы успешно приобрели: ${biz.emoji} ${biz.name}!`, "success");
+      openBusinessModal();
+    }
+
+    function getAccumulatedProfit() {
+      const owned = getOwnedBusinesses();
+      let totalPerMin = 0;
+      for (const [idStr, count] of Object.entries(owned)) {
+        const biz = BUSINESSES_DATA.find(b => b.id === parseInt(idStr));
+        if (biz) totalPerMin += biz.income * count;
+      }
+      if (totalPerMin === 0) return { profit: 0, perMin: 0, minutes: 0 };
+
+      const lastCollect = parseInt(localStorage.getItem("moxxi_biz_last_collect") || Date.now());
+      const now = Date.now();
+      const elapsedMinutes = Math.min(1440, Math.floor((now - lastCollect) / 60000));
+      return {
+        profit: elapsedMinutes * totalPerMin,
+        perMin: totalPerMin,
+        minutes: elapsedMinutes
+      };
+    }
+
+    function collectProfitInApp() {
+      const { profit, perMin, minutes } = getAccumulatedProfit();
+      if (profit <= 0) {
+        triggerHaptic("error");
+        showToast(perMin > 0 ? "⏳ Доход накапливается каждую минуту! Подождите ещё немного." : "ℹ️ У вас пока нет предприятий! Купите предприятие из списка ниже.", "info");
+        return;
+      }
+
+      userBalance += profit;
+      updateBalanceUI();
+      localStorage.setItem("moxxi_biz_last_collect", Date.now());
+
+      triggerHaptic("success");
+      showToast(`💰 Собрано +${profit.toLocaleString("ru-RU")} 🪙 пассивной прибыли!`, "success");
+      openBusinessModal();
+    }
+
     function openBusinessModal() {
-      const listHtml = BUSINESSES_DATA.map(b => `
-        <div style="background: rgba(30, 41, 59, 0.6); padding: 8px 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <div style="font-weight: 800; font-size: 13px;">${b.emoji} ${b.name} <span style="font-size: 10px; color: #facc15;">${b.lvl} LVL</span></div>
-            <div style="font-size: 11px; color: #10b981; margin-top: 1px;">Доход: +${b.income.toLocaleString("ru-RU")} 🪙/мин • Цена: ${b.price.toLocaleString("ru-RU")} 🪙</div>
+      const owned = getOwnedBusinesses();
+      const { profit, perMin } = getAccumulatedProfit();
+
+      const listHtml = BUSINESSES_DATA.map(b => {
+        const count = owned[b.id] || 0;
+        const countBadge = count > 0 ? `<span style="background: rgba(16,185,129,0.25); color: #10b981; font-size: 11px; padding: 2px 7px; border-radius: 6px; font-weight: 700; border: 1px solid rgba(16,185,129,0.4); margin-left: 6px;">В наличии: ${count} шт.</span>` : "";
+        const canAfford = userBalance >= b.price;
+        const btnStyle = canAfford 
+          ? "background: linear-gradient(135deg, #06b6d4, #3b82f6); color: #fff; border: none;" 
+          : "background: rgba(255,255,255,0.08); color: #64748b; border: 1px solid rgba(255,255,255,0.1);";
+
+        return `
+        <div style="background: rgba(30, 41, 59, 0.6); padding: 9px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div style="flex: 1; padding-right: 8px;">
+            <div style="font-weight: 800; font-size: 13px; color: #fff; display: flex; align-items: center; flex-wrap: wrap; gap: 4px;">
+              <span>${b.emoji} ${b.name}</span>
+              <span style="font-size: 11px; color: #ffd54f;">${b.lvl} LVL</span>
+              ${countBadge}
+            </div>
+            <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">
+              Доход: <b style="color: #10b981;">+${b.income.toLocaleString("ru-RU")}</b> 🪙/мин • Цена: <b style="color: #ffd54f;">${b.price.toLocaleString("ru-RU")}</b> 🪙
+            </div>
           </div>
-          <button style="background: linear-gradient(135deg, #8b5cf6, #06b6d4); color: #fff; border: none; padding: 5px 10px; border-radius: 8px; font-size: 11px; font-weight: 800; cursor: pointer;" onclick="sendActionToBot('купить бизнес ${b.id}')">Купить</button>
+          <button style="padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 800; cursor: pointer; white-space: nowrap; ${btnStyle}" onclick="buyBusinessInApp(${b.id})">
+            ${count > 0 ? "Купить ещё" : "Купить"}
+          </button>
         </div>
-      `).join("");
+      `;
+      }).join("");
+
+      const profitText = profit > 0 ? ` (+${profit.toLocaleString("ru-RU")} 🪙)` : "";
 
       showModal(`
         <h2 style="font-size: 18px; font-weight: 900; color: #fff; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">
           <span>🏢</span> Каталог предприятий (15 видов)
         </h2>
-        <p style="font-size: 12px; color: #94a3b8; margin-bottom: 10px;">
-          Предприятия приносят пассивный доход в монетах 🪙 каждую минуту!
-        </p>
+        <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px; display: flex; justify-content: space-between; align-items: center;">
+          <div>Общий доход: <b style="color: #10b981;">+${perMin.toLocaleString("ru-RU")} 🪙/мин</b></div>
+          <div>Накоплено: <b style="color: #ffd54f;">${profit.toLocaleString("ru-RU")} 🪙</b></div>
+        </div>
         <div style="display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow-y: auto; margin-bottom: 12px; padding-right: 4px;">
           ${listHtml}
         </div>
         <div style="display: flex; gap: 8px;">
-          <button class="action-btn" style="flex: 1;" onclick="sendActionToBot('собрать')">
-            <span>💰</span> СОБРАТЬ ПРИБЫЛЬ
+          <button class="action-btn" style="flex: 1; background: linear-gradient(135deg, #10b981, #06b6d4);" onclick="collectProfitInApp()">
+            <span>💰</span> СОБРАТЬ ПРИБЫЛЬ${profitText}
           </button>
-          <button class="action-btn cyan" style="flex: 1;" onclick="sendActionToBot('бизнесы')">
-            <span>🏢</span> ВЕСЬ КАТАЛОГ
+          <button class="action-btn cyan" style="flex: 1;" onclick="openBusinessModal()">
+            <span>🔄</span> ОБНОВИТЬ
           </button>
         </div>
       `);
