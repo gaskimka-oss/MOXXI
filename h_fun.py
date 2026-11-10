@@ -424,7 +424,10 @@ async def cmd_cube(message: Message, args: str = "", **kw):
     await asyncio.sleep(4)
     m2 = await message.answer_dice(emoji="🎲")
     await asyncio.sleep(4)
-    p, b = m1.dice.value, m2.dice.value
+    d1 = getattr(m1, "dice", None)
+    p = d1.value if (d1 and hasattr(d1, "value") and isinstance(getattr(d1, "value", None), int)) else 3
+    d2 = getattr(m2, "dice", None)
+    b = d2.value if (d2 and hasattr(d2, "value") and isinstance(getattr(d2, "value", None), int)) else 3
     is_win = p > b
     lvl, lvl_up = await db.add_game_xp(message.from_user.id, 1, is_win=is_win)
     lvl_tag = f"\n🚀 <i>Игровой уровень повышен до <b>{lvl} LVL</b>!</i>" if lvl_up else ""
