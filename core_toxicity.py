@@ -284,6 +284,11 @@ def _is_addressed(raw: str, has_reply: bool = False, has_mention: bool = False) 
     return "@" in raw
 
 
+def detect(text: str) -> tuple[int, str]:
+    """Алиас для local_check(text)."""
+    return local_check(text)
+
+
 def local_check(text: str) -> tuple[int, str]:
     """-> (уровень 0..3, причина).
 

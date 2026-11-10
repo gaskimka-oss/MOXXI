@@ -2209,7 +2209,7 @@ async def automod_filter_and_duty_check(message: Message, bot: Bot):
         staff_rank = staff_row["rank"] if staff_row else 0
 
         # Проверка текста на токсичность, мат и оскорбления
-        level, reason = toxicity.detect(text)
+        level, reason = toxicity.local_check(text)
         if level >= 2:  # 2 = оскорбление, 3 = мат / угроза
             mute_seconds = 1800  # 30 минут
             until_date = int(time.time()) + mute_seconds
