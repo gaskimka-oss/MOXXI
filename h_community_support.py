@@ -880,12 +880,45 @@ async def cmd_answer_ticket(message: Message, bot: Bot, args: str = "", **kw):
                 pass
         return
 
-    await db.answer_support_ticket(ticket_id, answer_text, answered_by=sender_id, answered_name="Администрация", is_ai=False)
+    staff_name = message.from_user.first_name if (message.from_user and message.from_user.first_name) else "Администрация"
+    await db.answer_support_ticket(ticket_id, answer_text, answered_by=sender_id, answered_name=staff_name, is_ai=False)
     ok, ch_info = await send_omnichannel_ticket_reply(bot, ticket, answer_text)
+
+    # Синхронизация ответа в Discord -> переход в Стадию 3 (Появляется кнопка Закрыть)
+    try:
+        row = await db.fetchone("SELECT ds_channel_id, ds_msg_id FROM support_tickets WHERE id=?", (ticket_id,))
+        if row and row["ds_channel_id"] and row["ds_msg_id"]:
+            import core_ticket_bridge as bridge
+            bridge.update_discord_ticket_answered(
+                channel_id=row["ds_channel_id"],
+                message_id=row["ds_msg_id"],
+                ticket_id=ticket_id,
+                mod_name=staff_name,
+                answer_text=answer_text
+            )
+    except Exception:
+        pass
+
+    # Лог ответа в Штаб Стаффа (📊・логи-наказаний)
+    try:
+        import h_staff_hq as staff_hq
+        t_user = ticket.get("user_name", "Игрок")
+        t_uid = ticket.get("user_id", 0)
+        log_text = (
+            f"🟢 <b>[ТИКЕТ #{ticket_id} ОТВЕТ ОТПРАВЛЕН ИГРОКУ]</b>\n\n"
+            f"👤 <b>Игрок:</b> {html.escape(str(t_user))} (ID: <code>{t_uid}</code>)\n"
+            f"👮 <b>Ответил:</b> {html.escape(staff_name)} (ID: <code>{sender_id}</code>)\n"
+            f"✉️ <b>Ответ:</b> <i>{html.escape(answer_text[:200])}</i>\n"
+            f"🕒 <b>Время:</b> {time.strftime('%H:%M:%S', time.localtime())}"
+        )
+        await staff_hq.send_staff_log(bot, log_text)
+    except Exception:
+        pass
+
     if ok:
-        await message.reply(f"✅ <b>Ответ успешно доставлен ({ch_info}) в тикет #{ticket_id}, тикет закрыт!</b>")
+        await message.reply(f"✅ <b>Ответ успешно доставлен ({ch_info}) в тикет #{ticket_id}!</b>")
     else:
-        await message.reply(f"⚠️ Тикет закрыт в базе, но не удалось доставить сообщение ({ch_info})")
+        await message.reply(f"⚠️ Ответ записан в базе, но не удалось доставить сообщение ({ch_info})")
 
 
 @router.message(Cmd("закрыть тикет", "закрытьтикет", "+закрыть тикет", "+закрыть", "тикет закрыть",
@@ -912,8 +945,35 @@ async def cmd_close_ticket(message: Message, bot: Bot, args: str = "", **kw):
     if ticket.get("status") == "closed":
         return await message.reply(f"⚠️ Тикет #{ticket_id} уже закрыт!")
 
-    await db.close_support_ticket(ticket_id, closed_by=sender_id, closed_name="Администрация")
+    staff_name = message.from_user.first_name if (message.from_user and message.from_user.first_name) else "Администрация"
+    await db.close_support_ticket(ticket_id, closed_by=sender_id, closed_name=staff_name)
     await send_omnichannel_ticket_close(bot, ticket, reason)
+
+    # Лог закрытия тикета в Штаб Стаффа (📊・логи-наказаний)
+    try:
+        import h_staff_hq as staff_hq
+        t_user = ticket.get("user_name", "Игрок")
+        t_uid = ticket.get("user_id", 0)
+        log_text = (
+            f"🔒 <b>[ТИКЕТ #{ticket_id} ЗАКРЫТ]</b>\n\n"
+            f"👤 <b>Игрок:</b> {html.escape(str(t_user))} (ID: <code>{t_uid}</code>)\n"
+            f"👮 <b>Закрыл:</b> {html.escape(staff_name)} (ID: <code>{sender_id}</code>)\n"
+            + (f"📝 <b>Причина:</b> <i>{html.escape(reason)}</i>\n" if reason else "")
+            + f"🕒 <b>Время:</b> {time.strftime('%H:%M:%S', time.localtime())}"
+        )
+        await staff_hq.send_staff_log(bot, log_text)
+    except Exception:
+        pass
+
+    # Синхронизация закрытия в Discord
+    try:
+        row = await db.fetchone("SELECT ds_channel_id, ds_msg_id FROM support_tickets WHERE id=?", (ticket_id,))
+        if row and row["ds_channel_id"] and row["ds_msg_id"]:
+            import core_ticket_bridge as bridge
+            bridge.update_discord_ticket_closed(row["ds_channel_id"], row["ds_msg_id"], ticket_id, staff_name)
+    except Exception:
+        pass
+
     await message.reply(f"✅ <b>Тикет #{ticket_id} успешно закрыт!</b>" + (f" Причина: {html.escape(reason)}" if reason else ""))
 
 
@@ -1093,8 +1153,33 @@ async def cb_supp_close(cq: CallbackQuery, bot: Bot):
     if ticket.get("status") == "closed":
         return await cq.answer("⚠️ Тикет уже закрыт!", show_alert=True)
 
-    await db.close_support_ticket(ticket_id, closed_by=sender_id, closed_name="Администрация")
+    staff_name = cq.from_user.first_name if (cq.from_user and cq.from_user.first_name) else "Администрация"
+    await db.close_support_ticket(ticket_id, closed_by=sender_id, closed_name=staff_name)
     await send_omnichannel_ticket_close(bot, ticket)
+
+    # Лог закрытия тикета в Штаб Стаффа (📊・логи-наказаний)
+    try:
+        import h_staff_hq as staff_hq
+        t_user = ticket.get("user_name", "Игрок")
+        t_uid = ticket.get("user_id", 0)
+        log_text = (
+            f"🔒 <b>[ТИКЕТ #{ticket_id} ЗАКРЫТ]</b>\n\n"
+            f"👤 <b>Игрок:</b> {html.escape(str(t_user))} (ID: <code>{t_uid}</code>)\n"
+            f"👮 <b>Закрыл:</b> {html.escape(staff_name)} (ID: <code>{sender_id}</code>)\n"
+            f"🕒 <b>Время:</b> {time.strftime('%H:%M:%S', time.localtime())}"
+        )
+        await staff_hq.send_staff_log(bot, log_text)
+    except Exception:
+        pass
+
+    # Синхронизация закрытия в Discord
+    try:
+        row = await db.fetchone("SELECT ds_channel_id, ds_msg_id FROM support_tickets WHERE id=?", (ticket_id,))
+        if row and row["ds_channel_id"] and row["ds_msg_id"]:
+            import core_ticket_bridge as bridge
+            bridge.update_discord_ticket_closed(row["ds_channel_id"], row["ds_msg_id"], ticket_id, staff_name)
+    except Exception:
+        pass
 
     try:
         await cq.message.edit_text(
@@ -1124,7 +1209,7 @@ async def community_support_auto_broadcast_loop(bot: Bot) -> None:
     while True:
         try:
             now = int(time.time())
-            interval = 3 * 3600  # 3 часа = 10800 секунд
+            interval = 8 * 3600  # 8 часов = 28800 секунд (строго каждые 8 часов!)
 
             rows = await db.fetchall("""
                 SELECT DISTINCT chat_id FROM chats WHERE chat_id < 0
@@ -1177,12 +1262,19 @@ async def community_support_auto_broadcast_loop(bot: Bot) -> None:
                 if (now - last_ts) >= interval:
                     tid = None
                     try:
-                        tid_support = await db.get_setting(cid, "community_topic_support", "")
-                        tid_chat = await db.get_setting(cid, "community_topic_chat", "")
-                        if tid_support and tid_support.isdigit():
-                            tid = int(tid_support)
-                        elif tid_chat and tid_chat.isdigit():
-                            tid = int(tid_chat)
+                        # 1. Приоритет: установленная тема общения / СМС (+тема смс)
+                        from h_chatset import get_sms_topic
+                        sms_tid = await get_sms_topic(cid)
+                        if sms_tid:
+                            tid = sms_tid
+                        else:
+                            # 2. Иначе привязанная тема общения сообщества
+                            tid_chat = await db.get_setting(cid, "community_topic_chat", "")
+                            tid_support = await db.get_setting(cid, "community_topic_support", "")
+                            if tid_chat and tid_chat.isdigit() and int(tid_chat) > 0:
+                                tid = int(tid_chat)
+                            elif tid_support and tid_support.isdigit() and int(tid_support) > 0:
+                                tid = int(tid_support)
                     except Exception:
                         pass
 

@@ -155,20 +155,6 @@ def send_ticket_to_discord(ticket_id: int, platform: str, user_name: str, user_i
                         "label": "✋ Взять тикет",
                         "custom_id": f"st_omni_claim:{ticket_id}",
                         "emoji": {"name": "💬"}
-                    },
-                    {
-                        "type": 2,
-                        "style": 2,
-                        "label": "🤖 Авто-ответ ИИ",
-                        "custom_id": f"st_omni_ai:{ticket_id}",
-                        "emoji": {"name": "🤖"}
-                    },
-                    {
-                        "type": 2,
-                        "style": 4,
-                        "label": "🔒 Закрыть",
-                        "custom_id": f"st_omni_close:{ticket_id}",
-                        "emoji": {"name": "🚫"}
                     }
                 ]
             }
@@ -182,20 +168,20 @@ def send_ticket_to_discord(ticket_id: int, platform: str, user_name: str, user_i
 
 
 def update_discord_ticket_claimed(channel_id: int, message_id: int, ticket_id: int, mod_name: str, platform_from: str = "Telegram"):
-    """Обновляет карточку в Discord, когда тикет взят в Telegram."""
+    """Обновляет карточку в Discord, когда тикет взят в Telegram или Discord."""
     payload = {
         "embeds": [
             {
-                "title": f"🔒 ТИКЕТ #{ticket_id} ВЗЯТ В РАБОТУ В {platform_from.upper()}!",
+                "title": f"🟡 ТИКЕТ #{ticket_id} ВЗЯТ В РАБОТУ В {platform_from.upper()}!",
                 "description": (
                     f"👮 **Модератор:** `{mod_name}` ({platform_from})\n"
                     f"⏳ **Статус:** `В обработке (занят)`\n\n"
                     f"───────────────────────────────\n"
-                    f"💡 *Коллега уже решает проблему в {platform_from}!*\n"
-                    f"В Discord тикет заблокирован от повторного взятия."
+                    f"💡 *Модератор изучает обращение.*\n"
+                    f"Выберите действие ниже для ответа игроку."
                 ),
-                "color": 3447003,
-                "footer": {"text": "MOXXI Omnichannel Sync • Занят коллегой"}
+                "color": 16763904,  # Gold
+                "footer": {"text": "MOXXI Omnichannel Sync • В работе"}
             }
         ],
         "components": [
@@ -204,15 +190,87 @@ def update_discord_ticket_claimed(channel_id: int, message_id: int, ticket_id: i
                 "components": [
                     {
                         "type": 2,
+                        "style": 1,
+                        "label": "🤖 Авто-ответ ИИ",
+                        "custom_id": f"st_omni_ai:{ticket_id}",
+                        "emoji": {"name": "🤖"}
+                    },
+                    {
+                        "type": 2,
                         "style": 2,
-                        "label": f"🔒 Занят в {platform_from} ({mod_name})",
-                        "custom_id": "st_omni_locked",
-                        "disabled": True,
-                        "emoji": {"name": "🔒"}
+                        "label": "✍️ Ответить",
+                        "custom_id": f"st_omni_reply:{ticket_id}",
+                        "emoji": {"name": "✍️"}
                     }
                 ]
             }
         ]
+    }
+    _discord_api_request(f"/channels/{channel_id}/messages/{message_id}", method="PATCH", data=payload)
+
+
+def update_discord_ticket_answered(channel_id: int, message_id: int, ticket_id: int, mod_name: str, answer_text: str):
+    """Обновляет карточку в Discord, когда ответ отправлен игроку. Появляется кнопка закрытия!"""
+    ans_snippet = (answer_text[:300] + "...") if len(answer_text) > 300 else answer_text
+    payload = {
+        "embeds": [
+            {
+                "title": f"🟢 ТИКЕТ #{ticket_id} • ОТВЕТ ОТПРАВЛЕН ИГРОКУ",
+                "description": (
+                    f"👮 **Модератор:** `{mod_name}`\n"
+                    f"✅ **Статус:** `Ответ успешно доставлен игроку`\n\n"
+                    f"───────────────────────────────\n"
+                    f"✉️ **Текст ответа:**\n«{ans_snippet}»\n"
+                    f"───────────────────────────────\n"
+                    f"🔒 *Когда вопрос полностью решён, нажмите кнопку ниже для закрытия тикета.*"
+                ),
+                "color": 65280,  # Green
+                "footer": {"text": "MOXXI Omnichannel Sync • Ответ отправлен"}
+            }
+        ],
+        "components": [
+            {
+                "type": 1,
+                "components": [
+                    {
+                        "type": 2,
+                        "style": 4,
+                        "label": "🔒 Закрыть тикет",
+                        "custom_id": f"st_omni_close:{ticket_id}",
+                        "emoji": {"name": "🔒"}
+                    },
+                    {
+                        "type": 2,
+                        "style": 2,
+                        "label": "✍️ Дополнить ответ",
+                        "custom_id": f"st_omni_reply:{ticket_id}",
+                        "emoji": {"name": "✍️"}
+                    }
+                ]
+            }
+        ]
+    }
+    _discord_api_request(f"/channels/{channel_id}/messages/{message_id}", method="PATCH", data=payload)
+
+
+def update_discord_ticket_closed(channel_id: int, message_id: int, ticket_id: int, mod_name: str):
+    """Обновляет карточку в Discord, когда тикет окончательно закрыт."""
+    payload = {
+        "embeds": [
+            {
+                "title": f"🔒 ТИКЕТ #{ticket_id} • ЗАКРЫТ",
+                "description": (
+                    f"👮 **Закрыл:** `{mod_name}`\n"
+                    f"🔒 **Статус:** `Закрыт администрацией`\n"
+                    f"⏱ **Время:** <t:{int(time.time())}:R>\n\n"
+                    f"───────────────────────────────\n"
+                    f"Обращение полностью завершено и отправлено в архив."
+                ),
+                "color": 3092790,  # Dark Grey
+                "footer": {"text": "MOXXI Omnichannel Sync • Закрыто"}
+            }
+        ],
+        "components": []
     }
     _discord_api_request(f"/channels/{channel_id}/messages/{message_id}", method="PATCH", data=payload)
 

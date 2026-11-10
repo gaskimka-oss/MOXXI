@@ -2296,21 +2296,25 @@ async def automod_filter_and_duty_check(message: Message, bot: Bot):
                 except Exception:
                     pass
 
-            unmute_kb = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="🔓 Снять мут (ошибка)", callback_data=f"hq_unmute:{chat_id}:{uid}")
-            ]])
+            # В лог-канал Штаба Стаффа отправляем ТОЛЬКО если нарушение произошло прямо внутри чата Штаба!
+            # Чужие игровые группы в логи штаба стаффа НЕ спамят.
+            staff_hq_id = await get_staff_hq_id()
+            if staff_hq_id and chat_id == staff_hq_id:
+                unmute_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="🔓 Снять мут (ошибка)", callback_data=f"hq_unmute:{chat_id}:{uid}")
+                ]])
 
-            log_text = (
-                f"🚨 <b>[АВТОМОД: МУТ ЗА ОСКОРБЛЕНИЯ / МАТ]</b>\n\n"
-                f"👤 <b>Нарушитель:</b> {mention_id(uid, name)} (ID: <code>{uid}</code>)\n"
-                f"📍 <b>Чат:</b> {html.escape(chat_title)} (<code>{chat_id}</code>)\n"
-                f"⏱ <b>Срок:</b> 30 минут\n"
-                f"⚠️ <b>Тип:</b> {reason}\n"
-                f"💬 <b>Текст нарушения:</b>\n"
-                f"<blockquote>{html.escape(text[:300])}</blockquote>\n"
-                f"🕒 Время: {time.strftime('%H:%M:%S', time.localtime())}"
-            )
-            await send_staff_log(bot, log_text, reply_markup=unmute_kb)
+                log_text = (
+                    f"🚨 <b>[АВТОМОД: МУТ В ШТАБЕ СТАФФА]</b>\n\n"
+                    f"👤 <b>Нарушитель:</b> {mention_id(uid, name)} (ID: <code>{uid}</code>)\n"
+                    f"📍 <b>Чат:</b> {html.escape(chat_title)} (<code>{chat_id}</code>)\n"
+                    f"⏱ <b>Срок:</b> 30 минут\n"
+                    f"⚠️ <b>Тип:</b> {reason}\n"
+                    f"💬 <b>Текст нарушения:</b>\n"
+                    f"<blockquote>{html.escape(text[:300])}</blockquote>\n"
+                    f"🕒 Время: {time.strftime('%H:%M:%S', time.localtime())}"
+                )
+                await send_staff_log(bot, log_text, reply_markup=unmute_kb)
             return
 
     except SkipHandler:

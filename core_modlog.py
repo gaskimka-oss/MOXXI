@@ -67,15 +67,17 @@ async def write(chat_id: int, punish_id: int, target_id: int, target_name: str,
     row = await db.fetchone("SELECT last_insert_rowid() id")
     log_id = row["id"] if row else 0
 
-    # Дублируем наказание в Лог-канал Штаба Стаффа
+    # Дублируем наказание в Лог-канал Штаба Стаффа ТОЛЬКО если наказание выдано в самом чате Штаба Стаффа!
+    # Наказания из чужих / игровых групп в логи штаба стаффа НЕ отправляются!
     try:
         import h_staff_hq as staff_hq
-        if bot:
+        hq_id = await staff_hq.get_staff_hq_id()
+        if bot and hq_id and chat_id == hq_id:
             kinds_map = {"mute": "🔇 Мут", "ban": "🔨 Бан", "warn": "⚠️ Варн", "kick": "👢 Кик"}
             k_title = kinds_map.get(kind, kind.upper())
             dur_str = f"\n⏱ <b>Срок:</b> {seconds // 60} мин." if seconds else ""
             log_msg = (
-                f"📋 <b>[{k_title}: НАКАЗАНИЕ]</b>\n\n"
+                f"📋 <b>[{k_title}: НАКАЗАНИЕ В ШТАБЕ СТАФФА]</b>\n\n"
                 f"👤 <b>Нарушитель:</b> {html.escape(target_name or str(target_id))} (<code>{target_id}</code>)\n"
                 f"👮 <b>Выдал:</b> {html.escape(by_name or 'Автомод')} (<code>{by_id}</code>)\n"
                 f"📝 <b>Причина:</b> <i>{html.escape(reason or 'Не указана')}</i>"

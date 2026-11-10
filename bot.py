@@ -370,13 +370,7 @@ class TopicClosedRetryMiddleware(BaseRequestMiddleware):
                 else:
                     setattr(method, "message_thread_id", None)
 
-                note = f"⚠️ <i>[Тема #{tid} закрыта, ответ на команду перенесён сюда]:</i>\n\n" if tid else ""
-                if note:
-                    if hasattr(method, "text") and method.text:
-                        method.text = note + method.text
-                    elif hasattr(method, "caption") and method.caption:
-                        method.caption = note + method.caption
-
+                # Бесшовный чистый редирект без навязчивых предупреждений о закрытой теме
                 try:
                     return await make_request(bot, method)
                 except Exception as e2:
