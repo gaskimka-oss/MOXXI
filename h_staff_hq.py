@@ -43,6 +43,7 @@ from typing import Optional
 
 
 from aiogram import Bot, F, Router
+from aiogram.dispatcher.event.bases import SkipHandler
 
 from aiogram.types import (
 
@@ -2152,319 +2153,173 @@ async def handle_staff_ai_topic_message(message: Message, bot: Bot):
 
 
 # ---------------- 4. АВТОМОДЕРАЦИЯ ОСКОРБЛЕНИЙ И МАТА С МГНОВЕННЫМ МУТОМ ----------------
-
 @router.message(F.text, F.chat.type.in_({"group", "supergroup"}))
-
 async def automod_filter_and_duty_check(message: Message, bot: Bot):
-
     if not message.from_user or message.from_user.is_bot:
-
         return
-
-
 
     uid = message.from_user.id
-
     name = message.from_user.first_name or "Пользователь"
-
     text = message.text or ""
-
     chat_id = message.chat.id
-
     chat_title = message.chat.title or "Группа"
 
-
-
-    # 0. ПРОВЕРКА НА ТЕМУ ИИ В ШТАБЕ СТАФФА (ОТВЕТ БЕЗ КОМАНД, АВТОМОД ОТКЛЮЧЕН):
-
-    staff_cid, staff_tid = await get_ai_topic_info()
-
-    msg_tid = getattr(message, "message_thread_id", None)
-
-    if staff_cid and chat_id == staff_cid and staff_tid and msg_tid == staff_tid:
-
-        if text.startswith("!") or text.startswith("/"):
-
-            return  # Пропускаем команды к роутеру команд
-
-        await handle_staff_ai_topic_message(message, bot)
-
-        return
-
-
-
-    # Если пишет сотрудник на смене — сбрасываем AFK-таймер
-
-    await update_staff_activity(uid)
-
-
-
-    # Проверка на команды модерации: если модератор пытается наказать, но не на смене
-
-    lower_t = text.lower().strip()
-
-    is_punish_cmd = any(lower_t.startswith(prefix) for prefix in ["мут ", "бан ", "варн ", "кик ", "/mute", "/ban", "/warn"])
-
-    if is_punish_cmd and not config.is_bot_owner(uid):
-
-        # Проверяем, является ли пользователь персоналом чата
-
-        row = await db.fetchone("SELECT rank FROM staff WHERE chat_id=? AND (user_id=? OR username=?)",
-
-                                (chat_id, uid, (message.from_user.username or "").lower()))
-
-        rank = row["rank"] if row else 0
-
-        if rank > 0:
-
-            on_duty = await is_user_on_duty(uid)
-
-            if not on_duty:
-
-                return await message.reply(
-
-                    f"⛔️ <b>Действие заблокировано!</b>\n\n"
-
-                    f"Модератор {mention_id(uid, name)}, вы сейчас <b>НЕ НА СМЕНЕ</b>!\n"
-
-                    f"Чтобы наказывать участников чата, сначала заступите на смену:\n"
-
-                    f"👉 Отправьте <code>/duty</code> и нажмите <b>«🟢 Выйти на смену»</b>."
-
-                )
-
-
-
-    # Владельцев бота не проверяем на автомод (иммунитет создателя)
-
-    if config.is_bot_owner(uid):
-
-        return
-
-
-
-    # Проверяем, является ли нарушитель сотрудником стаффа
-
-    staff_row = await db.fetchone(
-
-        "SELECT rank FROM staff WHERE chat_id=? AND (user_id=? OR username=?)",
-
-        (chat_id, uid, (message.from_user.username or "").lower())
-
-    )
-
-    is_staff = bool(staff_row and staff_row["rank"] > 0)
-
-    staff_rank = staff_row["rank"] if staff_row else 0
-
-
-
-    # Проверка текста на токсичность, мат и оскорбления
-
-    level, reason = toxicity.detect(text)
-
-    if level >= 2:  # 2 = оскорбление, 3 = мат / угроза
-
-        mute_seconds = 1800  # 30 минут
-
-        until_date = int(time.time()) + mute_seconds
-
-
-
-        # 1. Мгновенно применяем мут через Telegram API
-
-        try:
-
-            await bot.restrict_chat_member(
-
-                chat_id=chat_id,
-
-                user_id=uid,
-
-                permissions=MUTE_PERMISSIONS,
-
-                until_date=until_date
-
-            )
-
-            mute_applied = True
-
-        except Exception as e:
-
-            log.warning("Не удалось замутить пользователя %s в чате %s: %s", uid, chat_id, e)
-
-            mute_applied = False
-
-
-
-        # 2. Удаляем сообщение с оскорблением
-
-        try:
-
-            await message.delete()
-
-        except Exception:
-
-            pass
-
-
-
-        # 3. ЕСЛИ НАРУШИТЕЛЬ — МОДЕРАТОР/СТАФФ (СТРОГО ЗАПРЕЩЕНО ОСКОРБЛЯТЬ ИГРОКОВ!):
-
-        if is_staff:
-
-            member = await get_or_create_staff_member(uid, name)
-
-            new_swarns = member["swarns"] + 1
-
-
-
-            # Принудительно завершаем смену, если был на смене
-
-            shift_dur = 0
-
-            if member["is_on_duty"] and member["duty_start_ts"] > 0:
-
-                shift_dur = max(0, int(time.time()) - member["duty_start_ts"])
-
-            new_total = member["total_duty_seconds"] + shift_dur
-
-
-
-            await db.execute(
-
-                "UPDATE staff_duty_members SET is_on_duty=0, duty_start_ts=0, total_duty_seconds=?, swarns=? WHERE user_id=?",
-
-                (new_total, new_swarns, uid)
-
-            )
-
-
-
-            # Авто-снятие с должности при 3/3 выговорах (как в Discord!)
-
-            dismissal_notice = ""
-
-            if new_swarns >= 3:
-
-                await db.execute("DELETE FROM ranks WHERE chat_id=? AND user_id=?", (chat_id, uid))
-
-                await db.execute("DELETE FROM staff WHERE chat_id=? AND user_id=?", (chat_id, uid))
-
-                dismissal_notice = "\n❌ <b>СОТРУДНИК СНЯТ С ДОЛЖНОСТИ</b> за достижение лимита выговоров (3/3)!"
-
-
-
-            # Публичное сообщение в чат
-
-            if mute_applied:
-
-                notify_msg = (
-
-                    f"🔇 <b>Модератор {mention_id(uid, name)} отправлен в мут на 30 минут за оскорбление игрока!</b>\n"
-
-                    f"⚡️ <b>Дисциплинарное взыскание:</b> Снят со смены + начислен выговор (<b>{new_swarns}/3</b> сварн)."
-
-                    f"{dismissal_notice}\n"
-
-                    f"🛡 <i>В MOXXI модераторам строго запрещено проявлять агрессию и оскорблять игроков!</i>"
-
-                )
-
-                try:
-
-                    await bot.send_message(chat_id, notify_msg)
-
-                except Exception:
-
-                    pass
-
-
-
-            # Экстренный лог руководству
-
-            log_text = (
-
-                f"🚨 <b>[ЧП: МОДЕРАТОР ОСКОРБИЛ ИГРОКА / МАТ В ЧАТЕ]</b>\n\n"
-
-                f"👮 <b>Модератор:</b> {mention_id(uid, name)} (Ранг: <code>{staff_rank}</code>)\n"
-
-                f"📍 <b>Чат:</b> {html.escape(chat_title)} (<code>{chat_id}</code>)\n"
-
-                f"⏱ <b>Наказание:</b> Мут на 30 минут\n"
-
-                f"⚡️ <b>Статус:</b> Принудительно снят со смены + выговор (<b>{new_swarns}/3</b>)"
-
-                f"{dismissal_notice}\n"
-
-                f"💬 <b>Цитата:</b>\n"
-
-                f"<blockquote>{html.escape(text[:300])}</blockquote>\n"
-
-                f"🕒 Время: {time.strftime('%H:%M:%S', time.localtime())}"
-
-            )
-
-            return await send_staff_log(bot, log_text)
-
-
-
-        # 4. ОБЫЧНЫЙ ИГРОК (МАТ / ОСКОРБЛЕНИЯ):
-
-        if mute_applied:
-
-            notify_msg = (
-
-                f"🔇 {mention_id(uid, name)} отправлен в <b>мут на 30 минут</b>.\n"
-
-                f"📝 <b>Причина:</b> Оскорбления / Нецензурная брань\n"
-
-                f"🛡 <i>Автомодерация MOXXI Shield</i>"
-
-            )
-
+    try:
+        # 0. ПРОВЕРКА НА ТЕМУ ИИ В ШТАБЕ СТАФФА (ОТВЕТ БЕЗ КОМАНД, АВТОМОД ОТКЛЮЧЕН):
+        staff_cid, staff_tid = await get_ai_topic_info()
+        msg_tid = getattr(message, "message_thread_id", None)
+        if staff_cid and chat_id == staff_cid and staff_tid and msg_tid == staff_tid:
+            if text.startswith("!") or text.startswith("/"):
+                raise SkipHandler()  # Пропускаем команды к роутеру команд
+            await handle_staff_ai_topic_message(message, bot)
+            return
+
+        # Если пишет сотрудник на смене — сбрасываем AFK-таймер
+        await update_staff_activity(uid)
+
+        # Проверка на команды модерации: если модератор пытается наказать, но не на смене
+        lower_t = text.lower().strip()
+        is_punish_cmd = any(lower_t.startswith(prefix) for prefix in ["мут ", "бан ", "варн ", "кик ", "/mute", "/ban", "/warn"])
+        if is_punish_cmd and not config.is_bot_owner(uid):
+            # Проверяем, является ли пользователь персоналом чата
+            row = await db.fetchone("SELECT rank FROM staff WHERE chat_id=? AND (user_id=? OR username=?)",
+                                    (chat_id, uid, (message.from_user.username or "").lower()))
+            rank = row["rank"] if row else 0
+            if rank > 0:
+                on_duty = await is_user_on_duty(uid)
+                if not on_duty:
+                    await message.reply(
+                        f"⛔️ <b>Действие заблокировано!</b>\n\n"
+                        f"Модератор {mention_id(uid, name)}, вы сейчас <b>НЕ НА СМЕНЕ</b>!\n"
+                        f"Чтобы наказывать участников чата, сначала заступите на смену:\n"
+                        f"👉 Отправьте <code>/duty</code> и нажмите <b>«🟢 Выйти на смену»</b>."
+                    )
+                    return
+
+        # Владельцев бота не проверяем на автомод (иммунитет создателя)
+        if config.is_bot_owner(uid):
+            raise SkipHandler()
+
+        # Проверяем, является ли нарушитель сотрудником стаффа
+        staff_row = await db.fetchone(
+            "SELECT rank FROM staff WHERE chat_id=? AND (user_id=? OR username=?)",
+            (chat_id, uid, (message.from_user.username or "").lower())
+        )
+        is_staff = bool(staff_row and staff_row["rank"] > 0)
+        staff_rank = staff_row["rank"] if staff_row else 0
+
+        # Проверка текста на токсичность, мат и оскорбления
+        level, reason = toxicity.detect(text)
+        if level >= 2:  # 2 = оскорбление, 3 = мат / угроза
+            mute_seconds = 1800  # 30 минут
+            until_date = int(time.time()) + mute_seconds
+
+            # 1. Мгновенно применяем мут через Telegram API
             try:
+                await bot.restrict_chat_member(
+                    chat_id=chat_id,
+                    user_id=uid,
+                    permissions=MUTE_PERMISSIONS,
+                    until_date=until_date
+                )
+                mute_applied = True
+            except Exception as e:
+                log.warning("Не удалось замутить пользователя %s в чате %s: %s", uid, chat_id, e)
+                mute_applied = False
 
-                await bot.send_message(chat_id, notify_msg)
-
+            # 2. Удаляем сообщение с оскорблением
+            try:
+                await message.delete()
             except Exception:
-
                 pass
 
+            # 3. ЕСЛИ НАРУШИТЕЛЬ — МОДЕРАТОР/СТАФФ (СТРОГО ЗАПРЕЩЕНО ОСКОРБЛЯТЬ ИГРОКОВ!):
+            if is_staff:
+                member = await get_or_create_staff_member(uid, name)
+                new_swarns = member["swarns"] + 1
 
+                # Принудительно завершаем смену, если был на смене
+                shift_dur = 0
+                if member["is_on_duty"] and member["duty_start_ts"] > 0:
+                    shift_dur = max(0, int(time.time()) - member["duty_start_ts"])
+                new_total = member["total_duty_seconds"] + shift_dur
 
-        unmute_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                await db.execute(
+                    "UPDATE staff_duty_members SET is_on_duty=0, duty_start_ts=0, total_duty_seconds=?, swarns=? WHERE user_id=?",
+                    (new_total, new_swarns, uid)
+                )
 
-            InlineKeyboardButton(text="🔓 Снять мут (ошибка)", callback_data=f"hq_unmute:{chat_id}:{uid}")
+                # Авто-снятие с должности при 3/3 выговорах (как в Discord!)
+                dismissal_notice = ""
+                if new_swarns >= 3:
+                    await db.execute("DELETE FROM ranks WHERE chat_id=? AND user_id=?", (chat_id, uid))
+                    await db.execute("DELETE FROM staff WHERE chat_id=? AND user_id=?", (chat_id, uid))
+                    dismissal_notice = "\n❌ <b>СОТРУДНИК СНЯТ С ДОЛЖНОСТИ</b> за достижение лимита выговоров (3/3)!"
 
-        ]])
+                # Публичное сообщение в чат
+                if mute_applied:
+                    notify_msg = (
+                        f"🔇 <b>Модератор {mention_id(uid, name)} отправлен в мут на 30 минут за оскорбление игрока!</b>\n"
+                        f"⚡️ <b>Дисциплинарное взыскание:</b> Снят со смены + начислен выговор (<b>{new_swarns}/3</b> сварн)."
+                        f"{dismissal_notice}\n"
+                        f"🛡 <i>В MOXXI модераторам строго запрещено проявлять агрессию и оскорблять игроков!</i>"
+                    )
+                    try:
+                        await bot.send_message(chat_id, notify_msg)
+                    except Exception:
+                        pass
 
+                # Экстренный лог руководству
+                log_text = (
+                    f"🚨 <b>[ЧП: МОДЕРАТОР ОСКОРБИЛ ИГРОКА / МАТ В ЧАТЕ]</b>\n\n"
+                    f"👮 <b>Модератор:</b> {mention_id(uid, name)} (Ранг: <code>{staff_rank}</code>)\n"
+                    f"📍 <b>Чат:</b> {html.escape(chat_title)} (<code>{chat_id}</code>)\n"
+                    f"⏱ <b>Наказание:</b> Мут на 30 минут\n"
+                    f"⚡️ <b>Статус:</b> Принудительно снят со смены + выговор (<b>{new_swarns}/3</b>)"
+                    f"{dismissal_notice}\n"
+                    f"💬 <b>Цитата:</b>\n"
+                    f"<blockquote>{html.escape(text[:300])}</blockquote>\n"
+                    f"🕒 Время: {time.strftime('%H:%M:%S', time.localtime())}"
+                )
+                await send_staff_log(bot, log_text)
+                return
 
+            # 4. ОБЫЧНЫЙ ИГРОК (МАТ / ОСКОРБЛЕНИЯ):
+            if mute_applied:
+                notify_msg = (
+                    f"🔇 {mention_id(uid, name)} отправлен в <b>мут на 30 минут</b>.\n"
+                    f"📝 <b>Причина:</b> Оскорбления / Нецензурная брань\n"
+                    f"🛡 <i>Автомодерация MOXXI Shield</i>"
+                )
+                try:
+                    await bot.send_message(chat_id, notify_msg)
+                except Exception:
+                    pass
 
-        log_text = (
+            unmute_kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🔓 Снять мут (ошибка)", callback_data=f"hq_unmute:{chat_id}:{uid}")
+            ]])
 
-            f"🚨 <b>[АВТОМОД: МУТ ЗА ОСКОРБЛЕНИЯ / МАТ]</b>\n\n"
+            log_text = (
+                f"🚨 <b>[АВТОМОД: МУТ ЗА ОСКОРБЛЕНИЯ / МАТ]</b>\n\n"
+                f"👤 <b>Нарушитель:</b> {mention_id(uid, name)} (ID: <code>{uid}</code>)\n"
+                f"📍 <b>Чат:</b> {html.escape(chat_title)} (<code>{chat_id}</code>)\n"
+                f"⏱ <b>Срок:</b> 30 минут\n"
+                f"⚠️ <b>Тип:</b> {reason}\n"
+                f"💬 <b>Текст нарушения:</b>\n"
+                f"<blockquote>{html.escape(text[:300])}</blockquote>\n"
+                f"🕒 Время: {time.strftime('%H:%M:%S', time.localtime())}"
+            )
+            await send_staff_log(bot, log_text, reply_markup=unmute_kb)
+            return
 
-            f"👤 <b>Нарушитель:</b> {mention_id(uid, name)} (ID: <code>{uid}</code>)\n"
+    except SkipHandler:
+        raise
+    except Exception as e:
+        log.exception("Error in automod_filter_and_duty_check: %s", e)
 
-            f"📍 <b>Чат:</b> {html.escape(chat_title)} (<code>{chat_id}</code>)\n"
-
-            f"⏱ <b>Срок:</b> 30 минут\n"
-
-            f"⚠️ <b>Тип:</b> {reason}\n"
-
-            f"💬 <b>Текст нарушения:</b>\n"
-
-            f"<blockquote>{html.escape(text[:300])}</blockquote>\n"
-
-            f"🕒 Время: {time.strftime('%H:%M:%S', time.localtime())}"
-
-        )
-
-        await send_staff_log(bot, log_text, reply_markup=unmute_kb)
-
-
-
+    # ОБЯЗАТЕЛЬНО: для всех остальных нормальных сообщений передаём управление дальше остальным роутерам!
+    raise SkipHandler()
 
 
 # ---------------- 5. СНЯТИЕ МУТА ИЗ ЛОГ-КАНАЛА ПО КНОПКЕ ----------------
@@ -2794,7 +2649,7 @@ def _sync_query_gemini(prompt: str) -> Optional[str]:
 
 
 
-@router.message(F.text.startswith("!ии") | F.text.startswith("/ai") | F.text.startswith("!копилот"))
+@router.message(F.text.startswith("!стафф_ии") | F.text.startswith("/staff_ai") | F.text.startswith("!копилот"))
 
 async def cmd_ai_helper_tg(message: Message, bot: Bot):
 
