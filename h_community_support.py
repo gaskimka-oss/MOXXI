@@ -238,7 +238,7 @@ async def cmd_suggestions(message: Message, bot: Bot, args: str = "", **kw):
             f"📊 <b>Статус:</b> 💡 <i>На рассмотрении разработчиками</i>\n\n"
             f"👇 <i>Голосуйте за идею, если хотите увидеть её в боте:</i>"
         )
-        # Отправка в привязанную группу идей, если задана
+        # 1. Отправка в привязанную группу идей, если задана
         sug_chat = await db.get_global_setting("global_ideas_chat", "")
         sug_topic = await db.get_global_setting("global_ideas_chat_topic", "")
         if sug_chat:
@@ -248,6 +248,39 @@ async def cmd_suggestions(message: Message, bot: Bot, args: str = "", **kw):
                 await bot.send_message(target_cid, card, reply_markup=_sug_kb(sug_id, 0, 0), message_thread_id=tid)
             except Exception:
                 pass
+
+        # 2. Оповещение Telegram Штаба (в топик поддержки или логов)
+        try:
+            import h_staff_hq as staff_hq
+            hq_id = await staff_hq.get_staff_hq_id()
+            if hq_id:
+                r_topic = await db.fetchone("SELECT value FROM staff_hq_settings WHERE key='staff_log_topic_id'")
+                log_tid = int(r_topic["value"]) if r_topic and r_topic["value"] else None
+                admin_idea_msg = (
+                    f"💡 🔔 <b>НОВАЯ ИДЕЯ ОТ ИГРОКА #{sug_id}</b>\n"
+                    f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+                    f"👤 <b>Автор:</b> {mention_id(uid, name)} (ID: <code>{uid}</code>)\n"
+                    f"📝 <b>Предложение:</b>\n«{html.escape(txt)}»\n\n"
+                    f"💡 <i>Идея сохранена в базе сообщества и передана в Discord.</i>"
+                )
+                await bot.send_message(hq_id, admin_idea_msg, reply_markup=_sug_kb(sug_id, 0, 0), message_thread_id=log_tid)
+        except Exception as e:
+            log.warning("Не удалось отправить идею в TG Штаб: %s", e)
+
+        # 3. Синхронизация с сервером Discord Staff
+        try:
+            import core_ticket_bridge as bridge
+            bridge.send_ticket_to_discord(
+                ticket_id=sug_id,
+                platform="telegram",
+                user_name=name,
+                user_id=str(uid),
+                text=f"💡 ПРЕДЛОЖЕНИЕ:\n{txt}",
+                category="Идея / Предложение"
+            )
+        except Exception as e:
+            log.warning("Не удалось отправить идею в Discord: %s", e)
+
         await message.reply(card, reply_markup=_sug_kb(sug_id, 0, 0))
         return
 
@@ -515,7 +548,7 @@ def detect_staff_abuse(text: str) -> tuple[bool, str]:
     return False, ""
 
 
-@router.message(Cmd("поддержка", "тикет", "саппорт", "техподдержка", "support", "ticket", "хелп админ", "помощь админа",
+@router.message(Cmd("поддержка", "тикет", "саппорт", "техподдержка", "support", "ticket", "хелп админ", "помощь админа", "баг", "ошибка", "репорт", "жалоба", "багрепорт",
                     section=S_COMMUNITY, usage="поддержка [вопрос]",
                     desc="Обратиться в службу техподдержки с вопросом или проблемой"))
 async def cmd_support(message: Message, bot: Bot, args: str = "", **kw):
@@ -622,7 +655,10 @@ async def cmd_support(message: Message, bot: Bot, args: str = "", **kw):
     ds_sent_mid = 0
     try:
         import core_ticket_bridge as bridge
-        ds_res = bridge.send_ticket_to_discord(ticket_id, platform="telegram", user_name=name, user_id=str(uid), text=txt)
+        cmd_name = (kw.get("cmd_name") or "").lower()
+        is_bug_cmd = any(b in cmd_name for b in ["баг", "ошибк", "репорт"])
+        cat_label = "🛠 Баг / Ошибка" if is_bug_cmd else "Общее"
+        ds_res = bridge.send_ticket_to_discord(ticket_id, platform="telegram", user_name=name, user_id=str(uid), text=txt, category=cat_label)
         if ds_res:
             ds_sent_cid, ds_sent_mid = ds_res
     except Exception as e:
@@ -1073,6 +1109,101 @@ async def cb_supp_close(cq: CallbackQuery, bot: Bot):
 # ═══════════════════════════════════════════════════════════════
 # 5. 🤖 ФОНОВЫЙ ИИ-АВТООТВЕТЧИК (ЕСЛИ АДМИН НЕ ОТВЕТИЛ ЗА 6 ЧАСОВ)
 # ═══════════════════════════════════════════════════════════════
+
+
+# ═══════════════════════════════════════════════════════════════
+# 📢 АВТОСООБЩЕНИЯ О ПОДДЕРЖКЕ И ИДЕЯХ (КАЖДЫЕ 3 ЧАСА)
+# ═══════════════════════════════════════════════════════════════
+async def community_support_auto_broadcast_loop(bot: Bot) -> None:
+    """Фоновая рассылка каждые 3 часа во все активные группы сообщества:
+    напоминание о техподдержке, репортах багов и банке идей с быстрыми кнопками.
+    """
+    log.info("Запущен воркер автосообщений техподдержки и идей (интервал: 3 часа)...")
+    await asyncio.sleep(60)
+
+    while True:
+        try:
+            now = int(time.time())
+            interval = 3 * 3600  # 3 часа = 10800 секунд
+
+            rows = await db.fetchall("""
+                SELECT DISTINCT chat_id FROM chats WHERE chat_id < 0
+                UNION
+                SELECT DISTINCT chat_id FROM settings WHERE chat_id < 0
+            """)
+
+            me = await bot.get_me()
+            bot_username = me.username or "moxxichat_bot"
+
+            broadcast_text = (
+                "💜✨ <b>СЛУЖБА ЗАБОТЫ И ПОДДЕРЖКИ MOXXI</b> ✨💜\n"
+                "──────────────────────────────────\n"
+                "Нашли баг, ошибку или хотите предложить крутую идею для обновления?\n"
+                "Мы всегда на связи и ценим каждого игрока нашего сообщества!\n\n"
+                "📝 <b>Как отправить обращение разработчикам и стаффу:</b>\n"
+                "• 🆘 <b>Сообщить о баге или проблеме:</b>\n"
+                "  👉 Напишите прямо в чат: <code>поддержка [описание проблемы / бага]</code>\n"
+                "  <i>(также работают команды: <code>баг [описание]</code> или <code>репорт [текст]</code>)</i>\n\n"
+                "• 💡 <b>Предложить новую идею или фичу:</b>\n"
+                "  👉 Напишите прямо в чат: <code>идея [текст вашей идеи]</code>\n\n"
+                "🌐 <b>Официальные каналы связи:</b>\n"
+                f"• 🎫 <b>Telegram Поддержка:</b> <a href=\"https://t.me/{bot_username}?start=support\">Личные сообщения бота</a>\n"
+                "• 🎮 <b>Discord Сервер Поддержки:</b> <a href=\"https://discord.gg/7hDq4R2q\">discord.gg/7hDq4R2q</a>\n"
+                "• 💬 <b>Официальный чат игроков:</b> <a href=\"https://t.me/moxxi_chat\">t.me/moxxi_chat</a>\n\n"
+                "⚡️ <i>Все ваши обращения мгновенно отправляются дежурной администрации в Telegram и Discord!</i> ❤️"
+            )
+
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="🆘 Написать в поддержку", url=f"https://t.me/{bot_username}?start=support"),
+                    InlineKeyboardButton(text="💡 Предложить идею", url=f"https://t.me/{bot_username}?start=idea")
+                ],
+                [
+                    InlineKeyboardButton(text="🎮 Discord Сервер", url="https://discord.gg/7hDq4R2q"),
+                    InlineKeyboardButton(text="💬 Чат Сообщества", url="https://t.me/moxxi_chat")
+                ]
+            ])
+
+            for r in rows:
+                cid = r["chat_id"]
+                # Проверяем, не является ли группа штабом стаффа
+                staff_hq_id_str = await db.get_setting(0, "staff_hq_chat_id", "")
+                if staff_hq_id_str and str(cid) == staff_hq_id_str:
+                    continue
+
+                last_ts_str = await db.get_setting(cid, "last_support_broadcast_ts", "0")
+                last_ts = int(last_ts_str) if str(last_ts_str).isdigit() else 0
+
+                if (now - last_ts) >= interval:
+                    tid = None
+                    try:
+                        tid_support = await db.get_setting(cid, "community_topic_support", "")
+                        tid_chat = await db.get_setting(cid, "community_topic_chat", "")
+                        if tid_support and tid_support.isdigit():
+                            tid = int(tid_support)
+                        elif tid_chat and tid_chat.isdigit():
+                            tid = int(tid_chat)
+                    except Exception:
+                        pass
+
+                    try:
+                        await bot.send_message(
+                            cid,
+                            broadcast_text,
+                            reply_markup=kb,
+                            message_thread_id=tid,
+                            disable_web_page_preview=True
+                        )
+                        await db.set_setting(cid, "last_support_broadcast_ts", str(now))
+                        await asyncio.sleep(0.5)
+                    except Exception as e:
+                        log.debug("Auto-broadcast error in chat %s: %s", cid, e)
+
+        except Exception as e:
+            log.warning("Exception in community_support_auto_broadcast_loop: %s", e)
+
+        await asyncio.sleep(60)
+
 
 async def check_unanswered_support_tickets(bot: Bot) -> None:
     """Проверяет открытые тикеты старше 6 часов и проверяет 1-часовой анти-АФК таймаут стаффа."""

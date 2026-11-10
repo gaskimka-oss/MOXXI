@@ -559,6 +559,7 @@ async def main() -> None:
     asyncio.create_task(botinfo.auto_restart_worker(bot))
     asyncio.create_task(yookassa.yookassa_poller(bot))
     asyncio.create_task(support_tickets_loop(bot))
+    asyncio.create_task(community_support.community_support_auto_broadcast_loop(bot))
     asyncio.create_task(staff_hq.staff_afk_watchdog_loop(bot))
     asyncio.create_task(owner_panel.scheduled_announcements_worker(bot))
     await health.start()          # порт для healthcheck хостинга
