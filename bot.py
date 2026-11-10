@@ -466,6 +466,7 @@ async def main() -> None:
     dp.include_router(nav.router)
     dp.include_router(adminpanel.router)
     dp.include_router(owner_panel.router)
+    dp.include_router(staff_hq.router)
     # До passive: отслеживает выходы/кики и связывает две группы клана.
     dp.include_router(clan_sync.router)
     dp.include_router(start.router)
@@ -515,7 +516,6 @@ async def main() -> None:
     dp.include_router(currency_exchange.router)
     dp.include_router(vip_plus.router)
     dp.include_router(moxxi_3_0.router)
-    dp.include_router(staff_hq.router)
     dp.include_router(passive.router)
 
     me = None

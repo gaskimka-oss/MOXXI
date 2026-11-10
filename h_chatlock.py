@@ -164,7 +164,7 @@ async def cmd_close(message: Message, bot: Bot, args: str = "", **kw):
                         "<i>Задать авто-закрытие: </i><code>-чат 23:00</code>")
 
 
-@router.message(Cmd("расписание чата", "расписание", "авточат", section=S, rank=2, group_only=True,
+@router.message(Cmd("расписание чата", "расписание", "авторасписание", section=S, rank=2, group_only=True,
                     usage="расписание чата", desc="Показать расписание открытия/закрытия"))
 async def cmd_schedule(message: Message, bot: Bot, **kw):
     if not await require(message, bot, 2):
