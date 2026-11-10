@@ -154,14 +154,17 @@ async def get_log_channel_id() -> Optional[int]:
 
 
 async def send_staff_log(bot: Bot, text: str, reply_markup: Optional[InlineKeyboardMarkup] = None):
-    """Отправляет лог в канал аудита или группу штаба стаффа."""
+    """Отправляет лог в канал аудита или группу штаба стаффа (с поддержкой топика логов)."""
     target_id = await get_log_channel_id()
     if not target_id:
         return
+    r_topic = await db.fetchone("SELECT value FROM staff_hq_settings WHERE key='staff_log_topic_id'")
+    log_tid = int(r_topic["value"]) if r_topic and r_topic["value"] else None
     try:
         await bot.send_message(
             target_id,
             text,
+            message_thread_id=log_tid,
             reply_markup=reply_markup,
             disable_web_page_preview=True
         )
@@ -214,6 +217,184 @@ def get_duty_keyboard(is_on_duty: bool) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🔄 Обновить", callback_data="hq_duty:refresh")
         ]
     ])
+
+
+# ---------------- 1.2 АВТО-РАЗВЁРТЫВАНИЕ ШТАБА СТАФФА «ПОД КЛЮЧ» В 1 КЛИК ----------------
+@router.message(F.text.lower().in_({"!автоштаб", "/setup_staff_group", "!настроить штаб", "/deploy_staff_hq", "!создать штаб"}))
+async def cmd_auto_deploy_staff_hq(message: Message, bot: Bot):
+    if not config.is_bot_owner(message.from_user.id):
+        return await message.reply("⛔️ Команда доступна исключительно Главному Владельцу MOXXI.")
+
+    chat_id = message.chat.id
+    try:
+        chat = await bot.get_chat(chat_id)
+    except Exception as e:
+        return await message.reply(f"❌ Ошибка получения данных чата: {e}")
+
+    if not getattr(chat, "is_forum", False):
+        return await message.reply(
+            "⚠️ <b>В этой группе ещё не включены «Темы» (Форум)!</b>\n\n"
+            "Чтобы бот смог автоматически создать все 5 тем, включите одну настройку:\n"
+            "1. Зайдите в <b>«Управление группой»</b> (клик по аватарке группы ➔ Редактировать / Карандаш).\n"
+            "2. Найдите переключатель <b>«Темы» (Topics)</b> и включите его.\n"
+            "3. После этого напишите <code>!автоштаб</code> ещё раз — и я создам всё сам за 2 секунды!"
+        )
+
+    status_msg = await message.reply("🚀 <b>Разворачиваю официальный Штаб Стаффа MOXXI «под ключ»...</b>")
+
+    created_topics = {}
+    topic_configs = [
+        ("📌・устав-стаффа", 0xFFD67E, "rules"),
+        ("⏱・дежурка", 0x8EEE98, "duty"),
+        ("🤖・ии-подсказчик", 0x6FB9F0, "ai"),
+        ("📊・логи-наказаний", 0xFB6F5F, "logs"),
+        ("💬・чат-стаффа", 0xCB86DB, "chat"),
+    ]
+
+    for name, color, role_key in topic_configs:
+        try:
+            topic = await bot.create_forum_topic(chat_id=chat_id, name=name, icon_color=color)
+            created_topics[role_key] = topic.message_thread_id
+            await asyncio.sleep(0.4)
+        except Exception as e:
+            log.warning("Не удалось создать топик %s: %s", name, e)
+
+    # 1. Наполняем топик Устава
+    rules_tid = created_topics.get("rules")
+    if rules_tid:
+        try:
+            r_msg = await bot.send_message(chat_id, """🏛 <b>ОФИЦИАЛЬНЫЙ УСТАВ & РЕГЛАМЕНТ АДМИНИСТРАЦИИ MOXXI</b>
+
+Добро пожаловать в команду проекта MOXXI! Каждый сотрудник обязан неукоснительно соблюдать регламент:
+
+1️⃣ <b>ДЕЖУРСТВА & ВЫХОД НА СМЕНУ:</b>
+• Перед началом модерации обязательно заходите в тему <b>#⏱・дежурка</b> и нажимайте <b>«🟢 Выйти на смену»</b>.
+• Наказывать игроков (мут, бан, варн) разрешено <b>СТРОГО НА СМЕНЕ</b>! Вне смены бот заблокирует команды.
+• После работы нажимайте <b>«🔴 Завершить смену»</b>.
+• ⚠️ <b>Анти-AFK Watchdog:</b> При отсутствии активности более <b>45 минут</b> на смене бот автоматически снимет вас и выпишет выговор (+1 сварн)!
+
+2️⃣ <b>ЖЕЛЕЗНОЕ ПРАВИЛО: ЗАПРЕТ ОСКОРБЛЕНИЙ ИГРОКОВ:</b>
+• Модератор — лицо проекта MOXXI. 
+• 🚫 <b>СТРОЖАЙШЕ ЗАПРЕЩЕНО</b> оскорблять игроков, употреблять мат и проявлять агрессию в чатах игроков.
+• ⚡️ <b>АВТО-НАКАЗАНИЕ:</b> Бот моментально удаляет сообщение, выдаёт модератору <b>мут на 30 минут</b>, принудительно <b>снимает со смены</b> и начисляет <b>+1 сварн</b>!
+
+3️⃣ <b>СИСТЕМА ВЫГОВОРОВ (СВАРНЫ 3/3):</b>
+• ⚠️ <b>1/3 сварн:</b> Опоздание, AFK на смене, мелкая грубость.
+• ⚠️ <b>2/3 сварн:</b> Повторное дисциплинарное нарушение, халатность.
+• ❌ <b>3/3 сварн:</b> <b>АВТОМАТИЧЕСКОЕ РАЗЖАЛОВАНИЕ И СНЯТИЕ ВСЕХ РОЛЕЙ</b> без права восстановления!
+
+4️⃣ <b>РАБОТА С ТИКЕТАМИ & ИИ-ПОДСКАЗЧИК:</b>
+• Если вам прилетел сложный тикет от игрока — скиньте его в тему <b>#🤖・ии-подсказчик</b>.
+• Бот моментально выдаст готовый план действий и вежливый шаблон ответа для игрока в 1 клик!
+
+5️⃣ <b>СТАТУС ВЕТЕРАНА СТАФФА (50 ЧАСОВ):</b>
+• Отработайте <b>50 часов</b> на смене без выговоров, чтобы получить статус 🏅 <b>Ветеран MOXXI (50ч+)</b> и повышение в должности!""", message_thread_id=rules_tid)
+            await bot.pin_chat_message(chat_id, r_msg.message_id)
+        except Exception:
+            pass
+
+    # 2. Наполняем топик Дежурки
+    duty_tid = created_topics.get("duty")
+    if duty_tid:
+        try:
+            kb = get_duty_keyboard(False)
+            duty_intro = (
+                "🕒 <b>ПУЛЬТ УПРАВЛЕНИЯ СМЕНАМИ СТАФФА MOXXI</b>\n\n"
+                "• Нажмите <b>«🟢 Выйти на смену»</b> перед началом модерации чатов.\n"
+                "• Вне смены модераторские команды наказаний заблокированы!\n"
+                "• По окончании работы нажмите <b>«🔴 Завершить смену»</b>.\n"
+                "• ⚠️ <i>Анти-AFK: бездействие более 45 мин = автоснятие + сварн.</i>"
+            )
+            d_msg = await bot.send_message(chat_id, duty_intro, reply_markup=kb, message_thread_id=duty_tid)
+            await bot.pin_chat_message(chat_id, d_msg.message_id)
+        except Exception:
+            pass
+
+    # 3. Наполняем топик ИИ-подсказчика
+    ai_tid = created_topics.get("ai")
+    if ai_tid:
+        try:
+            ai_intro = (
+                "🤖 <b>ИИ-КОПИЛОТ СЛУЖБЫ ПОДДЕРЖКИ & СТАФФА MOXXI</b>\n\n"
+                "🔥 <b>В этой теме модераторы могут писать БЕЗ КАКИХ-ЛИБО КОМАНД!</b>\n"
+                "• Пересылайте сюда тикеты или вопросы от игроков.\n"
+                "• Задавайте любые вопросы по правилам и наказаниям.\n"
+                "• Бот моментально выдаст действие и готовый шаблон ответа для игрока в 1 клик!\n"
+                "🛡 <i>Автомод в этой теме отключен: цитаты нарушителей с матом безопасны.</i>"
+            )
+            ai_msg = await bot.send_message(chat_id, ai_intro, message_thread_id=ai_tid)
+            await bot.pin_chat_message(chat_id, ai_msg.message_id)
+        except Exception:
+            pass
+
+    # 4. Наполняем топик Логов
+    logs_tid = created_topics.get("logs")
+    if logs_tid:
+        try:
+            log_intro = (
+                "📊 <b>ЖУРНАЛ АУДИТА & ЛОГОВ СТАФФА MOXXI</b>\n\n"
+                "Сюда автоматически транслируются:\n"
+                "• Все заступления и сдачи смен сотрудниками\n"
+                "• Все выданные муты, баны, варны и кики\n"
+                "• Дисциплинарные выговоры (сварны) и автоснятия Анти-AFK\n"
+                "• Кнопки мгновенной отмены мута для руководства"
+            )
+            l_msg = await bot.send_message(chat_id, log_intro, message_thread_id=logs_tid)
+            await bot.pin_chat_message(chat_id, l_msg.message_id)
+        except Exception:
+            pass
+
+    # 5. Наполняем чат стаффа
+    chat_tid = created_topics.get("chat")
+    if chat_tid:
+        try:
+            c_msg = await bot.send_message(
+                chat_id,
+                "💬 <b>РАБОЧИЙ ЧАТ АДМИНИСТРАЦИИ MOXXI</b>\n\n"
+                "Координация команды, передача смен и обсуждение рабочих вопросов. Приятной работы! 🛡️",
+                message_thread_id=chat_tid
+            )
+        except Exception:
+            pass
+
+    # Сохраняем все привязки в базу данных
+    await db.execute(
+        "INSERT INTO staff_hq_settings (key, value) VALUES ('staff_hq_chat_id', ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (str(chat_id),)
+    )
+    if ai_tid:
+        await db.execute(
+            "INSERT INTO staff_hq_settings (key, value) VALUES ('staff_ai_topic_id', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (str(ai_tid),)
+        )
+    if logs_tid:
+        await db.execute(
+            "INSERT INTO staff_hq_settings (key, value) VALUES ('staff_log_channel_id', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (str(chat_id),)
+        )
+        await db.execute(
+            "INSERT INTO staff_hq_settings (key, value) VALUES ('staff_log_topic_id', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (str(logs_tid),)
+        )
+
+    res_text = (
+        "🎉 <b>ШТАБ СТАФФА MOXXI ПОЛНОСТЬЮ РАЗВЁРНУТ «ПОД КЛЮЧ»!</b>\n\n"
+        "✅ <b>5 тем создано автоматически:</b>\n"
+        "• 📌 <code>#устав-стаффа</code> — правила, регламент и система 3/3 сварнов\n"
+        "• ⏱ <code>#дежурка</code> — закреплён интерактивный пульт дежурства\n"
+        "• 🤖 <code>#ии-подсказчик</code> — привязан ИИ-копилот без команд\n"
+        "• 📊 <code>#логи-наказаний</code> — подключён поток аудита нарушений\n"
+        "• 💬 <code>#чат-стаффа</code> — создана зона общения команды\n\n"
+        "🛡 <i>Автомодерация и защита от оскорблений игроков активна на 100%!</i>"
+    )
+    try:
+        await status_msg.edit_text(res_text)
+    except Exception:
+        await message.reply(res_text)
 
 
 # ---------------- 1. ПРИВЯЗКА ШТАБА СТАФФА И ЛОГ-КАНАЛА ----------------
