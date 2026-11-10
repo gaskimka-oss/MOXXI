@@ -90,6 +90,7 @@ import h_update_2_2 as update_2_2
 import h_currency_exchange as currency_exchange
 import h_vip_plus as vip_plus
 import h_moxxi_3_0 as moxxi_3_0
+import h_staff_hq as staff_hq
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s")
@@ -422,6 +423,7 @@ async def main() -> None:
         log.warning("Восстановление пропущено: %s", e)
 
     await db.init()
+    await staff_hq.init_staff_tables()
     try:
         await seed.apply()
     except Exception as e:
@@ -456,6 +458,7 @@ async def main() -> None:
         duels.router, clan_wars.router, fishing_craft.router, achievements.router,
         quests.router, social_fun.router, grams.router, nav.router,
         adminpanel.router, owner_panel.router, start.router, update_2_2.router, currency_exchange.router, vip_plus.router, moxxi_3_0.router,
+        staff_hq.router,
     )
     for r in command_routers:
         r.message.middleware(access_middleware)
@@ -512,6 +515,7 @@ async def main() -> None:
     dp.include_router(currency_exchange.router)
     dp.include_router(vip_plus.router)
     dp.include_router(moxxi_3_0.router)
+    dp.include_router(staff_hq.router)
     dp.include_router(passive.router)
 
     me = None
@@ -555,6 +559,7 @@ async def main() -> None:
     asyncio.create_task(botinfo.auto_restart_worker(bot))
     asyncio.create_task(yookassa.yookassa_poller(bot))
     asyncio.create_task(support_tickets_loop(bot))
+    asyncio.create_task(staff_hq.staff_afk_watchdog_loop(bot))
     asyncio.create_task(owner_panel.scheduled_announcements_worker(bot))
     await health.start()          # порт для healthcheck хостинга
 

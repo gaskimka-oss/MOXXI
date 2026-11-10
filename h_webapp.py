@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import urllib.parse
 from aiogram import Bot, F, Router
 from aiogram.types import (CallbackQuery, InlineKeyboardButton,
                            InlineKeyboardMarkup, Message, WebAppInfo)
@@ -49,6 +50,12 @@ def _get_webapp_kb(url: str | None = None) -> InlineKeyboardMarkup:
 @router.message(Cmd("апп", "webapp", "казик апп", "игры апп", "приложение", "мини апп", "хаб", "меню апп", section=S, rank=0,
                     usage="апп", desc="📱 Открыть интерактивный Telegram Mini App (Казино и Игры)"))
 async def cmd_open_webapp(message: Message, bot: Bot, **kw):
+    u = await db.get_user(message.from_user.id) or {}
+    bal = int(u.get("balance", 1000))
+    uname = message.from_user.first_name or "Игрок"
+    safe_name = urllib.parse.quote(uname)
+    user_url = f"https://gaskimka-oss.github.io/MOXXI/?user={safe_name}&balance={bal}&platform=telegram&uid={message.from_user.id}"
+
     text = (
         "📱 ✨ <b>ИНТЕРАКТИВНЫЙ TELEGRAM MINI APP</b> ✨ 📱\n"
         "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
@@ -62,7 +69,7 @@ async def cmd_open_webapp(message: Message, bot: Bot, **kw):
         "• ⌨️ <b>Терминал Команд</b> — быстрый запуск любых действий в чате в 1 клик!\n\n"
         "👇 <i>Нажмите кнопку ниже, чтобы запустить приложение:</i>"
     )
-    await message.reply(text, reply_markup=_get_webapp_kb())
+    await message.reply(text, reply_markup=_get_webapp_kb(user_url))
 
 
 @router.message(F.web_app_data)

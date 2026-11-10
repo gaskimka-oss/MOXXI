@@ -416,6 +416,18 @@ MOXXI_SAFE_CHAT_SYSTEM_PROMPT = (
 @router.message(Cmd("ии", "мокси", "ai", "moxxi", section=S, rank=0,
                     usage="ии [вопрос]", desc="🧠 Поговорить с Мокси (ИИ-собеседник)"))
 async def cmd_ai_chat(message: Message, bot: Bot, args: str = "", **kw):
+    import config
+
+    # 0. В группе стаффа развлекательный чат Мокси не спамит (в стаффе есть спец. тема ИИ)
+    try:
+        import h_staff_hq as staff_hq
+        hq_id = await staff_hq.get_staff_hq_id()
+        if hq_id and message.chat.id == hq_id:
+            return
+    except Exception:
+        pass
+
+    # Для обычных игроков в общих группах команда «ии» полностью открыта и доступна!
     user_text = (args or "").strip()
     if not user_text and real_reply(message):
         r_msg = message.reply_to_message

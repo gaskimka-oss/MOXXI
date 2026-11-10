@@ -67,6 +67,25 @@ async def write(chat_id: int, punish_id: int, target_id: int, target_name: str,
     row = await db.fetchone("SELECT last_insert_rowid() id")
     log_id = row["id"] if row else 0
 
+    # Дублируем наказание в Лог-канал Штаба Стаффа
+    try:
+        import h_staff_hq as staff_hq
+        if bot:
+            kinds_map = {"mute": "🔇 Мут", "ban": "🔨 Бан", "warn": "⚠️ Варн", "kick": "👢 Кик"}
+            k_title = kinds_map.get(kind, kind.upper())
+            dur_str = f"\n⏱ <b>Срок:</b> {seconds // 60} мин." if seconds else ""
+            log_msg = (
+                f"📋 <b>[{k_title}: НАКАЗАНИЕ]</b>\n\n"
+                f"👤 <b>Нарушитель:</b> {html.escape(target_name or str(target_id))} (<code>{target_id}</code>)\n"
+                f"👮 <b>Выдал:</b> {html.escape(by_name or 'Автомод')} (<code>{by_id}</code>)\n"
+                f"📝 <b>Причина:</b> <i>{html.escape(reason or 'Не указана')}</i>"
+                f"{dur_str}\n"
+                f"🕒 <b>Время:</b> {time.strftime('%H:%M:%S', time.localtime())}"
+            )
+            asyncio.create_task(staff_hq.send_staff_log(bot, log_msg))
+    except Exception:
+        pass
+
     # ИИ проверяет справедливость наказания в фоне
     try:
         import core_ai as ai
