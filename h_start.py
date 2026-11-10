@@ -154,9 +154,6 @@ async def main_kb(uid: int = 0, bot_username: str = "moxxichat_bot") -> InlineKe
         [
             InlineKeyboardButton(text="🎁 Бонусы", callback_data="mm:bonus"),
             InlineKeyboardButton(text="📖 Все Команды", callback_data="mm:cmds"),
-        ],
-        [
-            InlineKeyboardButton(text="🆘 Написать в техподдержку", callback_data="mm:support")
         ]
     ]
 
@@ -644,32 +641,26 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
         return await call.answer()
 
     if what == "support":
-        from utils import hms
-        cd_left = await db.cooldown_left(uid, "support_ticket", 1800)
-        if cd_left > 0:
-            txt = (
-                f"⏳ <b>Кулдаун на обращение в техподдержку!</b>\n\n"
-                f"Вы уже недавно отправили запрос в техподдержку.\n"
-                f"Пожалуйста, подождите ещё <b>{hms(cd_left)}</b>, прежде чем подавать новый тикет.\n\n"
-                f"🛡 <i>Защита от спама: не чаще одного обращения в 30 минут. "
-                f"Администрация уже получила вашу предыдущую заявку и скоро ответит!</i>"
-            )
-            await call.message.answer(txt, reply_markup=back_kb())
-            return await call.answer("⏳ Кулдаун техподдержки", show_alert=False)
-
         txt = (
-            f"🆘 ✨ <b>СЛУЖБА ТЕХПОДДЕРЖКИ MOXXI</b> ✨ 🆘\n"
+            f"🆘 ✨ <b>СЛУЖБА ЗАБОТЫ И ПОДДЕРЖКИ MOXXI</b> ✨ 🆘\n"
             f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-            f"Возник вопрос, баг, ошибка при переводе или нужна помощь?\n\n"
-            f"Нажмите кнопку <b>«✍️ Написать в техподдержку»</b> ниже и отправьте причину и суть проблемы.\n\n"
-            f"⏱ <b>Защита от спама:</b> после отправки запроса действует кулдаун <b>30 минут</b>.\n"
-            f"Администратор ответит вам прямо в этот чат!"
+            f"Возник вопрос по боту, баг или нужна помощь администрации?\n\n"
+            f"🌐 <b>Официальные каналы связи:</b>\n"
+            f"• 🎮 <b>Discord Сервер Поддержки:</b> <a href=\"https://discord.gg/7hDq4R2q\">discord.gg/7hDq4R2q</a>\n"
+            f"  <i>(Создание тикетов 24/7, помощь дежурного стаффа и решение любых проблем)</i>\n\n"
+            f"• 💬 <b>Официальный чат игроков:</b> <a href=\"https://t.me/moxxi_chat\">t.me/moxxi_chat</a>\n\n"
+            f"💬 <b>В беседах сообщества напишите команду:</b>\n"
+            f"• <code>поддержка [описание проблемы]</code> — отправить тикет дежурным\n"
+            f"• <code>идея [ваше предложение]</code> — банк идей проекта"
         )
         kb_rows = [
-            [InlineKeyboardButton(text="✍️ Написать в техподдержку", callback_data="supp:write")],
+            [
+                InlineKeyboardButton(text="🎮 Discord Сервер Поддержки", url="https://discord.gg/7hDq4R2q"),
+                InlineKeyboardButton(text="💬 Чат Сообщества", url="https://t.me/moxxi_chat")
+            ],
             [InlineKeyboardButton(text="⬅️ В главное меню", callback_data="mm:main")]
         ]
-        await call.message.answer(txt, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows))
+        await call.message.answer(txt, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows), disable_web_page_preview=True)
         return await call.answer()
 
     await call.answer()
@@ -677,25 +668,22 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
 
 @router.callback_query(F.data == "supp:write")
 async def cb_supp_write(call: CallbackQuery):
-    from utils import hms
-    uid = call.from_user.id
-    cd_left = await db.cooldown_left(uid, "support_ticket", 1800)
-    if cd_left > 0:
-        return await call.answer(f"⏳ Кулдаун еще {hms(cd_left)}!", show_alert=True)
-
-    _pending_support_ticket[uid] = time.time()
     txt = (
-        f"✍️ <b>По какой причине вы обращаетесь в техподдержку?</b>\n\n"
-        f"Отправьте следующим сообщением подробное описание проблемы "
-        f"(укажите причину, ник, сумму или подробности ситуации):\n\n"
-        f"<i>Пример: «Случайно ошибся ID при переводе монет»</i>"
+        f"🆘 ✨ <b>СЛУЖБА ЗАБОТЫ И ПОДДЕРЖКИ MOXXI</b> ✨ 🆘\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"Для оперативного решения любого вопроса обратитесь к дежурному стаффу:\n\n"
+        f"• 🎮 <b>Discord Сервер Поддержки:</b> <a href=\"https://discord.gg/7hDq4R2q\">discord.gg/7hDq4R2q</a> (тикеты 24/7)\n"
+        f"• 💬 <b>В беседах сообщества напишите команду:</b> <code>поддержка [описание проблемы]</code>\n\n"
+        f"⚡️ <i>Все обращения рассматриваются дежурной администрацией!</i>"
     )
-    await call.message.edit_text(
-        txt,
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text="❌ Отмена", callback_data="supp:cancel")
-        ]])
-    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🎮 Discord Сервер Поддержки", url="https://discord.gg/7hDq4R2q"),
+            InlineKeyboardButton(text="💬 Чат Сообщества", url="https://t.me/moxxi_chat")
+        ],
+        [InlineKeyboardButton(text="⬅️ В главное меню", callback_data="mm:main")]
+    ])
+    await call.message.edit_text(txt, reply_markup=kb, disable_web_page_preview=True)
     await call.answer()
 
 
@@ -808,31 +796,38 @@ async def msg_receive_support_ticket(message: Message, bot: Bot):
             f"• Закрыть тикет: <code>закрыть тикет {ticket_id}</code>"
         )
 
-    # Уведомляем владельцев бота и поддержку
-    recipients = set(getattr(config, "BOT_OWNERS", {config.OWNER_ID}))
+    # Отправка тикета в Штаб Стаффа (📊・логи-наказаний) и Discord Очередь
+    tg_sent_cid = 0
+    tg_sent_mid = 0
     try:
-        staff_rows = await db.get_all_bot_staff()
-        for sm in staff_rows:
-            if sm.get("rank", 0) >= 1:
-                recipients.add(sm["user_id"])
+        import h_staff_hq as staff_hq
+        hq_id = await staff_hq.get_staff_hq_id()
+        if hq_id:
+            r_topic = await db.fetchone("SELECT value FROM staff_hq_settings WHERE key='staff_log_topic_id'")
+            log_tid = int(r_topic["value"]) if r_topic and r_topic["value"] else None
+            sent = await bot.send_message(hq_id, admin_notify, reply_markup=ticket_admin_kb(ticket_id), message_thread_id=log_tid)
+            tg_sent_cid = sent.chat.id
+            tg_sent_mid = sent.message_id
+    except Exception as e:
+        log.warning("Не удалось отправить тикет из ЛС в TG Штаб: %s", e)
+
+    ds_sent_cid = 0
+    ds_sent_mid = 0
+    try:
+        import core_ticket_bridge as bridge
+        ds_res = bridge.send_ticket_to_discord(ticket_id, platform="telegram", user_name=name, user_id=str(uid), text=txt, category="ЛС Бот / Поддержка")
+        if ds_res:
+            ds_sent_cid, ds_sent_mid = ds_res
+    except Exception as e:
+        log.warning("Не удалось отправить тикет из ЛС в Discord: %s", e)
+
+    try:
+        await db.execute(
+            "UPDATE support_tickets SET tg_chat_id=?, tg_msg_id=?, ds_channel_id=?, ds_msg_id=? WHERE id=?",
+            (tg_sent_cid, tg_sent_mid, ds_sent_cid, ds_sent_mid, ticket_id)
+        )
     except Exception:
         pass
-
-    supp_chat = await db.get_global_setting("global_support_chat", "")
-    supp_topic = await db.get_global_setting("global_support_chat_topic", "")
-    if supp_chat:
-        try:
-            target_cid = int(supp_chat) if (supp_chat.startswith("-") or supp_chat.isdigit()) else supp_chat
-            tid = int(supp_topic) if supp_topic and supp_topic.isdigit() else None
-            await bot.send_message(target_cid, admin_notify, reply_markup=ticket_admin_kb(ticket_id), message_thread_id=tid)
-        except Exception:
-            pass
-
-    for rid in recipients:
-        try:
-            await bot.send_message(rid, admin_notify, reply_markup=ticket_admin_kb(ticket_id))
-        except Exception:
-            pass
 
 
 # --- Магазин за Telegram Stars -------------------------------------------

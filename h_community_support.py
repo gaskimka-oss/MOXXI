@@ -626,16 +626,6 @@ async def cmd_support(message: Message, bot: Bot, args: str = "", **kw):
             f"• Закрыть тикет: <code>закрыть тикет {ticket_id}</code>"
         )
 
-    # Оповещаем владельцев бота (Fanat & Simba) и стафф
-    recipients = set(getattr(config, "BOT_OWNERS", {config.OWNER_ID}))
-    try:
-        staff_rows = await db.get_all_bot_staff()
-        for sm in staff_rows:
-            if sm.get("rank", 0) >= 1:
-                recipients.add(sm["user_id"])
-    except Exception:
-        pass
-
     # 🌉 ОМНИКАНАЛЬНАЯ РАССЫЛКА В ШТАБ TELEGRAM И DISCORD:
     tg_sent_cid = 0
     tg_sent_mid = 0
@@ -671,12 +661,6 @@ async def cmd_support(message: Message, bot: Bot, args: str = "", **kw):
         )
     except Exception:
         pass
-
-    for rid in recipients:
-        try:
-            await bot.send_message(rid, admin_notify, reply_markup=ticket_admin_kb(ticket_id))
-        except Exception:
-            pass
 
 
 
