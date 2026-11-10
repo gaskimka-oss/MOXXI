@@ -603,15 +603,38 @@ async def cmd_support(message: Message, bot: Bot, args: str = "", **kw):
     except Exception:
         pass
 
-    supp_chat = await db.get_global_setting("global_support_chat", "")
-    supp_topic = await db.get_global_setting("global_support_chat_topic", "")
-    if supp_chat:
-        try:
-            target_cid = int(supp_chat) if (supp_chat.startswith("-") or supp_chat.isdigit()) else supp_chat
-            tid = int(supp_topic) if supp_topic and supp_topic.isdigit() else None
-            await bot.send_message(target_cid, admin_notify, reply_markup=ticket_admin_kb(ticket_id), message_thread_id=tid)
-        except Exception:
-            pass
+    # 🌉 ОМНИКАНАЛЬНАЯ РАССЫЛКА В ШТАБ TELEGRAM И DISCORD:
+    tg_sent_cid = 0
+    tg_sent_mid = 0
+    try:
+        import h_staff_hq as staff_hq
+        hq_id = await staff_hq.get_staff_hq_id()
+        if hq_id:
+            r_topic = await db.fetchone("SELECT value FROM staff_hq_settings WHERE key='staff_log_topic_id'")
+            log_tid = int(r_topic["value"]) if r_topic and r_topic["value"] else None
+            sent = await bot.send_message(hq_id, admin_notify, reply_markup=ticket_admin_kb(ticket_id), message_thread_id=log_tid)
+            tg_sent_cid = sent.chat.id
+            tg_sent_mid = sent.message_id
+    except Exception as e:
+        log.warning("Не удалось отправить тикет в TG Штаб: %s", e)
+
+    ds_sent_cid = 0
+    ds_sent_mid = 0
+    try:
+        import core_ticket_bridge as bridge
+        ds_res = bridge.send_ticket_to_discord(ticket_id, platform="telegram", user_name=name, user_id=str(uid), text=txt)
+        if ds_res:
+            ds_sent_cid, ds_sent_mid = ds_res
+    except Exception as e:
+        log.warning("Не удалось отправить тикет в Discord: %s", e)
+
+    try:
+        await db.execute(
+            "UPDATE support_tickets SET tg_chat_id=?, tg_msg_id=?, ds_channel_id=?, ds_msg_id=? WHERE id=?",
+            (tg_sent_cid, tg_sent_mid, ds_sent_cid, ds_sent_mid, ticket_id)
+        )
+    except Exception:
+        pass
 
     for rid in recipients:
         try:
@@ -973,6 +996,21 @@ async def cb_supp_claim(cq: CallbackQuery, bot: Bot):
         await cq.message.edit_text(new_text, reply_markup=ticket_admin_kb(ticket_id, claimed_by=sender_id, claimed_name=staff_name))
     except Exception:
         pass
+
+    # 🔄 СИНХРОНИЗАЦИЯ: МГНОВЕННО БЛОКИРУЕМ В DISCORD
+    try:
+        row = await db.fetchone("SELECT ds_channel_id, ds_msg_id FROM support_tickets WHERE id=?", (ticket_id,))
+        if row and row["ds_channel_id"] and row["ds_msg_id"]:
+            import core_ticket_bridge as bridge
+            bridge.update_discord_ticket_claimed(
+                channel_id=row["ds_channel_id"],
+                message_id=row["ds_msg_id"],
+                ticket_id=ticket_id,
+                mod_name=staff_name,
+                platform_from="Telegram"
+            )
+    except Exception as e:
+        log.warning("Синхронизация взятия в Discord не удалась: %s", e)
     await cq.answer(f"✅ Вы взяли тикет #{ticket_id} в работу! Напишите ответ: +ответ {ticket_id} [текст]", show_alert=True)
 
 @router.callback_query(F.data.startswith("supp_release:"))
