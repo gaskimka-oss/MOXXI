@@ -367,28 +367,25 @@ async def cb_broadcast_promocode(cq: CallbackQuery, bot: Bot):
     if not row or row["uses_left"] <= 0:
         return await cq.answer("⚠️ Промокод не существует или закончился!", show_alert=True)
 
-    await cq.answer("📢 Начинаю рассылку промокода во все группы...")
+    await cq.answer("📢 Запуск мульти-рассылки во все платформы (TG • VK • DS • MAX)...")
 
-    from h_botinfo import broadcast_notice
-    text = (
-        "🎁 ✨ <b>ОФИЦИАЛЬНЫЙ ПРОМОКОД ОТ СОЗДАТЕЛЕЙ!</b> ✨ 🎁\n"
-        "✦ ══ • ⊰ 💎 🪙 💰 ⚡ ⊱ • ══ ✦\n\n"
-        "Внимание всем участникам! Создатели выпустили специальный промокод на халявные монеты:\n\n"
-        f"🔑 Код: <code>{code}</code>\n"
-        f"💰 Награда: <b>+{row['reward']:,} монет</b> каждому!\n"
-        f"👥 Всего активаций: <b>{row['uses_left']} шт.</b> (успей забрать!)\n\n"
-        "👉 <b>Как получить монеты:</b>\n"
-        f"Напишите в чат: <code>промо {code}</code>\n\n"
-        "✦ ══ • ⊰ 🍸 MOXXI 2.0 ⊱ • ══ ✦"
-    )
+    from core_cross_broadcast import cross_broadcast_promo
+    stats = await cross_broadcast_promo(bot, code, row["reward"], row["uses_left"])
 
-    sent = await broadcast_notice(bot, text)
     try:
         await cq.message.reply(
-            f"✅ <b>РАССЫЛКА ПРОМОКОДА ЗАВЕРШЕНА!</b>\n\n"
+            f"✅ <b>МУЛЬТИПЛАТФОРМЕННАЯ РАССЫЛКА ПРОМОКОДА ЗАВЕРШЕНА!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
             f"🔑 Промокод: <code>{code}</code>\n"
-            f"💰 Награда: <b>+{row['reward']:,} монет</b>\n"
-            f"📢 Успешно отправлено в <b>{sent} групп(ы)</b> в темы СМС/общения!"
+            f"💰 Награда: <b>+{row['reward']:,} монет</b> каждому!\n"
+            f"👥 Всего активаций: <b>{row['uses_left']} шт.</b>\n\n"
+            f"📊 <b>СТАТИСТИКА ДОСТАВКИ ПО ПЛАТФОРМАМ:</b>\n"
+            f"• ✈️ Telegram: <b>{stats.get('telegram', 0)} групп</b>\n"
+            f"• 🟦 ВКонтакте: <b>{stats.get('vk', 0)} бесед</b>\n"
+            f"• 🟣 Discord: <b>{stats.get('discord', 0)} серверов</b>\n"
+            f"• 🟢 MAX: <b>{stats.get('max', 0)} чатов</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🚀 <i>Промокод синхронизирован и активен на всех 4 платформах!</i>"
         )
     except Exception:
         pass
@@ -406,7 +403,7 @@ async def cmd_broadcast_promocode(message: Message, bot: Bot, args: str = "", **
     if not code:
         row = await db.fetchone("SELECT * FROM promocodes WHERE uses_left > 0 ORDER BY ts DESC LIMIT 1")
         if not row:
-            return await message.reply("⚠️ Укажите промокод: <code>разослать промо ОБНОВА</code>")
+            return await message.reply("⚠️ Укажите промокод: <code>разослать промо ОБНОВА3.0</code>")
         code = row["code"]
     else:
         row = await db.fetchone("SELECT * FROM promocodes WHERE code=?", (code,))
@@ -414,32 +411,28 @@ async def cmd_broadcast_promocode(message: Message, bot: Bot, args: str = "", **
     if not row or row["uses_left"] <= 0:
         return await message.reply("⚠️ Промокод не найден или у него закончились активации!")
 
-    m = await message.reply(f"📢 Начинаю рассылку промокода <code>{code}</code> во все группы бота…")
-
-    from h_botinfo import broadcast_notice
-    text = (
-        "🎁 ✨ <b>ОФИЦИАЛЬНЫЙ ПРОМОКОД ОТ СОЗДАТЕЛЕЙ!</b> ✨ 🎁\n"
-        "✦ ══ • ⊰ 💎 🪙 💰 ⚡ ⊱ • ══ ✦\n\n"
-        "Внимание всем участникам! Создатели выпустили специальный промокод на халявные монеты:\n\n"
-        f"🔑 Код: <code>{code}</code>\n"
-        f"💰 Награда: <b>+{row['reward']:,} монет</b> каждому!\n"
-        f"👥 Всего активаций: <b>{row['uses_left']} шт.</b> (успей забрать!)\n\n"
-        "👉 <b>Как получить монеты:</b>\n"
-        f"Нажмите кнопку ниже или напишите в чат: <code>промо {code}</code>\n\n"
-        "✦ ══ • ⊰ 🍸 MOXXI 2.0 ⊱ • ══ ✦"
+    m = await message.reply(
+        f"📢 <b>Начинаю мультиплатформенную рассылку промокода <code>{code}</code>…</b>\n"
+        f"📡 Платформы: ✈️ Telegram • 🟦 VK • 🟣 Discord • 🟢 MAX\n"
+        f"Пожалуйста, подождите завершения отправки."
     )
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"🎁 Забрать +{row['reward']:,} монет в 1 клик", callback_data=f"promo_claim:{code}")]
-    ])
+    from core_cross_broadcast import cross_broadcast_promo
+    stats = await cross_broadcast_promo(bot, code, row["reward"], row["uses_left"])
 
-    sent = await broadcast_notice(bot, text)
     await m.edit_text(
-        f"✅ <b>РАССЫЛКА ПРОМОКОДА ЗАВЕРШЕНА!</b>\n\n"
+        f"✅ <b>МУЛЬТИПЛАТФОРМЕННАЯ РАССЫЛКА ПРОМОКОДА ЗАВЕРШЕНА!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🔑 Промокод: <code>{code}</code>\n"
-        f"💰 Награда: <b>+{row['reward']:,} монет</b>\n"
-        f"👥 Доступно активаций: <b>{row['uses_left']} шт.</b>\n"
-        f"📢 Успешно отправлено в <b>{sent} групп(ы)</b>!"
+        f"💰 Награда: <b>+{row['reward']:,} монет</b> каждому!\n"
+        f"👥 Всего активаций: <b>{row['uses_left']} шт.</b>\n\n"
+        f"📊 <b>СТАТИСТИКА ДОСТАВКИ ПО ПЛАТФОРМАМ:</b>\n"
+        f"• ✈️ Telegram: <b>{stats.get('telegram', 0)} групп</b>\n"
+        f"• 🟦 ВКонтакте: <b>{stats.get('vk', 0)} бесед</b>\n"
+        f"• 🟣 Discord: <b>{stats.get('discord', 0)} серверов</b>\n"
+        f"• 🟢 MAX: <b>{stats.get('max', 0)} чатов</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🚀 <i>Промокод успешно синхронизирован во все базы и открыт для игроков!</i>"
     )
 
 
