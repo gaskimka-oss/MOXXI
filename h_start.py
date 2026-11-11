@@ -645,19 +645,12 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
             f"🆘 ✨ <b>СЛУЖБА ЗАБОТЫ И ПОДДЕРЖКИ MOXXI</b> ✨ 🆘\n"
             f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
             f"Возник вопрос по боту, баг или нужна помощь администрации?\n\n"
-            f"🌐 <b>Официальные каналы связи:</b>\n"
-            f"• 🎮 <b>Discord Сервер Поддержки:</b> <a href=\"https://discord.gg/7hDq4R2q\">discord.gg/7hDq4R2q</a>\n"
-            f"  <i>(Создание тикетов 24/7, помощь дежурного стаффа и решение любых проблем)</i>\n\n"
-            f"• 💬 <b>Официальный чат игроков:</b> <a href=\"https://t.me/moxxi_chat\">t.me/moxxi_chat</a>\n\n"
             f"💬 <b>В беседах сообщества напишите команду:</b>\n"
             f"• <code>поддержка [описание проблемы]</code> — отправить тикет дежурным\n"
-            f"• <code>идея [ваше предложение]</code> — банк идей проекта"
+            f"• <code>идея [ваше предложение]</code> — банк идей проекта\n\n"
+            f"⚡️ <i>Все обращения рассматриваются дежурной администрацией!</i>"
         )
         kb_rows = [
-            [
-                InlineKeyboardButton(text="🎮 Discord Сервер Поддержки", url="https://discord.gg/7hDq4R2q"),
-                InlineKeyboardButton(text="💬 Чат Сообщества", url="https://t.me/moxxi_chat")
-            ],
             [InlineKeyboardButton(text="⬅️ В главное меню", callback_data="mm:main")]
         ]
         await call.message.answer(txt, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows), disable_web_page_preview=True)
@@ -672,15 +665,10 @@ async def cb_supp_write(call: CallbackQuery):
         f"🆘 ✨ <b>СЛУЖБА ЗАБОТЫ И ПОДДЕРЖКИ MOXXI</b> ✨ 🆘\n"
         f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
         f"Для оперативного решения любого вопроса обратитесь к дежурному стаффу:\n\n"
-        f"• 🎮 <b>Discord Сервер Поддержки:</b> <a href=\"https://discord.gg/7hDq4R2q\">discord.gg/7hDq4R2q</a> (тикеты 24/7)\n"
         f"• 💬 <b>В беседах сообщества напишите команду:</b> <code>поддержка [описание проблемы]</code>\n\n"
         f"⚡️ <i>Все обращения рассматриваются дежурной администрацией!</i>"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🎮 Discord Сервер Поддержки", url="https://discord.gg/7hDq4R2q"),
-            InlineKeyboardButton(text="💬 Чат Сообщества", url="https://t.me/moxxi_chat")
-        ],
         [InlineKeyboardButton(text="⬅️ В главное меню", callback_data="mm:main")]
     ])
     await call.message.edit_text(txt, reply_markup=kb, disable_web_page_preview=True)

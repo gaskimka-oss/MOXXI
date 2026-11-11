@@ -1219,20 +1219,14 @@ async def community_support_auto_broadcast_loop(bot: Bot) -> None:
                 "• 💡 <b>Предложить новую идею или фичу:</b>\n"
                 "  👉 Напишите прямо в чат: <code>идея [текст вашей идеи]</code>\n\n"
                 "🌐 <b>Официальные каналы связи:</b>\n"
-                f"• 🎫 <b>Telegram Поддержка:</b> <a href=\"https://t.me/{bot_username}?start=support\">Личные сообщения бота</a>\n"
-                "• 🎮 <b>Discord Сервер Поддержки:</b> <a href=\"https://discord.gg/7hDq4R2q\">discord.gg/7hDq4R2q</a>\n"
-                "• 💬 <b>Официальный чат игроков:</b> <a href=\"https://t.me/moxxi_chat\">t.me/moxxi_chat</a>\n\n"
-                "⚡️ <i>Все ваши обращения мгновенно отправляются дежурной администрации в Telegram и Discord!</i> ❤️"
+                f"• 🎫 <b>Telegram Поддержка:</b> <a href=\"https://t.me/{bot_username}?start=support\">Личные сообщения бота</a>\n\n"
+                "⚡️ <i>Все ваши обращения мгновенно отправляются дежурной администрации!</i> ❤️"
             )
 
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [
                     InlineKeyboardButton(text="🆘 Написать в поддержку", url=f"https://t.me/{bot_username}?start=support"),
                     InlineKeyboardButton(text="💡 Предложить идею", url=f"https://t.me/{bot_username}?start=idea")
-                ],
-                [
-                    InlineKeyboardButton(text="🎮 Discord Сервер", url="https://discord.gg/7hDq4R2q"),
-                    InlineKeyboardButton(text="💬 Чат Сообщества", url="https://t.me/moxxi_chat")
                 ]
             ])
 
