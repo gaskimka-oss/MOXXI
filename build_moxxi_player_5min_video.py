@@ -418,10 +418,8 @@ SCENES = [
 ]
 
 async def generate_voice_edge(text: str, out_wav: str):
-    if os.path.exists(out_wav) and os.path.getsize(out_wav) > 10000:
-        return
     temp_mp3 = out_wav + ".mp3"
-    comm = edge_tts.Communicate(text, "ru-RU-SvetlanaNeural", rate="+6%")
+    comm = edge_tts.Communicate(text, "ru-RU-DmitryNeural", rate="+1%", pitch="-1Hz")
     await comm.save(temp_mp3)
 
     cmd = [
