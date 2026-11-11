@@ -788,14 +788,11 @@ async def main():
     # 1. Generate Voice for all 10 scenes with native Windows OneCore Pavel
     wav_files = []
     durations = []
-    print("\n[STEP 1/4] Generating natural human voice (User Authentic Intro + Piper Denis)...", flush=True)
+    print("\n[STEP 1/4] Generating natural human voice (Piper Denis Studio Neural Voice)...", flush=True)
     for idx, sc in enumerate(SCENES):
         wav_path = os.path.join(work_dir, f"voice_{sc['id']}.wav")
         print(f"  • Generating Scene {idx+1:02d}/{len(SCENES):02d} [{sc['tag']}]...", flush=True)
-        if idx == 0:
-            generate_scene1_hybrid_voice(wav_path, work_dir)
-        else:
-            synthesize_piper_denis(sc["voice"], wav_path)
+        synthesize_piper_denis(sc["voice"], wav_path)
         dur = get_wav_duration(wav_path)
         wav_files.append(wav_path)
         durations.append(dur)

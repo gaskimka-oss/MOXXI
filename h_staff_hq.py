@@ -319,6 +319,13 @@ async def send_staff_log(bot: Bot, text: str, reply_markup: Optional[InlineKeybo
 
         return
 
+    # Защита: логи из внешних групп игроков ни при каких обстоятельствах не отправляются в Штаб Стаффа!
+    hq_chat_id = await get_staff_hq_id()
+    if "ЧП: МОДЕРАТОР ОСКОРБИЛ" in text or "НАКАЗАНИЕ" in text:
+        if hq_chat_id and str(hq_chat_id) not in text and "ШТАБЕ СТАФФА" not in text:
+            log.warning("Заблокирована попытка отправить лог из внешней группы игроков в Штаб Стаффа: %s", text[:80])
+            return
+
     r_topic = await db.fetchone("SELECT value FROM staff_hq_settings WHERE key='staff_log_topic_id'")
 
     log_tid = int(r_topic["value"]) if r_topic and r_topic["value"] else None
@@ -2173,6 +2180,12 @@ async def automod_filter_and_duty_check(message: Message, bot: Bot):
                 raise SkipHandler()  # Пропускаем команды к роутеру команд
             await handle_staff_ai_topic_message(message, bot)
             return
+
+        # КРИТИЧЕСКИЙ ФИКС: Штаб Стаффа и его автомод/дежурка работают ИСКЛЮЧИТЕЛЬНО внутри официального Штаба Стаффа!
+        # Чужие группы игроков, клан-чаты и беседы сюда НЕ относятся и ни в коем случае НЕ спамят в лог руководства!
+        staff_hq_id = await get_staff_hq_id()
+        if not staff_hq_id or chat_id != staff_hq_id:
+            raise SkipHandler()
 
         # Если пишет сотрудник на смене — сбрасываем AFK-таймер
         await update_staff_activity(uid)
