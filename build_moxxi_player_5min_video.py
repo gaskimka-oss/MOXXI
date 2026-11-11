@@ -1,21 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-MOXXI 3.0 - OFFICIAL 5-MINUTE PLAYER SHOWCASE VIDEO (HIGH-END 720p HD)
+MOXXI 3.0 - OFFICIAL 5-MINUTE PLAYER SHOWCASE VIDEO (720p HD)
 100% PLAYER-ORIENTED • ZERO STAFF COMMANDS • 4 PLATFORMS ROLLOUT
-
-Features:
-1. Scene 1: MOXXI 3.0 Global Launch on 4 Platforms (Telegram, Discord, VK, MAX)
-2. Scene 2: The Evolution: Why MOXXI Destroys Iris and Legacy Bots
-3. Scene 3: Casino 3.0: Roulette x36, Slots, Crash, Mines & Secret Safe
-4. Scene 4: Financial Empire: 40 Businesses, Bank Deposits & Stock Market
-5. Scene 5: Social & Romance: Weddings, Kids, Pets & Families
-6. Scene 6: World Boss Raids, Weapon Crafting & High-Stakes PvP
-7. Scene 7: Clans, City District Wars & Tournaments
-8. Scene 8: AI Copilot: Instant Voice & Video Circle STT + Gemini AI
-9. Scene 9: Player Support, Bug Bounty & Community Ideas Bank
-10. Scene 10: How to Add MOXXI, Community Links & Starter Promo Code
-
-Engine: Pillow RGB24 + Segoe UI & Segoe UI Emoji Fallback + FFmpeg Pipe + EdgeTTS
+• Voice Engine: Microsoft Pavel (Windows OneCore Native Neural Russian Male) - Instant & 100% Consistent
+• Zero Raw Links in Video (All links referenced to description)
+• Accurate Discord Architecture: Support & Ticket Hub + Bot Commands (No general chat claim)
+• Visual Platform Tour: Telegram -> VK & MAX -> Discord Embeds
 """
 import os
 import sys
@@ -28,8 +18,8 @@ import asyncio
 import subprocess
 from PIL import Image, ImageDraw, ImageFont
 import imageio_ffmpeg
-import edge_tts
-from gtts import gTTS
+import winsdk.windows.media.speechsynthesis as ws
+import winsdk.windows.storage.streams as streams
 
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 W, H = 1280, 720
@@ -59,7 +49,6 @@ EMOJI_FONTS = {
 
 def is_emoji_char(char: str) -> bool:
     code = ord(char)
-    # Cyrillic alphabet and standard basic Latin stays with Segoe UI
     if code <= 0x024F or (0x0400 <= code <= 0x052F):
         return False
     return True
@@ -119,17 +108,16 @@ SCENES = [
         "card_title": "MOXXI 3.0: МЫ ВЕЗДЕ!",
         "card_bullets": [
             ("✈️", "Telegram: Флагманский бот и неоновый Mini App"),
-            ("🎮", "Discord: Игровой бот и 24/7 хаб поддержки"),
+            ("🎮", "Discord: Игровой бот и 24/7 тикет-поддержка"),
             ("🔷", "ВКонтакте: Полная экосистема для бесед"),
             ("⚡️", "Макс: Скоростной кроссплатформенный мост")
         ],
         "voice": (
             "Всем огромный привет, друзья! Вы долго ждали этого события, и оно наконец-то свершилось! "
-            "Состоялся грандиозный запуск игрового бота Мокси три точка ноль! Теперь наша игровая вселенная "
-            "работает сразу на четырёх крупнейших площадках: в Телеграме с удобнейшим Мини Аппом, на серверах Дискорда "
-            "с круглосуточной поддержкой, в беседах ВКонтакте и в современном мессенджере Макс! "
-            "Играйте с друзьями там, где вам комфортнее всего, ведь ваш игровой профиль, баланс и достижения "
-            "синхронизируются мгновенно!"
+            "Состоялся масштабный запуск игрового бота Мокси три точка ноль! Теперь наша игровая вселенная "
+            "работает сразу на четырёх крупнейших площадках: во флагманском Телеграме с удобнейшим Мини Аппом, "
+            "в Дискорде с игровым ботом и круглосуточной тикет-поддержкой, в беседах ВКонтакте и в современном мессенджере Макс! "
+            "Играйте с друзьями там, где вам комфортно, а все ссылки на ботов уже ждут вас в описании под этим видео!"
         ),
         "messages": [
             {
@@ -138,7 +126,7 @@ SCENES = [
                 "time": "12:00"
             },
             {
-                "sender": "MOXXI",
+                "sender": "MOXXI 3.0",
                 "text": (
                     "✨ ДОБРО ПОЖАЛОВАТЬ В ЭКОСИСТЕМУ MOXXI 3.0!\n\n"
                     "👑 Профиль: @cyber_hero (Ранг: Легенда)\n"
@@ -153,37 +141,37 @@ SCENES = [
         ]
     },
     {
-        "id": "scene02_moxxi_vs_iris",
-        "tag": "⚡️ БИТВА ТЕХНОЛОГИЙ • MOXXI VS IRIS",
-        "card_title": "ПОЧЕМУ MOXXI РАЗРЫВАЕТ ИРИС?",
+        "id": "scene02_tg_flagship_vs_iris",
+        "tag": "⚡️ TELEGRAM • ФЛАГМАНСКИЙ БОТ",
+        "card_title": "ПОЧЕМУ MOXXI ЛУЧШЕ СТАРЫХ БОТОВ?",
         "card_bullets": [
-            ("❌", "Ирис: Устаревший текст 2018 года без инлайн-кнопок"),
+            ("❌", "Старые боты: Скучный серый текст без инлайн-кнопок"),
             ("✅", "MOXXI: Неоновый UI, Mini App, нажатия в 1 клик"),
-            ("❌", "Ирис: Вечные лаги, медленный отклик и скука"),
+            ("❌", "Старые боты: Постоянные лаги и медленный отклик"),
             ("✅", "MOXXI: Мгновенная облачная скорость и 100+ игр")
         ],
         "voice": (
-            "Почему сотни тысяч игроков и владельцев бесед переходят со старого Ириса на Мокси? Всё просто! "
-            "Старые боты давно застряли в прошлом: скучные серые простыни текста, ноль интерактива и постоянные зависания. "
-            "В Мокси вас ждёт сочный неоновый интерфейс, удобное управление кнопками в один клик, крутой Веб Апп, "
-            "умный искусственный интеллект и постоянные масштабные обновления каждую неделю! "
-            "Играйте с комфортом и удовольствием нового поколения!"
+            "Начнём наш обзор с Телеграма — главного флагмана проекта! Почему сотни тысяч игроков и бесед "
+            "выбирают Мокси вместо устаревших ботов? Разница видна сразу! Старые боты застряли в прошлом: "
+            "скучные серые простыни текста, ноль интерактива и постоянные лаги. В Мокси вас встречает "
+            "сочный неоновый интерфейс, удобное управление кнопками в один клик, полноценный Веб Апп, "
+            "умный искусственный интеллект и регулярные обновления каждую неделю!"
         ),
         "messages": [
             {
                 "sender": "Сравнение",
                 "text": (
                     "📊 ЧЕМ MOXXI ПРЕВОСХОДИТ СТАРЫХ БОТОВ:\n\n"
-                    "🔴 ИРИС БОТ:\n"
+                    "🔴 СТАРЫЕ БОТЫ:\n"
                     "• Серая простыня текста без единой кнопки\n"
                     "• 0% нейросетей и нет распознавания войсов\n"
-                    "• Только текстовые команды из прошлого века\n\n"
-                    "🟢 MOXXI 3.0:\n"
+                    "• Только команды из прошлого века\n\n"
+                    "🟢 MOXXI 3.0 В TELEGRAM:\n"
                     "• Интерактивные inline-кнопки и Web App\n"
-                    "• Google Gemini AI + перевод ГС и кружков\n"
-                    "• 4 платформы: TG, Discord, VK, Макс"
+                    "• Искусственный интеллект + перевод ГС и кружков\n"
+                    "• Единый баланс на всех 4 платформах"
                 ),
-                "buttons": ["🏆 Играть на MOXXI 3.0"],
+                "buttons": ["🏆 Играть в Telegram"],
                 "time": "12:01"
             }
         ]
@@ -212,7 +200,7 @@ SCENES = [
                 "time": "12:02"
             },
             {
-                "sender": "MOXXI",
+                "sender": "MOXXI 3.0",
                 "text": (
                     "🚀 КРАШ РАКЕТА MOXXI ВЗЛЕТЕЛА!\n\n"
                     "📈 Текущий множитель: x4.82 🔥\n"
@@ -248,7 +236,7 @@ SCENES = [
                 "time": "12:03"
             },
             {
-                "sender": "MOXXI",
+                "sender": "MOXXI 3.0",
                 "text": (
                     "🏢 ВАША БИЗНЕС-ИМПЕРИЯ (38/40):\n\n"
                     "1. ☕️ Сеть кофеен «Moxxi Bean» — Доход: 45,000/час\n"
@@ -285,7 +273,7 @@ SCENES = [
                 "time": "12:04"
             },
             {
-                "sender": "MOXXI",
+                "sender": "MOXXI 3.0",
                 "text": (
                     "💍 ПРЕДЛОЖЕНИЕ РУКИ И СЕРДЦА!\n\n"
                     "👤 @cyber_hero сделал романтическое предложение @eva_star!\n"
@@ -321,7 +309,7 @@ SCENES = [
                 "time": "12:05"
             },
             {
-                "sender": "MOXXI",
+                "sender": "MOXXI 3.0",
                 "text": (
                     "⚔️ КРИТИЧЕСКИЙ УДАР ПО МИРОВОМУ ДРАКОНУ!\n\n"
                     "💥 Вы нанесли: 185,400 урона (Меч Бездны +12)!\n"
@@ -357,7 +345,7 @@ SCENES = [
                 "time": "12:06"
             },
             {
-                "sender": "MOXXI",
+                "sender": "MOXXI 3.0",
                 "text": (
                     "👑 КЛАН 『LEGION』 • РЕЙТИНГ: ТОП 1 МИРА\n\n"
                     "Лидер: @cyber_hero • Участников: 50/50\n"
@@ -372,75 +360,75 @@ SCENES = [
         ]
     },
     {
-        "id": "scene08_ai_voice_stt",
-        "tag": "🤖 НЕЙРОСЕТИ • GOOGLE GEMINI AI",
-        "card_title": "ИИ-КОПИЛОТ И РАСПОЗНАВАНИЕ РЕЧИ",
+        "id": "scene08_vk_and_max",
+        "tag": "🔷 ВКОНТАКТЕ & МАКС • БОТЫ В БЕСЕДАХ",
+        "card_title": "БОТЫ ДЛЯ VK И МЕССЕНДЖЕРА МАКС",
         "card_bullets": [
-            ("🎙", "Мгновенный перевод голосовых и видео-кружков в текст"),
-            ("🧠", "Нейросетевой собеседник по команде «ии [вопрос]»"),
-            ("📝", "Помощь в учёбе, кодинге и генерации историй"),
-            ("⚡️", "Умные подсказки и ответы за долю секунды")
+            ("🔷", "ВКонтакте: Официальный бот для бесед и сообществ"),
+            ("⚡️", "Макс: Мгновенный отклик и поддержка всех команд"),
+            ("🎙", "Распознавание голосовых сообщений и кружков"),
+            ("🔄", "Полная синхронизация прогресса с Telegram")
         ],
         "voice": (
-            "Устали от бесконечных голосовых сообщений и длинных видео-кружочков в шумных местах? "
-            "Мокси решает эту проблему за доли секунды! Бот мгновенно переводит любые войсы и кружки в аккуратный "
-            "читаемый текст. А умный помощник на базе нейросети Гугл Джеминай всегда готов поддержать разговор, "
-            "помочь с учёбой, написать код или сочинить увлекательную историю!"
+            "А теперь переместимся во ВКонтакте и современный мессенджер Макс! Если вы общаетесь в беседах "
+            "ВКонтакте или переписываетесь в Максе — вам не нужно никуда переходить! Просто добавьте нашего официального "
+            "бота в свою беседу. Здесь доступны все те же игры, казино, дуэли, кланы и умное распознавание голосовых "
+            "сообщений. Ваш игровой профиль и баланс сохраняются общими между всеми платформами!"
         ),
         "messages": [
             {
-                "sender": "Игрок",
-                "text": "🎤 [Голосовое сообщение 0:18]",
+                "sender": "Игрок в VK",
+                "text": "профиль",
                 "time": "12:07"
             },
             {
-                "sender": "MOXXI",
+                "sender": "MOXXI VK & МАКС",
                 "text": (
-                    "🎙 РАСПОЗНАННЫЙ ТЕКСТ ГОЛОСОВОГО:\n\n"
-                    "«Привет всем! Собираем пати на штурм\n"
-                    "Древнего Дракона в теме боссов через 10 минут!»\n\n"
-                    "⚡️ Переведено нейросетью MOXXI STT • Время: 0.4 сек"
+                    "🔷 ОФИЦИАЛЬНЫЙ БОТ MOXXI ДЛЯ БЕСЕД:\n\n"
+                    "👤 Игрок: @cyber_hero (ID: 928172)\n"
+                    "💰 Баланс: 27,410,000 монет (Синхронизирован)\n"
+                    "🏆 Статус: VIP Platinum • Клан: 『LEGION』\n\n"
+                    "🎙 Распознавание войсов в беседе: Включено ✅\n"
+                    "⚡️ Отклик бота: 0.12 сек"
                 ),
-                "buttons": ["🤖 Спросить ИИ", "⚔️ Идти на рейд"],
+                "buttons": ["🎰 Казино в беседе", "🏢 Мои бизнесы", "👑 Клан"],
                 "time": "12:07"
             }
         ]
     },
     {
-        "id": "scene09_support_and_ideas",
-        "tag": "💜 СЛУЖБА ЗАБОТЫ • БАНК ИДЕЙ И БАГ-БАУНТИ",
-        "card_title": "НАШЛИ БАГ? ЕСТЬ ИДЕЯ? НАПИШИТЕ!",
+        "id": "scene09_discord_support_bot",
+        "tag": "🎮 DISCORD • ИГРОВОЙ БОТ & ПОДДЕРЖКА",
+        "card_title": "ДИСКОРД: БОТ & ТИКЕТ-СИСТЕМА 24/7",
         "card_bullets": [
-            ("🆘", "Нашли баг? Напишите прямо в чат: поддержка [текст] или баг [текст]"),
-            ("💡", "Крутая идея? Напишите прямо в чат: идея [текст вашей идеи]"),
-            ("🎮", "Discord Поддержка 24/7: discord.gg/7hDq4R2q"),
-            ("🎁", "Щедрые награды: миллионы монет и VIP за лучшие идеи!")
+            ("🎮", "Игровой Discord-бот: слэш-команды прямо на сервере"),
+            ("🎫", "Тикет-система: круглосуточная связь со стаффом"),
+            ("🆘", "Нашли баг? Напишите /поддержка или /баг"),
+            ("💡", "Есть идея? Команда /идея с щедрой наградой!")
         ],
         "voice": (
-            "Мы создаём Мокси вместе с вами и ценим каждого игрока нашего сообщества! "
-            "Если вы заметили баг или ошибку — просто напишите прямо в любой чат команду «поддержка» или «баг» "
-            "с описанием ситуации. А если у вас родилась классная идея для обновления — введите команду «идея»! "
-            "Ваше обращение моментально поступит дежурным разработчикам и стаффу в Телеграме и Дискорде. "
-            "Мы оперативно всё проверим и исправим, а за ценные идеи и полезные репорты щедро дарим миллионы монет, "
-            "уникальные значки и Вип статус!"
+            "В Дискорде мы запустили полноценного игрового бота и официальный центр заботы о пользователях! "
+            "Обратите внимание: наш Дискорд создан как специализированный хаб поддержки и сервер игрового бота, "
+            "где дежурная администрация решает любые вопросы через удобные тикеты. "
+            "Нашли баг или хотите предложить идею для обновления? Введите слэш-команду «поддержка», «баг» или «идея»! "
+            "Ваш тикет моментально поступит стаффу, а за полезные идеи мы щедро дарим миллионы монет и эксклюзивные статусы!"
         ),
         "messages": [
             {
-                "sender": "Игрок",
-                "text": "идея добавить межсерверные турниры по покеру",
+                "sender": "Игрок в Discord",
+                "text": "/поддержка Нашли редкий сундук в рейде",
                 "time": "12:08"
             },
             {
-                "sender": "MOXXI",
+                "sender": "MOXXI SUPPORT BOT",
                 "text": (
-                    "💡 ВАША ИДЕЯ УСПЕШНО ОТПРАВЛЕНА РАЗРАБОТЧИКАМ!\n\n"
-                    "📝 Суть: «Межсерверные турниры по покеру»\n"
-                    "⚡️ Статус: 🟢 Передано в команду разработки\n\n"
-                    "🎁 Награда: Если идея попадёт в обновление, вам\n"
-                    "будет начислено +5,000,000 монет и статус Новатора!\n\n"
-                    "Также вы можете писать в Discord: discord.gg/7hDq4R2q"
+                    "🎫 ТИКЕТ В ТЕХПОДДЕРЖКУ УСПЕШНО СОЗДАН!\n\n"
+                    "📁 Платформа: Discord • Статус: 🟢 Передано стаффу\n"
+                    "📝 Обращение: «Нашли редкий сундук в рейде»\n\n"
+                    "⚡️ Дежурный модератор ответит вам прямо в тикете.\n"
+                    "🎁 За ценные идеи начисляется до +5,000,000 монет!"
                 ),
-                "buttons": ["💡 Предложить ещё", "💬 Чат игроков", "🎮 Наш Discord"],
+                "buttons": ["🎫 Мой тикет", "💡 Предложить идею", "🎮 Игровые команды"],
                 "time": "12:08"
             }
         ]
@@ -448,18 +436,19 @@ SCENES = [
     {
         "id": "scene10_outro_promocode",
         "tag": "🚀 СТАРТ • ПРИСОЕДИНЯЙСЯ СЕЙЧАС!",
-        "card_title": "ДОБАВЬ MOXXI И ЗАБЕРИ 2.500.000!",
+        "card_title": "ЗАБЕРИ 2.500.000 МОНЕТ ПРЯМО СЕЙЧАС!",
         "card_bullets": [
-            ("✈️", "Telegram бот: @moxxichat_bot"),
-            ("💬", "Официальное комьюнити: @moxxi_chat"),
-            ("🎮", "Discord сервер: discord.gg/7hDq4R2q"),
-            ("🎁", "Секретный промокод: ОБНОВА3.0 (+2.500.000 монет)")
+            ("🎁", "Секретный промокод: ОБНОВА3.0 (+2.500.000 монет)"),
+            ("✈️", "Telegram: Флагманский бот и чат сообщества"),
+            ("🎮", "Discord: Игровой бот и 24/7 тикет-поддержка"),
+            ("🔗", "Все ссылки на подключение ждут вас в описании!")
         ],
         "voice": (
-            "Присоединяйтесь к нашей вселенной прямо сейчас! Добавляйте Мокси в свои беседы в Телеграме, "
-            "подключайте бота на сервере в Дискорде, в беседах ВКонтакте и в мессенджере Макс! "
+            "Присоединяйтесь к нашей игровой вселенной прямо сейчас! Добавляйте ботов в свои чаты и беседы: "
+            "во флагманский Телеграм, на серверы в Дискорде, в беседы ВКонтакте и в мессенджер Макс! "
             "Прямо сейчас напишите в чат команду «промо ОБНОВА три точка ноль» и мгновенно заберите "
-            "два с половиной миллиона бонусных монет на свой баланс! Все ссылки ждут вас в описании. "
+            "два с половиной миллиона бонусных монет на свой баланс! "
+            "Все официальные ссылки на ботов и сообщество ждут вас в описании под этим видео. "
             "Мокси — твоя игра, твои правила, твоя победа!"
         ),
         "messages": [
@@ -469,59 +458,52 @@ SCENES = [
                 "time": "12:09"
             },
             {
-                "sender": "MOXXI",
+                "sender": "MOXXI 3.0",
                 "text": (
                     "🎉 ПРОМОКОД «ОБНОВА3.0» УСПЕШНО АКТИВИРОВАН!\n\n"
                     "💰 На ваш баланс начислено: +2,500,000 монет!\n"
                     "👑 Вы получили статус: Первопроходец 3.0\n\n"
-                    "🚀 Добавьте MOXXI во все свои беседы и серверы:\n"
-                    "• Telegram: @moxxichat_bot • Чат: @moxxi_chat\n"
-                    "• Discord: discord.gg/7hDq4R2q\n"
-                    "• VK & Макс: официальные боты запущены!"
+                    "🚀 Добавьте MOXXI во все свои беседы и серверы!\n"
+                    "🔗 Все официальные ссылки ждут вас в описании под видео!"
                 ),
-                "buttons": ["🚀 Добавить в чат", "💬 Чат сообщества", "🎮 Discord Сервер"],
+                "buttons": ["🚀 Добавить в чат", "💬 Сообщество", "🎮 Discord Поддержка"],
                 "time": "12:09"
             }
         ]
     }
 ]
 
-async def generate_voice_edge(text: str, out_wav: str):
-    if os.path.exists(out_wav) and os.path.getsize(out_wav) > 10000:
-        print(f"    -> [CACHE] Reusing existing audio: {out_wav} ({os.path.getsize(out_wav)/1024:.0f} KB)", flush=True)
-        return
+async def generate_voice_pavel_native(text: str, out_wav: str):
+    """
+    Generates 100% consistent, warm human voice using native Windows OneCore Pavel.
+    Instant offline synthesis (0.1s per scene) with broadcast studio mastering filter.
+    """
+    temp_wav = out_wav + ".raw.wav"
+    synth = ws.SpeechSynthesizer()
+    for v in ws.SpeechSynthesizer.all_voices:
+        if 'Pavel' in v.display_name or 'pavel' in v.id.lower():
+            synth.voice = v
+            break
 
-    temp_mp3 = out_wav + ".mp3"
-    success = False
+    stream = await synth.synthesize_text_to_stream_async(text)
+    reader = streams.DataReader(stream.get_input_stream_at(0))
+    await reader.load_async(stream.size)
+    data = bytearray(stream.size)
+    reader.read_bytes(data)
 
-    # Primary: EdgeTTS DmitryNeural (12s timeout)
-    try:
-        comm = edge_tts.Communicate(text, "ru-RU-DmitryNeural")
-        await asyncio.wait_for(comm.save(temp_mp3), timeout=12.0)
-        if os.path.exists(temp_mp3) and os.path.getsize(temp_mp3) > 1000:
-            success = True
-    except Exception:
-        pass
+    with open(temp_wav, "wb") as f:
+        f.write(data)
 
-    # Fallback: Google TTS (fast HTTPS REST)
-    if not success:
-        print("    -> [RESILIENT] EdgeTTS socket busy, using Google TTS engine...", flush=True)
-        try:
-            tts = gTTS(text, lang='ru')
-            tts.save(temp_mp3)
-            success = True
-        except Exception as e:
-            print(f"    [ERR] Both TTS engines failed: {e}", flush=True)
-
+    # Master audio: gentle broadcast compressor + presence EQ
     cmd = [
-        FFMPEG, "-y", "-i", temp_mp3,
-        "-af", "volume=1.1,acompressor=threshold=-18dB:ratio=2.5:attack=15:release=120,equalizer=f=120:width_type=h:width=120:g=2,equalizer=f=3600:width_type=h:width=1000:g=2.5",
+        FFMPEG, "-y", "-i", temp_wav,
+        "-af", "volume=1.15,acompressor=threshold=-18dB:ratio=2.5:attack=15:release=120,equalizer=f=120:width_type=h:width=120:g=2.5,equalizer=f=3600:width_type=h:width=1000:g=2.5",
         "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "1",
         out_wav
     ]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-    if os.path.exists(temp_mp3):
-        os.remove(temp_mp3)
+    if os.path.exists(temp_wav):
+        os.remove(temp_wav)
 
 def get_wav_duration(wav_path: str) -> float:
     with wave.open(wav_path, "rb") as w:
@@ -625,7 +607,7 @@ def draw_frame(scene_data: dict, progress: float, elapsed_sec: float, total_sec:
     # Showcase Card Footer
     draw.line([cx + 14, cy + ch - 60, cx + cw - 14, cy + ch - 60], fill="#1e293b", width=1)
     draw.ellipse([cx + 20, cy + ch - 42, cx + 30, cy + ch - 32], fill="#22c55e")
-    render_mixed_text(draw, cx + 36, cy + ch - 44, "Серверы: Онлайн 100% • Отклик 12 мс", "small_bold", "#4ade80")
+    render_mixed_text(draw, cx + 36, cy + ch - 44, "Серверы: Онлайн 100% • 4 Платформы", "small_bold", "#4ade80")
     render_mixed_text(draw, cx + 20, cy + ch - 22, f"Эпизод {scene_idx + 1} из {total_scenes} • MOXXI 3.0", "badge", "#94a3b8")
 
     # 5. Left Column: Chat Simulation Cards
@@ -634,7 +616,8 @@ def draw_frame(scene_data: dict, progress: float, elapsed_sec: float, total_sec:
         y = 124
         for msg in messages:
             sender = msg.get("sender", "User")
-            is_user = (sender in ["Игрок", "Сравнение"])
+            is_user = ("Игрок" in sender or "Сравнение" in sender)
+            is_discord = ("Discord" in sender or "DISCORD" in sender)
             text = msg.get("text", "")
             time_str = msg.get("time", "12:00")
             buttons = msg.get("buttons", [])
@@ -645,11 +628,13 @@ def draw_frame(scene_data: dict, progress: float, elapsed_sec: float, total_sec:
 
             if is_user:
                 bx = 32
-                user_card_w = 460
-                draw.rounded_rectangle([bx, y, bx + user_card_w, y + 46], radius=10, fill="#172554", outline="#2563eb", width=1)
+                user_card_w = 500
+                user_bg = "#172554" if not is_discord else "#1e1f29"
+                user_border = "#2563eb" if not is_discord else "#5865f2"
+                draw.rounded_rectangle([bx, y, bx + user_card_w, y + 46], radius=10, fill=user_bg, outline=user_border, width=1)
                 
                 # User Avatar
-                draw.ellipse([bx + 10, y + 8, bx + 38, y + 36], fill="#1d4ed8")
+                draw.ellipse([bx + 10, y + 8, bx + 38, y + 36], fill=user_border)
                 render_mixed_text(draw, bx + 17, y + 10, "👤", "small", "#ffffff")
                 
                 # Text
@@ -658,16 +643,23 @@ def draw_frame(scene_data: dict, progress: float, elapsed_sec: float, total_sec:
                 y += 58
             else:
                 bx = 32
-                draw.rounded_rectangle([bx, y, bx + bubble_w, y + bubble_h], radius=14, fill="#0e1626", outline="#334155", width=1)
+                card_bg = "#0e1626" if not is_discord else "#141624"
+                card_border = "#334155" if not is_discord else "#5865f2"
+                draw.rounded_rectangle([bx, y, bx + bubble_w, y + bubble_h], radius=14, fill=card_bg, outline=card_border, width=1)
                 
+                # Discord Embed Left Stripe if discord scene
+                if is_discord:
+                    draw.rounded_rectangle([bx + 2, y + 2, bx + 8, y + bubble_h - 2], radius=4, fill="#5865f2")
+
                 # Bot Header
-                draw.ellipse([bx + 14, y + 10, bx + 42, y + 38], fill="#7c3aed", outline="#a855f7", width=1)
-                draw.text((bx + 20, y + 11), "M", font=FONTS["bold"], fill="#ffffff")
-                render_mixed_text(draw, bx + 52, y + 13, sender, "bold", "#c084fc")
+                avatar_color = "#7c3aed" if not is_discord else "#5865f2"
+                draw.ellipse([bx + 16, y + 10, bx + 44, y + 38], fill=avatar_color, outline="#c084fc", width=1)
+                draw.text((bx + 22, y + 11), "M", font=FONTS["bold"], fill="#ffffff")
+                render_mixed_text(draw, bx + 54, y + 13, sender, "bold", "#c084fc" if not is_discord else "#818cf8")
                 
                 # Verification Pill Badge
-                draw.rounded_rectangle([bx + 120, y + 13, bx + 265, y + 33], radius=4, fill="#1e1b4b", outline="#6366f1", width=1)
-                render_mixed_text(draw, bx + 128, y + 14, "✓ БОТ ВЕРИФИЦИРОВАН", "badge", "#a5b4fc")
+                draw.rounded_rectangle([bx + 215, y + 13, bx + 355, y + 33], radius=4, fill="#1e1b4b", outline="#6366f1", width=1)
+                render_mixed_text(draw, bx + 223, y + 14, "✓ БОТ ВЕРИФИЦИРОВАН", "badge", "#a5b4fc")
 
                 cy_m = y + 46
                 for l in lines:
@@ -680,17 +672,19 @@ def draw_frame(scene_data: dict, progress: float, elapsed_sec: float, total_sec:
                         color = "#fbbf24"
                     elif "•" in l or "👉" in l or "1." in l or "2." in l or "3." in l:
                         color = "#e2e8f0"
-                    elif "⚡️" in l or "🌐" in l:
+                    elif "⚡️" in l or "🌐" in l or "🔗" in l:
                         color = "#38bdf8"
-                    render_mixed_text(draw, bx + 18, cy_m, l, "regular", color)
+                    render_mixed_text(draw, bx + 22, cy_m, l, "regular", color)
                     cy_m += 23
 
                 if buttons:
                     cy_m += 6
-                    btn_w = (bubble_w - 36 - (len(buttons) - 1) * 12) // len(buttons)
+                    btn_w = (bubble_w - 44 - (len(buttons) - 1) * 12) // len(buttons)
                     for bi, btn in enumerate(buttons):
-                        btn_x = bx + 18 + bi * (btn_w + 12)
-                        draw.rounded_rectangle([btn_x, cy_m, btn_x + btn_w, cy_m + 34], radius=8, fill="#1e1b4b", outline="#6366f1", width=1)
+                        btn_x = bx + 22 + bi * (btn_w + 12)
+                        btn_bg = "#1e1b4b" if not is_discord else "#1e1f38"
+                        btn_outline = "#6366f1" if not is_discord else "#5865f2"
+                        draw.rounded_rectangle([btn_x, cy_m, btn_x + btn_w, cy_m + 34], radius=8, fill=btn_bg, outline=btn_outline, width=1)
                         t_len = get_mixed_text_width(btn, "small_bold")
                         tx_btn = btn_x + max(4, int((btn_w - t_len) / 2))
                         render_mixed_text(draw, tx_btn, cy_m + 8, btn, "small_bold", "#93c5fd")
@@ -715,29 +709,37 @@ def draw_frame(scene_data: dict, progress: float, elapsed_sec: float, total_sec:
     time_display = f"⏱ {cur_m:02d}:{cur_s:02d} / {tot_m:02d}:{tot_s:02d}"
     render_mixed_text(draw, 24, H - 28, time_display, "small_bold", "#94a3b8")
 
-    # Scrolling Banner / Promo Code
-    cta_text = "🎁 Промокод: ОБНОВА3.0 (+2.500.000 монет) | 💬 Чат: @moxxi_chat | 🎮 Discord: discord.gg/7hDq4R2q | 4 Платформы: TG • DS • VK • Макс"
+    # Clean Rolling Banner (NO RAW URLS)
+    cta_text = "🎁 Промокод на +2.500.000 монет: ОБНОВА3.0 | 4 Платформы: TG • DS • VK • Макс | Все ссылки в описании под видео!"
     render_mixed_text(draw, W - get_mixed_text_width(cta_text, "badge") - 24, H - 26, cta_text, "badge", "#38bdf8")
 
     return img
 
 async def main():
     print("=" * 70, flush=True)
-    print("🎬 MOXXI 3.0: GENERATING BRAND NEW 5-MINUTE PLAYER SHOWCASE (100% PLAYER)", flush=True)
-    print("⚡️ Pronunciation: strictly 'Макс' | Emojis: Full Segoe UI Emoji Fallback", flush=True)
+    print("🎬 MOXXI 3.0: 5-MINUTE PLAYER SHOWCASE (100% PLAYER ORIENTED)", flush=True)
+    print("⚡️ Voice Engine: Microsoft Pavel (Native Offline Neural Russian Male)", flush=True)
+    print("⚡️ Clean: Zero raw links | Discord: Support & Bot Hub (No chat claims)", flush=True)
     print("=" * 70, flush=True)
 
     work_dir = "temp_player_5min"
     os.makedirs(work_dir, exist_ok=True)
 
-    # 1. Generate Voice for all 10 scenes with edge-tts
+    # Clean old audio to ensure 100% consistent Pavel voice across all 10 scenes
+    for old_f in os.listdir(work_dir):
+        try:
+            os.remove(os.path.join(work_dir, old_f))
+        except Exception:
+            pass
+
+    # 1. Generate Voice for all 10 scenes with native Windows OneCore Pavel
     wav_files = []
     durations = []
-    print("\n[STEP 1/4] Generating authentic Neural AI voice for 10 player scenes...", flush=True)
+    print("\n[STEP 1/4] Generating authentic consistent Neural voice (Microsoft Pavel)...", flush=True)
     for idx, sc in enumerate(SCENES):
         wav_path = os.path.join(work_dir, f"voice_{sc['id']}.wav")
         print(f"  • Generating Scene {idx+1:02d}/{len(SCENES):02d} [{sc['tag']}]...", flush=True)
-        await generate_voice_edge(sc["voice"], wav_path)
+        await generate_voice_pavel_native(sc["voice"], wav_path)
         dur = get_wav_duration(wav_path)
         wav_files.append(wav_path)
         durations.append(dur)
@@ -761,11 +763,11 @@ async def main():
         full_audio
     ]
     subprocess.run(cmd_concat, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-    print(f"✅ Full audio track created: {full_audio}")
+    print(f"✅ Full audio track created: {full_audio}", flush=True)
 
     # 3. Direct Pipe Frame Rendering into FFmpeg
     output_mp4 = "MOXXI_5MIN_PLAYER_OFFICIAL_VIDEO.mp4"
-    print(f"\n[STEP 3/4] Rendering frames & streaming into FFmpeg ({W}x{H} @ {FPS} fps)...")
+    print(f"\n[STEP 3/4] Rendering frames & streaming into FFmpeg ({W}x{H} @ {FPS} fps)...", flush=True)
 
     cmd_ffmpeg = [
         FFMPEG, "-y",
@@ -808,7 +810,7 @@ async def main():
             current_frame += 1
             elapsed_time += 1.0 / FPS
 
-            if current_frame % (FPS * 5) == 0:
+            if current_frame % (FPS * 10) == 0:
                 pct = (current_frame / total_frames) * 100
                 print(f"    [PROGRESS] {pct:.1f}% ({current_frame}/{total_frames} frames)", flush=True)
 
