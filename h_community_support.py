@@ -398,25 +398,28 @@ AUTO_ANSWERS = {
 }
 
 
-def ticket_admin_kb(ticket_id: int, claimed_by: int = 0, claimed_name: str = "") -> InlineKeyboardMarkup:
+def ticket_admin_kb(ticket_id: int, claimed_by: int = 0, claimed_name: str = "", answered: bool = False) -> InlineKeyboardMarkup:
     if not claimed_by:
         return InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text="💬 Взять в работу / Ответить", callback_data=f"supp_claim:{ticket_id}"),
-                InlineKeyboardButton(text="⛔️ Быстрый отказ", callback_data=f"supp_close:{ticket_id}")
+                InlineKeyboardButton(text="✋ Взять тикет в работу", callback_data=f"supp_claim:{ticket_id}")
             ]
         ])
-    else:
+    elif not answered:
         return InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text=f"🔒 Занят: {claimed_name}", callback_data=f"supp_busy:{ticket_id}")
             ],
             [
-                InlineKeyboardButton(text="⚡️ Быстрый автоответ", callback_data=f"supp_autokb:{ticket_id}"),
-                InlineKeyboardButton(text="🔄 Сложная ситуация / Освободить", callback_data=f"supp_release:{ticket_id}")
-            ],
+                InlineKeyboardButton(text="🤖 Авто-ответ ИИ / Шаблон", callback_data=f"supp_autokb:{ticket_id}"),
+                InlineKeyboardButton(text="🔄 Освободить", callback_data=f"supp_release:{ticket_id}")
+            ]
+        ])
+    else:
+        return InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text="🔒 Закрыть тикет", callback_data=f"supp_close:{ticket_id}")
+                InlineKeyboardButton(text="🔒 Закрыть тикет", callback_data=f"supp_close:{ticket_id}"),
+                InlineKeyboardButton(text="✍️ Дополнить ответ", callback_data=f"supp_autokb:{ticket_id}")
             ]
         ])
 
