@@ -1672,27 +1672,21 @@ async def cmd_duty_panel(message: Message, bot: Bot):
 
 
 
-    # 1. Защита: команды стаффа и дежурка работают строго в официальном Штабе
-
-    hq_id = await get_staff_hq_id()
-
-    if hq_id and message.chat.id != hq_id and not config.is_bot_owner(uid):
-
-        return await message.reply("⛔️ Панель дежурств и функции стаффа доступны исключительно в официальном Штабе Стаффа MOXXI!")
-
-
+    # 1. Защита: в обычных беседах игроков и кланах дежурка не используется!
+    # Модераторы обычных чатов наказывают сразу без выхода на смену.
+    if message.chat.type in ("group", "supergroup"):
+        hq_id = await get_staff_hq_id()
+        if not hq_id or message.chat.id != hq_id:
+            return await message.reply(
+                "ℹ️ <b>Информация о модерации:</b>\n"
+                "В обычных беседах и кланах модераторы могут наказывать нарушителей (бан, мут, варн, кик) напрямую, <b>без выхода на смену</b>.\n\n"
+                "🛡 <i>Система дежурств и смен используется исключительно официальной командой проекта MOXXI в закрытом Штабе Стаффа.</i>"
+            )
 
     # 2. Защита: доступ имеют только одобренные сотрудники из базы данных MOXXI
-
     staff_rank = await db.get_bot_staff_rank(uid)
-
     if staff_rank <= 0 and not config.is_bot_owner(uid):
-
-        s_row = await db.fetchone("SELECT rank FROM staff WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
-
-        if not s_row or s_row["rank"] <= 0:
-
-            return await message.reply("⛔️ Доступ запрещён! Вы не состоите в официальной команде администрации MOXXI.")
+        return await message.reply("⛔️ Доступ запрещён! Вы не состоите в официальной команде администрации MOXXI.")
 
 
 
@@ -1768,27 +1762,16 @@ async def cb_duty_actions(call: CallbackQuery, bot: Bot):
 
 
 
-    # 1. Защита: действия доступны только в официальном Штабе
-
-    hq_id = await get_staff_hq_id()
-
-    if hq_id and call.message and call.message.chat.id != hq_id and not config.is_bot_owner(uid):
-
-        return await call.answer("⛔️ Действие доступно только в официальном Штабе Стаффа MOXXI!", show_alert=True)
-
-
+    # 1. Защита: действия дежурки доступны только в официальном Штабе или ЛС с ботом
+    if call.message and call.message.chat.type in ("group", "supergroup"):
+        hq_id = await get_staff_hq_id()
+        if not hq_id or call.message.chat.id != hq_id:
+            return await call.answer("⛔️ Действие доступно только в официальном Штабе Стаффа MOXXI!", show_alert=True)
 
     # 2. Защита: доступ имеют только одобренные сотрудники
-
     staff_rank = await db.get_bot_staff_rank(uid)
-
     if staff_rank <= 0 and not config.is_bot_owner(uid):
-
-        s_row = await db.fetchone("SELECT rank FROM staff WHERE chat_id=? AND user_id=?", (call.message.chat.id if call.message else 0, uid))
-
-        if not s_row or s_row["rank"] <= 0:
-
-            return await call.answer("⛔️ Вы не состоите в команде администрации MOXXI!", show_alert=True)
+        return await call.answer("⛔️ Вы не состоите в команде администрации MOXXI!", show_alert=True)
 
 
 
@@ -2190,36 +2173,13 @@ async def automod_filter_and_duty_check(message: Message, bot: Bot):
         # Если пишет сотрудник на смене — сбрасываем AFK-таймер
         await update_staff_activity(uid)
 
-        # Проверка на команды модерации: если модератор пытается наказать, но не на смене
-        lower_t = text.lower().strip()
-        is_punish_cmd = any(lower_t.startswith(prefix) for prefix in ["мут ", "бан ", "варн ", "кик ", "/mute", "/ban", "/warn"])
-        if is_punish_cmd and not config.is_bot_owner(uid):
-            # Проверяем, является ли пользователь персоналом чата
-            row = await db.fetchone("SELECT rank FROM staff WHERE chat_id=? AND (user_id=? OR username=?)",
-                                    (chat_id, uid, (message.from_user.username or "").lower()))
-            rank = row["rank"] if row else 0
-            if rank > 0:
-                on_duty = await is_user_on_duty(uid)
-                if not on_duty:
-                    await message.reply(
-                        f"⛔️ <b>Действие заблокировано!</b>\n\n"
-                        f"Модератор {mention_id(uid, name)}, вы сейчас <b>НЕ НА СМЕНЕ</b>!\n"
-                        f"Чтобы наказывать участников чата, сначала заступите на смену:\n"
-                        f"👉 Отправьте <code>/duty</code> и нажмите <b>«🟢 Выйти на смену»</b>."
-                    )
-                    return
-
         # Владельцев бота не проверяем на автомод (иммунитет создателя)
         if config.is_bot_owner(uid):
             raise SkipHandler()
 
-        # Проверяем, является ли нарушитель сотрудником стаффа
-        staff_row = await db.fetchone(
-            "SELECT rank FROM staff WHERE chat_id=? AND (user_id=? OR username=?)",
-            (chat_id, uid, (message.from_user.username or "").lower())
-        )
-        is_staff = bool(staff_row and staff_row["rank"] > 0)
-        staff_rank = staff_row["rank"] if staff_row else 0
+        # Проверяем, является ли нарушитель официальным сотрудником проекта MOXXI
+        staff_rank = await db.get_bot_staff_rank(uid)
+        is_staff = bool(staff_rank > 0)
 
         # Проверка текста на токсичность, мат и оскорбления
         level, reason = toxicity.local_check(text)
