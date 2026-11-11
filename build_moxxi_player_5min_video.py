@@ -473,37 +473,90 @@ SCENES = [
     }
 ]
 
-async def generate_voice_pavel_native(text: str, out_wav: str):
+USER_VOICE_OGG = r"C:\Users\eiema\OneDrive\Desktop\2basess\audio_2026-11-11_05-13-23.ogg"
+PIPER_MODEL = r"piper_models/ru_RU-denis-medium.onnx"
+PIPER_CONFIG = r"piper_models/ru_RU-denis-medium.onnx.json"
+
+_piper_voice = None
+
+def get_piper_voice():
+    global _piper_voice
+    if _piper_voice is None:
+        os.environ['ESPEAK_DATA_PATH'] = r'C:\piper_data'
+        from piper.voice import PiperVoice
+        _piper_voice = PiperVoice.load(PIPER_MODEL, config_path=PIPER_CONFIG)
+    return _piper_voice
+
+def synthesize_piper_denis(text: str, out_wav: str):
     """
-    Generates 100% consistent, warm human voice using native Windows OneCore Pavel.
-    Instant offline synthesis (0.1s per scene) with broadcast studio mastering filter.
+    Synthesizes natural, human-sounding Russian speech using Piper Neural TTS (Denis).
+    Fast offline generation in ~1.5s per scene.
     """
-    temp_wav = out_wav + ".raw.wav"
-    synth = ws.SpeechSynthesizer()
-    for v in ws.SpeechSynthesizer.all_voices:
-        if 'Pavel' in v.display_name or 'pavel' in v.id.lower():
-            synth.voice = v
-            break
+    voice = get_piper_voice()
+    temp_raw = out_wav + ".raw.wav"
+    with wave.open(temp_raw, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(voice.config.sample_rate)
+        for chunk in voice.synthesize(text):
+            wf.writeframes(chunk.audio_int16_bytes)
 
-    stream = await synth.synthesize_text_to_stream_async(text)
-    reader = streams.DataReader(stream.get_input_stream_at(0))
-    await reader.load_async(stream.size)
-    data = bytearray(stream.size)
-    reader.read_bytes(data)
-
-    with open(temp_wav, "wb") as f:
-        f.write(data)
-
-    # Master audio: gentle broadcast compressor + presence EQ
+    # Master audio: warm broadcast compressor + presence EQ to match studio mic
     cmd = [
-        FFMPEG, "-y", "-i", temp_wav,
-        "-af", "volume=1.15,acompressor=threshold=-18dB:ratio=2.5:attack=15:release=120,equalizer=f=120:width_type=h:width=120:g=2.5,equalizer=f=3600:width_type=h:width=1000:g=2.5",
+        FFMPEG, "-y", "-i", temp_raw,
+        "-af", "volume=1.1,acompressor=threshold=-16dB:ratio=2.5:attack=15:release=120,equalizer=f=3500:width_type=h:width=1200:g=1.5",
         "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "1",
         out_wav
     ]
     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-    if os.path.exists(temp_wav):
-        os.remove(temp_wav)
+    if os.path.exists(temp_raw):
+        try:
+            os.remove(temp_raw)
+        except Exception:
+            pass
+
+def generate_scene1_hybrid_voice(out_wav: str, work_dir: str):
+    """
+    Uses the user's authentic voice recording for the opening greeting of Scene 1,
+    then seamlessly transitions to natural narrator voice for the platforms breakdown.
+    """
+    if os.path.exists(USER_VOICE_OGG):
+        print("  ⭐ User Voice Sample found! Integrating authentic voice into Scene 1...", flush=True)
+        user_part_wav = os.path.join(work_dir, "scene01_user_part.wav")
+        # Clean & master user voice: noise suppression, gentle compression, EQ matching
+        cmd_user = [
+            FFMPEG, "-y", "-i", USER_VOICE_OGG,
+            "-af", "highpass=f=70,lowpass=f=12000,afftdn=nr=10:nf=-35,volume=1.35,acompressor=threshold=-16dB:ratio=2.5:attack=15:release=120,equalizer=f=3500:width_type=h:width=1200:g=2.0",
+            "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "1",
+            user_part_wav
+        ]
+        subprocess.run(cmd_user, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+
+        # Narrator continuation
+        continuation_text = (
+            "крупнейших площадках: во флагманском Телеграме с удобнейшим Мини Аппом, "
+            "в Дискорде с игровым ботом и круглосуточной тикет-поддержкой, "
+            "в беседах ВКонтакте и в современном мессенджере Макс! "
+            "Играйте с друзьями там, где вам комфортно, а все ссылки на ботов уже ждут вас в описании под этим видео!"
+        )
+        cont_part_wav = os.path.join(work_dir, "scene01_cont_part.wav")
+        synthesize_piper_denis(continuation_text, cont_part_wav)
+
+        # Concatenate user intro + continuation
+        concat_list = os.path.join(work_dir, "scene01_concat.txt")
+        with open(concat_list, "w", encoding="utf-8") as f:
+            f.write(f"file '{os.path.abspath(user_part_wav)}'\n")
+            f.write(f"file '{os.path.abspath(cont_part_wav)}'\n")
+
+        cmd_cat = [
+            FFMPEG, "-y", "-f", "concat", "-safe", "0",
+            "-i", concat_list,
+            "-c", "copy",
+            out_wav
+        ]
+        subprocess.run(cmd_cat, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    else:
+        synthesize_piper_denis(SCENES[0]["voice"], out_wav)
 
 def get_wav_duration(wav_path: str) -> float:
     with wave.open(wav_path, "rb") as w:
@@ -718,7 +771,7 @@ def draw_frame(scene_data: dict, progress: float, elapsed_sec: float, total_sec:
 async def main():
     print("=" * 70, flush=True)
     print("🎬 MOXXI 3.0: 5-MINUTE PLAYER SHOWCASE (100% PLAYER ORIENTED)", flush=True)
-    print("⚡️ Voice Engine: Microsoft Pavel (Native Offline Neural Russian Male)", flush=True)
+    print("⚡️ Voice Engine: User Authentic Intro Voice + Piper Denis (Natural Human Voice)", flush=True)
     print("⚡️ Clean: Zero raw links | Discord: Support & Bot Hub (No chat claims)", flush=True)
     print("=" * 70, flush=True)
 
@@ -735,11 +788,14 @@ async def main():
     # 1. Generate Voice for all 10 scenes with native Windows OneCore Pavel
     wav_files = []
     durations = []
-    print("\n[STEP 1/4] Generating authentic consistent Neural voice (Microsoft Pavel)...", flush=True)
+    print("\n[STEP 1/4] Generating natural human voice (User Authentic Intro + Piper Denis)...", flush=True)
     for idx, sc in enumerate(SCENES):
         wav_path = os.path.join(work_dir, f"voice_{sc['id']}.wav")
         print(f"  • Generating Scene {idx+1:02d}/{len(SCENES):02d} [{sc['tag']}]...", flush=True)
-        await generate_voice_pavel_native(sc["voice"], wav_path)
+        if idx == 0:
+            generate_scene1_hybrid_voice(wav_path, work_dir)
+        else:
+            synthesize_piper_denis(sc["voice"], wav_path)
         dur = get_wav_duration(wav_path)
         wav_files.append(wav_path)
         durations.append(dur)
