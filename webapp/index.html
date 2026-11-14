@@ -1216,6 +1216,137 @@
       </div>
     </div>
 
+    
+    <!-- КАРТОЧКА: НАПЁРСТКИ MOXXI (x2.80) -->
+    <div class="game-card">
+      <div class="game-card-title">
+        <span>🥤 Напёрстки Moxxi</span>
+        <span class="badge-stat">Выигрыш х2.80</span>
+      </div>
+      <div class="thimbles-container" style="display: flex; justify-content: space-around; align-items: center; padding: 18px 0; background: rgba(10, 14, 22, 0.95); border: 1.5px solid rgba(139, 92, 246, 0.4); border-radius: 16px; margin-bottom: 14px; min-height: 110px;">
+        <div class="thimble-cup" id="thimble0" onclick="pickThimble(0)" style="cursor: pointer; text-align: center; transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);">
+          <div class="cup-icon" style="font-size: 46px; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.5));">🥤</div>
+          <div class="cup-ball" id="thimbleBall0" style="font-size: 24px; display: none; margin-top: -10px;">💎</div>
+          <div style="font-size: 11px; font-weight: 800; color: #a78bfa; margin-top: 4px;">СТАКАН 1</div>
+        </div>
+        <div class="thimble-cup" id="thimble1" onclick="pickThimble(1)" style="cursor: pointer; text-align: center; transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);">
+          <div class="cup-icon" style="font-size: 46px; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.5));">🥤</div>
+          <div class="cup-ball" id="thimbleBall1" style="font-size: 24px; display: none; margin-top: -10px;">💎</div>
+          <div style="font-size: 11px; font-weight: 800; color: #a78bfa; margin-top: 4px;">СТАКАН 2</div>
+        </div>
+        <div class="thimble-cup" id="thimble2" onclick="pickThimble(2)" style="cursor: pointer; text-align: center; transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);">
+          <div class="cup-icon" style="font-size: 46px; filter: drop-shadow(0 4px 8px rgba(0,0,0,0.5));">🥤</div>
+          <div class="cup-ball" id="thimbleBall2" style="font-size: 24px; display: none; margin-top: -10px;">💎</div>
+          <div style="font-size: 11px; font-weight: 800; color: #a78bfa; margin-top: 4px;">СТАКАН 3</div>
+        </div>
+      </div>
+      <div style="text-align: center; font-size: 12px; color: var(--text-muted); margin-bottom: 10px;" id="thimbleStatus">
+        👆 Нажми «Перемешать», затем выбери стаканчик с алмазом!
+      </div>
+      <div class="bet-selector" id="thimbleBetSelector">
+        <button class="bet-btn" onclick="setThimbleBet(500)">500</button>
+        <button class="bet-btn active" onclick="setThimbleBet(1000)">1 000</button>
+        <button class="bet-btn" onclick="setThimbleBet(5000)">5 000</button>
+        <button class="bet-btn" onclick="setThimbleBet(25000)">25 000</button>
+      </div>
+      <button class="action-btn" id="btnThimbleShuffle" onclick="shuffleThimbles()">
+        <span>🥤</span> ПЕРЕМЕШАТЬ И ИГРАТЬ (<span id="thimbleBetVal">1 000</span> 🪙)
+      </button>
+    </div>
+
+    <!-- КАРТОЧКА: КНБ (КАМЕНЬ-НОЖНИЦЫ-БУМАГА) -->
+    <div class="game-card">
+      <div class="game-card-title">
+        <span>🪨✂️📄 Камень, Ножницы, Бумага</span>
+        <span class="badge-stat">Выигрыш х2.00</span>
+      </div>
+      <div style="display: flex; justify-content: space-around; align-items: center; padding: 14px 10px; background: rgba(10, 14, 22, 0.95); border: 1.5px solid rgba(16, 185, 129, 0.4); border-radius: 16px; margin-bottom: 12px;">
+        <div style="text-align: center;">
+          <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">ТВОЙ ХОД</div>
+          <div id="rpsUserPick" style="width: 68px; height: 68px; background: #111827; border: 1.5px solid rgba(16, 185, 129, 0.6); border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 32px; box-shadow: 0 0 14px rgba(16, 185, 129, 0.25);">❓</div>
+        </div>
+        <div style="font-size: 20px; font-weight: 900; color: #94a3b8;">VS</div>
+        <div style="text-align: center;">
+          <div style="font-size: 11px; color: #facc15; margin-bottom: 4px;">МОКСИ</div>
+          <div id="rpsBotPick" style="width: 68px; height: 68px; background: #111827; border: 1.5px solid rgba(250, 204, 21, 0.6); border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 32px; box-shadow: 0 0 14px rgba(250, 204, 21, 0.25);">🤖</div>
+        </div>
+      </div>
+      <div style="text-align: center; font-size: 12px; font-weight: 700; color: #38bdf8; margin-bottom: 10px;" id="rpsResultText">
+        Выбери жест для раунда:
+      </div>
+      <div class="bet-selector" id="rpsBetSelector" style="margin-bottom: 10px;">
+        <button class="bet-btn" onclick="setRpsBet(500)">500</button>
+        <button class="bet-btn active" onclick="setRpsBet(1000)">1 000</button>
+        <button class="bet-btn" onclick="setRpsBet(5000)">5 000</button>
+        <button class="bet-btn" onclick="setRpsBet(25000)">25 000</button>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button class="action-btn" style="flex: 1; padding: 12px 6px; font-size: 13px;" onclick="playRps('🪨')">
+          <span>🪨</span> Камень
+        </button>
+        <button class="action-btn cyan" style="flex: 1; padding: 12px 6px; font-size: 13px;" onclick="playRps('✂️')">
+          <span>✂️</span> Ножницы
+        </button>
+        <button class="action-btn green" style="flex: 1; padding: 12px 6px; font-size: 13px;" onclick="playRps('📄')">
+          <span>📄</span> Бумага
+        </button>
+      </div>
+    </div>
+
+    <!-- КАРТОЧКА: КРЕСТИКИ-НОЛИКИ 2.0 -->
+    <div class="game-card">
+      <div class="game-card-title">
+        <span>❌⭕️ Крестики-Нолики 2.0</span>
+        <span class="badge-stat" style="color: #facc15; background: rgba(250, 204, 21, 0.15);">PvP / PvE Арена</span>
+      </div>
+      <div style="padding: 12px; background: rgba(10, 14, 22, 0.95); border: 1.5px solid rgba(236, 72, 153, 0.4); border-radius: 16px; margin-bottom: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-size: 12px; font-weight: 700; color: #f472b6;">🌐 3 Размера арен:</span>
+          <span style="font-size: 11px; color: var(--text-muted);">3×3 • 6×6 • 15×15</span>
+        </div>
+        <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+          <span style="flex: 1; text-align: center; background: rgba(255,255,255,0.06); padding: 6px; border-radius: 8px; font-size: 11px;">🎲 ИИ-рулетка карты</span>
+          <span style="flex: 1; text-align: center; background: rgba(255,255,255,0.06); padding: 6px; border-radius: 8px; font-size: 11px;">⚔️ Выбор стороны ❌/⭕️</span>
+        </div>
+        <div style="font-size: 11px; color: var(--text-dim); text-align: center;">
+          В чате: команда <code>крестики [ставка]</code> или <code>крестики @юзер [ставка]</code>
+        </div>
+      </div>
+      <button class="action-btn" style="background: linear-gradient(90deg, #ec4899 0%, #a855f7 100%);" onclick="sendActionToBot('крестики 1000')">
+        <span>🎮</span> ЗАПУСТИТЬ КРЕСТИКИ В ЧАТЕ
+      </button>
+    </div>
+
+    <!-- КАРТОЧКА: ДУЭЛИ И РУССКАЯ РУЛЕТКА -->
+    <div class="game-card">
+      <div class="game-card-title">
+        <span>🤠 Ковбой & Русская Рулетка</span>
+        <span class="badge-stat" style="color: #f87171; background: rgba(239, 68, 68, 0.15);">PvP Экстрим</span>
+      </div>
+      <div style="padding: 12px; background: rgba(10, 14, 22, 0.95); border: 1.5px solid rgba(239, 68, 68, 0.4); border-radius: 16px; margin-bottom: 12px;">
+        <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 6px;">
+          <div style="font-size: 26px;">🔫</div>
+          <div style="font-size: 12px; color: var(--text);">
+            <b>Русская рулетка:</b> 6 камор, 1 патрон. По очереди спускайте курок! (команда <code>русская рулетка [ставка]</code>)
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <div style="font-size: 26px;">🤠</div>
+          <div style="font-size: 12px; color: var(--text);">
+            <b>Ковбой:</b> дуэль на скорость реакции по сигналу «ОГОНЬ»! (команда <code>ковбой [ставка]</code>)
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button class="action-btn" style="flex: 1; background: linear-gradient(90deg, #dc2626 0%, #b91c1c 100%);" onclick="sendActionToBot('русская рулетка 1000')">
+          <span>🔫</span> Рулетка
+        </button>
+        <button class="action-btn cyan" style="flex: 1; background: linear-gradient(90deg, #d97706 0%, #b45309 100%);" onclick="sendActionToBot('ковбой 1000')">
+          <span>🤠</span> Ковбой
+        </button>
+      </div>
+    </div>
+
     <!-- КАРТОЧКА 4: LAND (СКОРО) — СКРИНШОТ 4 -->
     <div class="land-card">
       <div class="land-info">
@@ -1784,6 +1915,175 @@
       gameHistory.unshift(`Краш: выигрыш +${win} 🪙 на ${currentMultiplier.toFixed(2)}x`);
       document.getElementById("btnStartCrash").style.display = "flex";
       document.getElementById("btnCashoutCrash").style.display = "none";
+    }
+
+    
+    // ── НАПЁРСТКИ ────────────────────────────────────────────────────────
+    let currentThimbleBet = 1000;
+    let thimbleDiamondIndex = -1;
+    let isThimbleShuffling = false;
+    let isThimbleActive = false;
+
+    function setThimbleBet(b) {
+      currentThimbleBet = b;
+      const btns = document.querySelectorAll("#thimbleBetSelector .bet-btn");
+      btns.forEach(btn => {
+        const val = parseInt(btn.innerText.replace(/\s+/g, ''));
+        btn.classList.toggle("active", val === b);
+      });
+      const betValSpan = document.getElementById("thimbleBetVal");
+      if (betValSpan) betValSpan.innerText = b.toLocaleString("ru-RU");
+      triggerHaptic("light");
+    }
+
+    function shuffleThimbles() {
+      if (isThimbleShuffling) return;
+      if (userBalance < currentThimbleBet) {
+        alert("Недостаточно монет для игры в напёрстки!");
+        return;
+      }
+      userBalance -= currentThimbleBet;
+      updateBalanceUI();
+      isThimbleShuffling = true;
+      isThimbleActive = true;
+      thimbleDiamondIndex = Math.floor(Math.random() * 3);
+      triggerHaptic("medium");
+
+      for (let i = 0; i < 3; i++) {
+        const cup = document.getElementById(`thimble${i}`);
+        const ball = document.getElementById(`thimbleBall${i}`);
+        if (cup) cup.style.transform = "translateY(0px)";
+        if (ball) ball.style.display = "none";
+      }
+
+      const statusEl = document.getElementById("thimbleStatus");
+      if (statusEl) statusEl.innerText = "🌀 Напёрстки перемешиваются... Следи за руками!";
+
+      let shuffles = 0;
+      const shuffleInterval = setInterval(() => {
+        const offset0 = (Math.random() * 20 - 10).toFixed(0);
+        const offset1 = (Math.random() * 20 - 10).toFixed(0);
+        const offset2 = (Math.random() * 20 - 10).toFixed(0);
+        const c0 = document.getElementById("thimble0");
+        const c1 = document.getElementById("thimble1");
+        const c2 = document.getElementById("thimble2");
+        if (c0) c0.style.transform = `translateX(${offset0}px)`;
+        if (c1) c1.style.transform = `translateX(${offset1}px)`;
+        if (c2) c2.style.transform = `translateX(${offset2}px)`;
+        shuffles++;
+        if (shuffles > 10) {
+          clearInterval(shuffleInterval);
+          isThimbleShuffling = false;
+          if (c0) c0.style.transform = "none";
+          if (c1) c1.style.transform = "none";
+          if (c2) c2.style.transform = "none";
+          if (statusEl) statusEl.innerText = "👀 Шарик спрятан! Нажми на любой стаканчик:";
+          triggerHaptic("rigid");
+        }
+      }, 100);
+    }
+
+    function pickThimble(pickedIdx) {
+      if (isThimbleShuffling) return;
+      if (!isThimbleActive) {
+        alert("Сначала нажмите «Перемешать и играть»!");
+        return;
+      }
+      isThimbleActive = false;
+
+      for (let i = 0; i < 3; i++) {
+        const cup = document.getElementById(`thimble${i}`);
+        const ball = document.getElementById(`thimbleBall${i}`);
+        if (cup) cup.style.transform = "translateY(-24px)";
+        if (ball) {
+          ball.style.display = "block";
+          ball.innerText = (i === thimbleDiamondIndex) ? "💎" : "💨";
+        }
+      }
+
+      const statusEl = document.getElementById("thimbleStatus");
+      if (pickedIdx === thimbleDiamondIndex) {
+        const win = Math.floor(currentThimbleBet * 2.80);
+        userBalance += win;
+        updateBalanceUI();
+        triggerHaptic("success");
+        if (statusEl) statusEl.innerHTML = `<b style="color: #10b981;">🎉 ТОЧНО В ЦЕЛЬ! Выигрыш: +${win.toLocaleString("ru-RU")} 🪙 (x2.80)</b>`;
+        gameHistory.unshift(`Напёрстки: угадан стакан #${pickedIdx + 1} (+${win} 🪙)`);
+      } else {
+        triggerHaptic("error");
+        if (statusEl) statusEl.innerHTML = `<b style="color: #ef4444;">❌ Пусто! Алмаз был в стакане #${thimbleDiamondIndex + 1}.</b>`;
+        gameHistory.unshift(`Напёрстки: промах (-${currentThimbleBet} 🪙)`);
+      }
+    }
+
+    // ── КНБ (КАМЕНЬ-НОЖНИЦЫ-БУМАГА) ───────────────────────────────────────
+    let currentRpsBet = 1000;
+    let isRpsPlaying = false;
+
+    function setRpsBet(b) {
+      currentRpsBet = b;
+      const btns = document.querySelectorAll("#rpsBetSelector .bet-btn");
+      btns.forEach(btn => {
+        const val = parseInt(btn.innerText.replace(/\s+/g, ''));
+        btn.classList.toggle("active", val === b);
+      });
+      triggerHaptic("light");
+    }
+
+    function playRps(userPick) {
+      if (isRpsPlaying) return;
+      if (userBalance < currentRpsBet) {
+        alert("Недостаточно монет для игры в КНБ!");
+        return;
+      }
+      userBalance -= currentRpsBet;
+      updateBalanceUI();
+      isRpsPlaying = true;
+      triggerHaptic("medium");
+
+      const uEl = document.getElementById("rpsUserPick");
+      const bEl = document.getElementById("rpsBotPick");
+      const resEl = document.getElementById("rpsResultText");
+
+      if (uEl) uEl.innerText = userPick;
+      if (bEl) bEl.innerText = "✊";
+      if (resEl) resEl.innerText = "Мокси выбирает жест...";
+
+      const botChoices = ["🪨", "✂️", "📄"];
+      let counter = 0;
+      const animInt = setInterval(() => {
+        if (bEl) bEl.innerText = botChoices[counter % 3];
+        counter++;
+        if (counter > 8) {
+          clearInterval(animInt);
+          isRpsPlaying = false;
+          const botPick = botChoices[Math.floor(Math.random() * 3)];
+          if (bEl) bEl.innerText = botPick;
+
+          if (userPick === botPick) {
+            userBalance += currentRpsBet;
+            updateBalanceUI();
+            triggerHaptic("light");
+            if (resEl) resEl.innerHTML = `<span style="color: #facc15;">🤝 НИЧЬЯ! Ставка возвращена.</span>`;
+            gameHistory.unshift(`КНБ: ничья ${userPick} vs ${botPick}`);
+          } else if (
+            (userPick === "🪨" && botPick === "✂️") ||
+            (userPick === "✂️" && botPick === "📄") ||
+            (userPick === "📄" && botPick === "🪨")
+          ) {
+            const win = Math.floor(currentRpsBet * 2.0);
+            userBalance += win;
+            updateBalanceUI();
+            triggerHaptic("success");
+            if (resEl) resEl.innerHTML = `<span style="color: #10b981;">🎉 ПОБЕДА! +${win.toLocaleString("ru-RU")} 🪙 (x2.0)</span>`;
+            gameHistory.unshift(`КНБ: победа ${userPick} бьет ${botPick} (+${win} 🪙)`);
+          } else {
+            triggerHaptic("error");
+            if (resEl) resEl.innerHTML = `<span style="color: #ef4444;">💀 Мокси победила! (-${currentRpsBet.toLocaleString("ru-RU")} 🪙)</span>`;
+            gameHistory.unshift(`КНБ: поражение ${userPick} против ${botPick}`);
+          }
+        }
+      }, 100);
     }
 
     // ── МОДАЛЬНЫЕ ОКНА ───────────────────────────────────────────────────
