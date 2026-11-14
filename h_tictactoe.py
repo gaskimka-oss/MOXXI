@@ -1,18 +1,22 @@
 """Интерактивные Крестики-Нолики (PVP дуэль) на нативных кнопках в Telegram.
 
-Поддержка режимов (Арены):
-- 3 × 3 (собрать 3 в ряд)
-- 6 × 6 (собрать 4 в ряд)
-- 7 × 7 (собрать 5 в ряд)
-
-Выбор карты И фигуры ОБОИМИ игроками:
-- Игрок 1 выбирает свою желанную арену и фигуру.
-- Игрок 2 выбирает свою желанную арену и фигуру.
-- При несовпадении честный жребий 50/50 разрешает спор и по карте, и по фигурам!
-Строгая очередность: первым всегда ходит ❌, во время чужого хода кнопки блокируются всплывающим окном.
+Пошаговый сценарий дуэли:
+1. Вызов: создатель кидает команду (например: кн @Simba 100к).
+   У противника 2 кнопки: [ ⚔️ Принять вызов ] и [ ❌ Отклонить ].
+   При отказе — игра отменяется («Simba отказался от игры»).
+2. Выбор фигур: появляются кнопки [ ❌ Крестик ] и [ ⭕️ Нолик ].
+   Кто первый выбрал фигуру, второй автоматически получает противоположную!
+3. Выбор карты: оба голосуют кнопками [ 3 × 3 ], [ 6 × 6 ], [ 8 × 8 ].
+   Если мнения разные — ИИ сам запускает рулетку (гоняет по кругу 3х3 -> 6х6 -> 8х8)
+   и останавливается на выпавшей карте!
+4. Игровое поле: первым всегда ходит ❌.
+   Пока ходит ❌, соперник ⭕️ заблокирован. После хода — передача очереди.
+   Победная линия (любое направление: ↔️ ↕️ ↘️ ↙️) подсвечивается 🌟.
+5. Финал: кнопки [ 🔄 Сыграть снова ] и [ 🚪 Отказаться / Закрыть ].
 """
 from __future__ import annotations
 
+import asyncio
 import html
 import random
 import time
@@ -33,7 +37,7 @@ S = 5  # Раздел «Игры и казино»
 ARENAS = {
     "3x3": {"size": 3, "target": 3, "name": "3 × 3", "desc": "3 в ряд"},
     "6x6": {"size": 6, "target": 4, "name": "6 × 6", "desc": "4 в ряд"},
-    "7x7": {"size": 7, "target": 5, "name": "7 × 7", "desc": "5 в ряд"},
+    "8x8": {"size": 8, "target": 5, "name": "8 × 8", "desc": "5 в ряд"},
 }
 
 GAMES: dict[str, GameSession] = {}
@@ -57,30 +61,23 @@ class GameSession:
         self.target_id = target_id
         self.target_name = target_name
         self.bet = bet
-        self.state = "lobby"  # lobby | playing | finished
 
-        # Выбор карты ОБОИМИ игроками:
-        self.creator_arena = "6x6"
-        self.target_arena = "6x6"
+        # Состояния: invite -> pick_side -> pick_arena -> playing -> finished
+        self.state = "invite"
 
-        # Выбор фигуры ОБОИМИ игроками: "random" | "X" | "O"
-        self.creator_choice = "X"
-        self.target_choice = "random"
-
-        # Итоговая выбранная арена (после жребия):
-        self.arena_key = "6x6"
-
-        # Игроки после старта:
+        # Игроки после распределения фигур
         self.player_x_id = 0
         self.player_x_name = ""
         self.player_o_id = 0
         self.player_o_name = ""
 
-        # Ход: ❌ всегда начинает первым!
+        # Голоса за арену: {user_id: '3x3' | '6x6' | '8x8'}
+        self.arena_votes: dict[int, str] = {}
+        self.arena_key = "6x6"
+
+        # Игровой процесс
         self.turn = "X"
         self.last_move_ts = 0
-
-        # Поле инициализируется при старте
         self.board: list[list[str]] = []
         self.winning_cells: list[tuple[int, int]] = []
         self.winner: Optional[str] = None
@@ -91,10 +88,9 @@ def _generate_game_id() -> str:
 
 
 # ══════════════════════════════════════════════════════════════════
-# ПРОВЕРКА ПОБЕДНЫХ ЛИНИЙ (ГОРИЗОНТАЛЬ, ВЕРТИКАЛЬ, ОБЕ ДИАГОНАЛИ)
+# ПРОВЕРКА ПОБЕДЫ (ЛЮБОЕ НАПРАВЛЕНИЕ)
 # ══════════════════════════════════════════════════════════════════
 def check_winner(board: list[list[str]], target_k: int) -> tuple[Optional[str], list[tuple[int, int]]]:
-    """Проверяет непрерывную линию длины target_k во всех 4 направлениях."""
     n = len(board)
     directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
 
@@ -122,107 +118,53 @@ def check_winner(board: list[list[str]], target_k: int) -> tuple[Optional[str], 
 
 
 # ══════════════════════════════════════════════════════════════════
-# РАЗРЕШЕНИЕ ВЫБОРА АРЕНЫ И ФИГУР МЕЖДУ 2 ИГРОКАМИ
+# КЛАВИАТУРЫ ДЛЯ КАЖДОГО ЭТАПА
 # ══════════════════════════════════════════════════════════════════
-def resolve_arena(c_ar: str, t_ar: str) -> tuple[str, str]:
-    if c_ar == t_ar:
-        return c_ar, f"🏟 <i>Оба игрока выбрали арену <b>{ARENAS[c_ar]['name']}</b>!</i>"
-    
-    # Спор: жребий 50/50 решает чья карта
-    flip = random.choice([True, False])
-    if flip:
-        return c_ar, f"🎲 <i>Спор по карте ({ARENAS[c_ar]['name']} vs {ARENAS[t_ar]['name']}): жребий 50/50 выбрал карту создателя (<b>{ARENAS[c_ar]['name']}</b>)!</i>"
-    else:
-        return t_ar, f"🎲 <i>Спор по карте ({ARENAS[c_ar]['name']} vs {ARENAS[t_ar]['name']}): жребий 50/50 выбрал карту соперника (<b>{ARENAS[t_ar]['name']}</b>)!</i>"
+
+# ЭТАП 1: Принять или Отклонить
+def kb_invite(gid: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="⚔️ Принять вызов", callback_data=f"xo:inv:accept:{gid}"),
+            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"xo:inv:decline:{gid}")
+        ]
+    ])
 
 
-def resolve_sides(creator_id: int, creator_name: str, c_side: str,
-                  target_id: int, target_name: str, t_side: str) -> tuple[int, str, int, str, str]:
-    # 1. Выбрали разные конкретные фигуры
-    if c_side in ("X", "O") and t_side in ("X", "O") and c_side != t_side:
-        if c_side == "X":
-            return creator_id, creator_name, target_id, target_name, "✨ <i>Игроки выбрали разные стороны — каждый получил свою фигуру!</i>"
-        else:
-            return target_id, target_name, creator_id, creator_name, "✨ <i>Игроки выбрали разные стороны — каждый получил свою фигуру!</i>"
-
-    # 2. Создатель выбрал фигуру, соперник — рандом
-    elif c_side in ("X", "O") and t_side == "random":
-        flip = random.choice([True, False])
-        if (flip and c_side == "X") or (not flip and c_side == "O"):
-            return creator_id, creator_name, target_id, target_name, f"🎲 <i>Создатель выбрал {c_side}, соперник — рандом. Жребий отдал выбор создателю!</i>"
-        else:
-            return target_id, target_name, creator_id, creator_name, f"🎲 <i>Создатель выбрал {c_side}, соперник — рандом. Жребий перевернул стороны!</i>"
-
-    # 3. Соперник выбрал фигуру, создатель — рандом
-    elif c_side == "random" and t_side in ("X", "O"):
-        flip = random.choice([True, False])
-        if (flip and t_side == "X") or (not flip and t_side == "O"):
-            return target_id, target_name, creator_id, creator_name, f"🎲 <i>Соперник выбрал {t_side}, создатель — рандом. Жребий отдал выбор сопернику!</i>"
-        else:
-            return creator_id, creator_name, target_id, target_name, f"🎲 <i>Соперник выбрал {t_side}, создатель — рандом. Жребий перевернул стороны!</i>"
-
-    # 4. Оба выбрали одну и ту же фигуру
-    elif c_side in ("X", "O") and c_side == t_side:
-        flip = random.choice([True, False])
-        if flip:
-            return creator_id, creator_name, target_id, target_name, f"⚔️ <i>Оба хотели играть за {c_side} — жребий 50/50 решил спор!</i>"
-        else:
-            return target_id, target_name, creator_id, creator_name, f"⚔️ <i>Оба хотели играть за {c_side} — жребий 50/50 решил спор!</i>"
-
-    # 5. Оба выбрали рандом
-    else:
-        flip = random.choice([True, False])
-        if flip:
-            return creator_id, creator_name, target_id, target_name, "🎲 <i>Оба участника выбрали рандом — стороны определил жребий!</i>"
-        else:
-            return target_id, target_name, creator_id, creator_name, "🎲 <i>Оба участника выбрали рандом — стороны определил жребий!</i>"
+# ЭТАП 2: Выбор фигур (Крестик или Нолик)
+def kb_pick_side(gid: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="❌ Я играю за Крестик", callback_data=f"xo:side:{gid}:X"),
+            InlineKeyboardButton(text="⭕️ Я играю за Нолик", callback_data=f"xo:side:{gid}:O"),
+        ],
+        [
+            InlineKeyboardButton(text="🚪 Отказаться от игры", callback_data=f"xo:cancel:{gid}")
+        ]
+    ])
 
 
-# ══════════════════════════════════════════════════════════════════
-# КЛАВИАТУРЫ И ТЕКСТ ЛОББИ
-# ══════════════════════════════════════════════════════════════════
-def render_lobby_kb(game: GameSession) -> InlineKeyboardMarkup:
-    gid = game.game_id
-    rows = []
-
-    # 1. Выбор карты создателя (Ряд 1)
-    c_ar_btns = []
+# ЭТАП 3: Выбор карты (3х3, 6х6, 8х8)
+def kb_pick_arena(gid: str, game: GameSession) -> InlineKeyboardMarkup:
+    row = []
     for k, a in ARENAS.items():
-        is_sel = (k == game.creator_arena)
-        prefix = "🔘" if is_sel else "⚪️"
-        c_ar_btns.append(InlineKeyboardButton(text=f"{prefix} 👑 {a['name']}", callback_data=f"xo:ar:c:{gid}:{k}"))
-    rows.append(c_ar_btns)
+        row.append(InlineKeyboardButton(text=f"🏟 {a['name']}", callback_data=f"xo:ar_vote:{gid}:{k}"))
+    return InlineKeyboardMarkup(inline_keyboard=[
+        row,
+        [InlineKeyboardButton(text="🚪 Отказаться от игры", callback_data=f"xo:cancel:{gid}")]
+    ])
 
-    # 2. Выбор карты соперника (Ряд 2)
-    t_ar_btns = []
+
+# Рулетка: индикаторная клавиатура
+def kb_roulette(highlight_key: str) -> InlineKeyboardMarkup:
+    row = []
     for k, a in ARENAS.items():
-        is_sel = (k == game.target_arena)
-        prefix = "🔘" if is_sel else "⚪️"
-        t_ar_btns.append(InlineKeyboardButton(text=f"{prefix} ⚔️ {a['name']}", callback_data=f"xo:ar:t:{gid}:{k}"))
-    rows.append(t_ar_btns)
-
-    # 3. Выбор стороны создателя (Ряд 3)
-    c_side = game.creator_choice
-    rows.append([
-        InlineKeyboardButton(text=f"{'🔘' if c_side == 'random' else '⚪️'} 👑 🎲 Рандом", callback_data=f"xo:sd:c:{gid}:random"),
-        InlineKeyboardButton(text=f"{'🔘' if c_side == 'X' else '⚪️'} 👑 ❌ Хочу X", callback_data=f"xo:sd:c:{gid}:X"),
-        InlineKeyboardButton(text=f"{'🔘' if c_side == 'O' else '⚪️'} 👑 ⭕️ Хочу O", callback_data=f"xo:sd:c:{gid}:O"),
-    ])
-
-    # 4. Выбор стороны соперника и принятие (Ряд 4)
-    rows.append([
-        InlineKeyboardButton(text="⚔️ Принять (🎲)", callback_data=f"xo:accept:{gid}:random"),
-        InlineKeyboardButton(text="⚔️ За ❌", callback_data=f"xo:accept:{gid}:X"),
-        InlineKeyboardButton(text="⚔️ За ⭕️", callback_data=f"xo:accept:{gid}:O"),
-    ])
-
-    # 5. Отмена
-    rows.append([
-        InlineKeyboardButton(text="❌ Отменить вызов", callback_data=f"xo:cancel:{gid}")
-    ])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+        prefix = "🔘" if k == highlight_key else "⚪️"
+        row.append(InlineKeyboardButton(text=f"{prefix} {a['name']}", callback_data="xo:noop"))
+    return InlineKeyboardMarkup(inline_keyboard=[row])
 
 
+# ЭТАП 4: Игровое поле
 def render_board_kb(game: GameSession) -> InlineKeyboardMarkup:
     gid = game.game_id
     board = game.board
@@ -259,44 +201,20 @@ def render_board_kb(game: GameSession) -> InlineKeyboardMarkup:
         ])
     elif game.state == "finished":
         rows.append([
-            InlineKeyboardButton(text="🔄 Играть снова", callback_data=f"xo:rematch:{gid}"),
-            InlineKeyboardButton(text="🚪 Закрыть", callback_data=f"xo:close:{gid}")
+            InlineKeyboardButton(text="🔄 Сыграть снова", callback_data=f"xo:rematch:{gid}"),
+            InlineKeyboardButton(text="🚪 Отказаться / Закрыть", callback_data=f"xo:close:{gid}")
         ])
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _render_lobby_text(game: GameSession) -> str:
-    target_txt = f"⚔️ <b>Противник:</b> {mention_id(game.target_id, html.escape(game.target_name))}\n" if game.target_id else "👥 <b>Вызов:</b> <i>Открытый для любого желающего в чате!</i>\n"
-    bet_txt = f"💰 <b>Ставка:</b> <code>{game.bet:,}</code> 🪙\n" if game.bet > 0 else "🎮 <b>Режим:</b> <i>Дружеский (без ставки)</i>\n"
-
-    c_choice_map = {"random": "🎲 Рандом", "X": "❌ Крестик", "O": "⭕️ Нолик"}
-    c_choice_txt = c_choice_map.get(game.creator_choice, "🎲 Рандом")
-    t_choice_txt = c_choice_map.get(game.target_choice, "🎲 Рандом")
-
-    c_ar_txt = ARENAS.get(game.creator_arena, {}).get("name", "6 × 6")
-    t_ar_txt = ARENAS.get(game.target_arena, {}).get("name", "6 × 6")
-
-    return (
-        f"🎮 <b>ДУЭЛЬ В КРЕСТИКИ-НОЛИКИ</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"👑 <b>Создатель:</b> {mention_id(game.creator_id, html.escape(game.creator_name))}\n"
-        f"   • Карта: <b>{c_ar_txt}</b> | Фигура: <b>{c_choice_txt}</b>\n"
-        f"{target_txt}"
-        f"   • Карта: <b>{t_ar_txt}</b> | Фигура: <b>{t_choice_txt}</b>\n"
-        f"{bet_txt}\n"
-        f"👉 <i>Оба игрока выбирают карту и фигуру кнопками ниже.\n"
-        f"Если карты или стороны не совпадут — решит честный жребий 50/50!</i>"
-    )
-
-
 # ══════════════════════════════════════════════════════════════════
-# КОМАНДА ЗАПУСКА
+# ЭТАП 1: КОМАНДА ВЫЗОВА
 # ══════════════════════════════════════════════════════════════════
 @router.message(Cmd("кн", "крестики", "крестики нолики", "крестики-нолики", "xo",
                     section=S, rank=0, group_only=True,
                     usage="кн [@юзер] [ставка]",
-                    desc="🎮 Дуэль в Крестики-Нолики на нативных кнопках (3х3, 6х6, 7х7)"))
+                    desc="🎮 Дуэль в Крестики-Нолики (с выбором сторон, карт и рулеткой)"))
 async def cmd_tictactoe(message: Message, bot: Bot, args: str = "", **kw):
     cid = message.chat.id
     uid = message.from_user.id
@@ -345,110 +263,55 @@ async def cmd_tictactoe(message: Message, bot: Bot, args: str = "", **kw):
     )
     GAMES[gid] = game
 
-    text = _render_lobby_text(game)
-    await message.reply(text, reply_markup=render_lobby_kb(game), disable_web_page_preview=True)
+    target_txt = f"⚔️ <b>Противник:</b> {mention_id(target_id, html.escape(target_name))}\n" if target_id else "👥 <b>Вызов:</b> <i>Открытый для любого желающего в чате!</i>\n"
+    bet_txt = f"💰 <b>Ставка:</b> <code>{bet:,}</code> 🪙\n" if bet > 0 else "🎮 <b>Режим:</b> <i>Дружеский (без ставки)</i>\n"
+
+    target_question = f"{mention_id(target_id, html.escape(target_name))}, вы принимаете вызов на дуэль?" if target_id else "Кто готов принять вызов на дуэль?"
+
+    text = (
+        f"🎮 <b>ВЫЗОВ НА ДУЭЛЬ В КРЕСТИКИ-НОЛИКИ</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👑 <b>Создатель:</b> {mention_id(uid, html.escape(uname))}\n"
+        f"{target_txt}"
+        f"{bet_txt}\n"
+        f"❓ {target_question}"
+    )
+
+    await message.reply(text, reply_markup=kb_invite(gid), disable_web_page_preview=True)
 
 
 # ══════════════════════════════════════════════════════════════════
-# ДЕЙСТВИЯ В ЛОББИ: ВЫБОР КАРТЫ ДЛЯ 1-ГО И 2-ГО ИГРОКА
+# ЭТАП 1: ОБРАБОТКА «ПРИНЯТЬ» ИЛИ «ОТКЛОНИТЬ»
 # ══════════════════════════════════════════════════════════════════
-@router.callback_query(F.data.startswith("xo:ar:"))
-async def cb_select_arena(call: CallbackQuery):
+@router.callback_query(F.data.startswith("xo:inv:"))
+async def cb_invite_action(call: CallbackQuery):
     parts = call.data.split(":")
-    who = parts[2]  # 'c' (creator) | 't' (target)
+    action = parts[2]  # accept | decline
     gid = parts[3]
-    arena_key = parts[4]
 
     game = GAMES.get(gid)
-    if not game or game.state != "lobby":
-        return await call.answer("Игра уже началась или недействительна", show_alert=True)
-
-    uid = call.from_user.id
-
-    if who == "c":
-        if uid != game.creator_id:
-            return await call.answer("⚠️ Это строка выбора карты для создателя дуэли!", show_alert=True)
-        game.creator_arena = arena_key
-        await call.answer(f"Создатель выбрал карту {ARENAS[arena_key]['name']}")
-    else:
-        if uid == game.creator_id:
-            return await call.answer("⚠️ Это строка выбора карты для соперника!", show_alert=True)
-        if game.target_id and uid != game.target_id:
-            return await call.answer("Этот вызов брошен конкретному игроку!", show_alert=True)
-
-        # Фиксируем соперника если был открытый вызов
-        if not game.target_id:
-            game.target_id = uid
-            game.target_name = call.from_user.first_name
-
-        game.target_arena = arena_key
-        await call.answer(f"Соперник выбрал карту {ARENAS[arena_key]['name']}")
-
-    text = _render_lobby_text(game)
-    await call.message.edit_text(text, reply_markup=render_lobby_kb(game), disable_web_page_preview=True)
-
-
-@router.callback_query(F.data.startswith("xo:sd:"))
-async def cb_select_side(call: CallbackQuery):
-    parts = call.data.split(":")
-    who = parts[2]  # 'c' (creator)
-    gid = parts[3]
-    choice = parts[4]
-
-    game = GAMES.get(gid)
-    if not game or game.state != "lobby":
-        return await call.answer("Лобби недоступно", show_alert=True)
-
-    uid = call.from_user.id
-    if uid != game.creator_id:
-        return await call.answer("⚠️ Выбирать фигуру создателя может только создатель!", show_alert=True)
-
-    game.creator_choice = choice
-    choice_name = "🎲 Рандом" if choice == "random" else ("❌ Крестик" if choice == "X" else "⭕️ Нолик")
-    await call.answer(f"Ваш выбор фигуры: {choice_name}")
-
-    text = _render_lobby_text(game)
-    await call.message.edit_text(text, reply_markup=render_lobby_kb(game), disable_web_page_preview=True)
-
-
-@router.callback_query(F.data.startswith("xo:cancel:"))
-async def cb_cancel_game(call: CallbackQuery):
-    _, _, gid = call.data.split(":")
-    game = GAMES.get(gid)
-    if not game or game.state != "lobby":
-        return await call.answer("Игра уже началась или недействительна")
-
-    uid = call.from_user.id
-    if uid != game.creator_id:
-        return await call.answer("Отменить дуэль может только создатель!", show_alert=True)
-
-    GAMES.pop(gid, None)
-    await call.message.edit_text("🛑 <b>Дуэль в Крестики-Нолики отменена создателем.</b>")
-    await call.answer("Отменено")
-
-
-# ══════════════════════════════════════════════════════════════════
-# ПРИНЯТИЕ И ЗАПУСК
-# ══════════════════════════════════════════════════════════════════
-@router.callback_query(F.data.startswith("xo:accept:"))
-async def cb_accept_game(call: CallbackQuery):
-    parts = call.data.split(":")
-    gid = parts[2]
-    side_pref = parts[3] if len(parts) > 3 else "random"
-
-    game = GAMES.get(gid)
-    if not game or game.state != "lobby":
-        return await call.answer("Игра уже началась или устарела!", show_alert=True)
+    if not game or game.state != "invite":
+        return await call.answer("Вызов уже недействителен или дуэль началась!")
 
     uid = call.from_user.id
     uname = call.from_user.first_name
 
+    # Создатель не может сам принимать свой вызов
     if uid == game.creator_id:
-        return await call.answer("Вы создатель этой дуэли! Ожидайте второго игрока.", show_alert=True)
+        return await call.answer("Вы создатель этого вызова! Ожидайте ответа соперника.", show_alert=True)
 
+    # Если вызов был брошен конкретному игроку
     if game.target_id and uid != game.target_id:
-        return await call.answer("Этот вызов брошен конкретному игроку!", show_alert=True)
+        return await call.answer("Этот вызов брошен не вам!", show_alert=True)
 
+    # 1. ОТКЛОНЕНИЕ
+    if action == "decline":
+        GAMES.pop(gid, None)
+        text = f"🛑 <b>{html.escape(uname)} отказался от игры в Крестики-Нолики.</b>"
+        await call.message.edit_text(text, reply_markup=None)
+        return await call.answer("Вызов отклонен.")
+
+    # 2. ПРИНЯТИЕ
     # Проверка баланса
     if game.bet > 0:
         c_data = await db.get_user(game.creator_id)
@@ -465,37 +328,178 @@ async def cb_accept_game(call: CallbackQuery):
 
     game.target_id = uid
     game.target_name = uname
-    game.target_choice = side_pref
+    game.state = "pick_side"
 
-    # 1. Разрешаем Арену (Карту)
-    resolved_ar, ar_note = resolve_arena(game.creator_arena, game.target_arena)
-    game.arena_key = resolved_ar
-    ar_info = ARENAS[resolved_ar]
-
-    # 2. Разрешаем Фигуры (Стороны)
-    px_id, px_name, po_id, po_name, side_note = resolve_sides(
-        game.creator_id, game.creator_name, game.creator_choice,
-        game.target_id, game.target_name, game.target_choice
+    # Переход к ЭТАПУ 2: Выбор фигур
+    bet_txt = f"💰 <b>Ставка:</b> <code>{game.bet:,}</code> 🪙\n" if game.bet > 0 else ""
+    text = (
+        f"🎮 <b>ВЫБОР ФИГУР ДЛЯ ДУЭЛИ</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👑 <b>Создатель:</b> {mention_id(game.creator_id, html.escape(game.creator_name))}\n"
+        f"⚔️ <b>Противник:</b> {mention_id(game.target_id, html.escape(game.target_name))}\n"
+        f"{bet_txt}\n"
+        f"👉 <b>Кто первый нажмет кнопку — тот выбирает свою фигуру!</b>\n"
+        f"Второму игроку автоматически достанется противоположная."
     )
-    game.player_x_id, game.player_x_name = px_id, px_name
-    game.player_o_id, game.player_o_name = po_id, po_name
+    await call.message.edit_text(text, reply_markup=kb_pick_side(gid), disable_web_page_preview=True)
+    await call.answer("Вызов принят! Выберите фигуру.")
 
-    # Создаем поле под выбранную арену
+
+# ══════════════════════════════════════════════════════════════════
+# ЭТАП 2: ВЫБОР ФИГУРЫ (КРЕСТИК ИЛИ НОЛИК)
+# ══════════════════════════════════════════════════════════════════
+@router.callback_query(F.data.startswith("xo:side:"))
+async def cb_pick_side(call: CallbackQuery):
+    parts = call.data.split(":")
+    gid = parts[2]
+    chosen_side = parts[3]  # X | O
+
+    game = GAMES.get(gid)
+    if not game or game.state != "pick_side":
+        return await call.answer("Выбор фигур уже завершен или недействителен!")
+
+    uid = call.from_user.id
+    if uid not in (game.creator_id, game.target_id):
+        return await call.answer("Вы не участник этой дуэли!", show_alert=True)
+
+    # Определяем кто нажал
+    is_creator = (uid == game.creator_id)
+    clicker_name = game.creator_name if is_creator else game.target_name
+    other_id = game.target_id if is_creator else game.creator_id
+    other_name = game.target_name if is_creator else game.creator_name
+
+    if chosen_side == "X":
+        game.player_x_id, game.player_x_name = uid, clicker_name
+        game.player_o_id, game.player_o_name = other_id, other_name
+    else:
+        game.player_o_id, game.player_o_name = uid, clicker_name
+        game.player_x_id, game.player_x_name = other_id, other_name
+
+    game.state = "pick_arena"
+    game.arena_votes = {}
+
+    bet_txt = f"💰 <b>Банк:</b> <code>{game.bet * 2:,}</code> 🪙\n" if game.bet > 0 else ""
+
+    text = (
+        f"🏟 <b>ВЫБОР КАРТЫ ДУЭЛИ</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"❌ <b>Крестик:</b> {mention_id(game.player_x_id, html.escape(game.player_x_name))}\n"
+        f"⭕️ <b>Нолик:</b> {mention_id(game.player_o_id, html.escape(game.player_o_name))}\n"
+        f"{bet_txt}\n"
+        f"👉 <b>Оба игрока выбирают карту кнопками ниже:</b>\n"
+        f"• {html.escape(game.player_x_name)}: <i>⏳ Выбирает...</i>\n"
+        f"• {html.escape(game.player_o_name)}: <i>⏳ Выбирает...</i>\n\n"
+        f"<i>Если мнения совпадут — играем на ней.\nЕсли будут разные — ИИ запустит рулетку!</i>"
+    )
+
+    await call.message.edit_text(text, reply_markup=kb_pick_arena(gid, game), disable_web_page_preview=True)
+    await call.answer(f"Вы выбрали {chosen_side}!")
+
+
+# ══════════════════════════════════════════════════════════════════
+# ЭТАП 3: ГОЛОСОВАНИЕ ЗА КАРТУ И РУЛЕТКА ИИ
+# ══════════════════════════════════════════════════════════════════
+@router.callback_query(F.data.startswith("xo:ar_vote:"))
+async def cb_arena_vote(call: CallbackQuery):
+    parts = call.data.split(":")
+    gid = parts[2]
+    vote_key = parts[3]  # 3x3 | 6x6 | 8x8
+
+    game = GAMES.get(gid)
+    if not game or game.state != "pick_arena":
+        return await call.answer("Голосование за карту уже завершено!")
+
+    uid = call.from_user.id
+    if uid not in (game.player_x_id, game.player_o_id):
+        return await call.answer("Вы не участник этой дуэли!", show_alert=True)
+
+    game.arena_votes[uid] = vote_key
+    await call.answer(f"Ваш голос: {ARENAS[vote_key]['name']}")
+
+    x_vote = game.arena_votes.get(game.player_x_id)
+    o_vote = game.arena_votes.get(game.player_o_id)
+
+    x_status = f"<b>{ARENAS[x_vote]['name']}</b> ✅" if x_vote else "<i>⏳ Выбирает...</i>"
+    o_status = f"<b>{ARENAS[o_vote]['name']}</b> ✅" if o_vote else "<i>⏳ Выбирает...</i>"
+
+    bet_txt = f"💰 <b>Банк:</b> <code>{game.bet * 2:,}</code> 🪙\n" if game.bet > 0 else ""
+
+    # Если еще не оба проголосовали
+    if not (x_vote and o_vote):
+        text = (
+            f"🏟 <b>ВЫБОР КАРТЫ ДУЭЛИ</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"❌ <b>Крестик:</b> {mention_id(game.player_x_id, html.escape(game.player_x_name))}\n"
+            f"⭕️ <b>Нолик:</b> {mention_id(game.player_o_id, html.escape(game.player_o_name))}\n"
+            f"{bet_txt}\n"
+            f"👉 <b>Голосование за карту:</b>\n"
+            f"• {html.escape(game.player_x_name)}: {x_status}\n"
+            f"• {html.escape(game.player_o_name)}: {o_status}\n\n"
+            f"<i>Если мнения совпадут — играем на ней.\nЕсли будут разные — ИИ запустит рулетку!</i>"
+        )
+        return await call.message.edit_text(text, reply_markup=kb_pick_arena(gid, game), disable_web_page_preview=True)
+
+    # ══════════════════════════════════════════════════════════════════
+    # ОБА ПРОГОЛОСОВАЛИ: СОВПАДЕНИЕ ИЛИ РУЛЕТКА ИИ!
+    # ══════════════════════════════════════════════════════════════════
+    game.state = "starting"
+
+    # Вариант А: Единогласно
+    if x_vote == o_vote:
+        game.arena_key = x_vote
+        await launch_game(call.message, game, resolve_reason=f"✨ <i>Оба игрока единогласно выбрали арену <b>{ARENAS[x_vote]['name']}</b>!</i>")
+        return
+
+    # Вариант Б: Мнения разные -> ИИ ЗАПУСКАЕТ РУЛЕТКУ САМ!
+    arena_keys_cycle = ["3x3", "6x6", "8x8"]
+    winning_key = random.choice([x_vote, o_vote])  # Выбираем честно между голосами
+    game.arena_key = winning_key
+
+    text_base = (
+        f"🎲 <b>МНЕНИЯ РАЗДЕЛИЛИСЬ! ИИ ЗАПУСКАЕТ РУЛЕТКУ...</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"• {html.escape(game.player_x_name)} выбрал: <b>{ARENAS[x_vote]['name']}</b>\n"
+        f"• {html.escape(game.player_o_name)} выбрал: <b>{ARENAS[o_vote]['name']}</b>\n\n"
+        f"⚡️ <i>ИИ гоняет рулетку по картам:</i>"
+    )
+
+    # Анимация рулетки: делает круг по 3x3 -> 6x6 -> 8x8
+    steps = ["3x3", "6x6", "8x8", "3x3", "6x6", "8x8", winning_key]
+    for step_key in steps:
+        try:
+            await call.message.edit_text(text_base, reply_markup=kb_roulette(step_key))
+            await asyncio.sleep(0.42)
+        except Exception:
+            pass
+
+    resolve_note = (
+        f"🎯 <i>Рулетка ИИ остановилась на карте <b>{ARENAS[winning_key]['name']}</b>!</i>\n"
+        f"({html.escape(game.player_x_name)} голосовал за {ARENAS[x_vote]['name']}, "
+        f"{html.escape(game.player_o_name)} за {ARENAS[o_vote]['name']})"
+    )
+
+    await launch_game(call.message, game, resolve_reason=resolve_note)
+
+
+# ══════════════════════════════════════════════════════════════════
+# ЭТАП 4: СТАРТ ИГРОВОГО ПОЛЯ
+# ══════════════════════════════════════════════════════════════════
+async def launch_game(message: Message, game: GameSession, resolve_reason: str):
+    ar_info = ARENAS[game.arena_key]
     size = ar_info["size"]
     game.board = [[" " for _ in range(size)] for _ in range(size)]
+    game.state = "playing"
+    game.turn = "X"  # ПЕРВЫМ ВСЕГДА ХОДИТ КРЕСТИК!
+    game.last_move_ts = int(time.time())
 
     # Списание ставок
     if game.bet > 0:
-        await db.add_balance(game.creator_id, -game.bet, "tictactoe_bet", gid)
-        await db.add_balance(game.target_id, -game.bet, "tictactoe_bet", gid)
+        await db.add_balance(game.player_x_id, -game.bet, "tictactoe_bet", game.game_id)
+        await db.add_balance(game.player_o_id, -game.bet, "tictactoe_bet", game.game_id)
 
-    # Блокировка игроков
+    # Блокировка от других игр
     lock_game(game.player_x_id, "❌ Крестики-Нолики", game.chat_id)
     lock_game(game.player_o_id, "⭕️ Крестики-Нолики", game.chat_id)
-
-    game.state = "playing"
-    game.turn = "X"  # Первым ВСЕГДА ходит Крестик!
-    game.last_move_ts = int(time.time())
 
     pot = game.bet * 2
     pot_txt = f"💰 <b>Банк игры:</b> <code>{pot:,}</code> 🪙\n" if pot > 0 else ""
@@ -505,20 +509,18 @@ async def cb_accept_game(call: CallbackQuery):
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"❌ <b>Крестик:</b> {mention_id(game.player_x_id, html.escape(game.player_x_name))}\n"
         f"⭕️ <b>Нолик:</b> {mention_id(game.player_o_id, html.escape(game.player_o_name))}\n"
-        f"🎯 <b>Цель:</b> <b>{ar_info['desc']}</b> (в любом направлении!)\n"
+        f"🎯 <b>Цель:</b> <b>{ar_info['desc']}</b> (в любом направлении: ↔️ ↕️ ↘️ ↙️)\n"
         f"{pot_txt}\n"
-        f"{ar_note}\n"
-        f"{side_note}\n\n"
+        f"{resolve_reason}\n\n"
         f"👉 <b>СЕЙЧАС ХОДИТ:</b> ❌ <b>{html.escape(game.player_x_name)}</b>\n"
         f"⏳ <i>Осталось времени на ход: 45 сек</i>"
     )
 
-    await call.message.edit_text(text, reply_markup=render_board_kb(game), disable_web_page_preview=True)
-    await call.answer("Дуэль началась! Первый ход делает Крестик.")
+    await message.edit_text(text, reply_markup=render_board_kb(game), disable_web_page_preview=True)
 
 
 # ══════════════════════════════════════════════════════════════════
-# ИГРОВОЙ ХОД И ПРОВЕРКА ОЧЕРЕДНОСТИ
+# ЭТАП 4: ХОДЫ И БЛОКИРОВКИ
 # ══════════════════════════════════════════════════════════════════
 @router.callback_query(F.data.startswith("xo:move:"))
 async def cb_make_move(call: CallbackQuery):
@@ -534,6 +536,7 @@ async def cb_make_move(call: CallbackQuery):
     if uid not in (game.player_x_id, game.player_o_id):
         return await call.answer("⛔️ Это чужая дуэль! Начните свою: кн [ставка]", show_alert=True)
 
+    # Строгая блокировка чужого хода
     if game.turn == "X":
         if uid != game.player_x_id:
             return await call.answer(
@@ -554,7 +557,7 @@ async def cb_make_move(call: CallbackQuery):
         next_name = game.player_x_name
 
     if game.board[r][c] != " ":
-        return await call.answer("⚠️ Эта клетка уже занята! Выберите свободную.", show_alert=False)
+        return await call.answer("⚠️ Эта клетка уже занята! Выберите свободную белую клетку.", show_alert=False)
 
     game.board[r][c] = current_sym
     game.last_move_ts = int(time.time())
@@ -627,7 +630,7 @@ async def cb_make_move(call: CallbackQuery):
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"❌ <b>Крестик:</b> {mention_id(game.player_x_id, html.escape(game.player_x_name))}\n"
         f"⭕️ <b>Нолик:</b> {mention_id(game.player_o_id, html.escape(game.player_o_name))}\n"
-        f"🎯 <b>Цель:</b> <b>{ar_info['desc']}</b> (в любом направлении!)\n"
+        f"🎯 <b>Цель:</b> <b>{ar_info['desc']}</b> (в любом направлении: ↔️ ↕️ ↘️ ↙️)\n"
         f"{pot_txt}\n"
         f"👉 <b>СЕЙЧАС ХОДИТ:</b> {turn_sym} <b>{html.escape(next_name)}</b>\n"
         f"⏳ <i>Осталось времени на ход: 45 сек</i>"
@@ -637,7 +640,7 @@ async def cb_make_move(call: CallbackQuery):
 
 
 # ══════════════════════════════════════════════════════════════════
-# СДАЧА И ТАЙМ-АУТ
+# СДАЧА, ТАЙМ-АУТ, ОТМЕНА, РЕВАНШ
 # ══════════════════════════════════════════════════════════════════
 @router.callback_query(F.data.startswith("xo:surrender:"))
 async def cb_surrender(call: CallbackQuery):
@@ -715,6 +718,23 @@ async def cb_timeout_check(call: CallbackQuery):
     await call.answer("Тайм-аут зафиксирован")
 
 
+@router.callback_query(F.data.startswith("xo:cancel:"))
+async def cb_cancel_game(call: CallbackQuery):
+    _, _, gid = call.data.split(":")
+    game = GAMES.get(gid)
+    if not game:
+        return await call.answer("Игра уже недействительна")
+
+    uid = call.from_user.id
+    if uid not in (game.creator_id, game.target_id):
+        return await call.answer("Отказаться могут только участники дуэли!", show_alert=True)
+
+    canceler_name = game.creator_name if uid == game.creator_id else game.target_name
+    GAMES.pop(gid, None)
+    await call.message.edit_text(f"🛑 <b>{html.escape(canceler_name)} отказался от дуэли.</b>", reply_markup=None)
+    await call.answer("Отменено")
+
+
 @router.callback_query(F.data.startswith("xo:close:"))
 async def cb_close_game(call: CallbackQuery):
     _, _, gid = call.data.split(":")
@@ -740,12 +760,19 @@ async def cb_rematch(call: CallbackQuery):
         target_name=game.target_name,
         bet=game.bet,
     )
-    new_game.creator_arena = game.creator_arena
-    new_game.target_arena = game.target_arena
-    new_game.creator_choice = game.creator_choice
-    new_game.target_choice = game.target_choice
     GAMES[new_gid] = new_game
 
-    text = _render_lobby_text(new_game)
-    await call.message.reply(text, reply_markup=render_lobby_kb(new_game), disable_web_page_preview=True)
+    target_name = game.target_name or "Соперник"
+    text = (
+        f"🔄 <b>РЕВАНШ В КРЕСТИКИ-НОЛИКИ</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👑 {mention_id(game.creator_id, html.escape(game.creator_name))} предлагает реванш!\n"
+        f"⚔️ {mention_id(game.target_id, html.escape(target_name))}, принимаете?"
+    )
+    await call.message.reply(text, reply_markup=kb_invite(new_gid), disable_web_page_preview=True)
     await call.answer("Реванш предложен!")
+
+
+@router.callback_query(F.data == "xo:noop")
+async def cb_noop(call: CallbackQuery):
+    await call.answer()
