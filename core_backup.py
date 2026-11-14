@@ -80,7 +80,8 @@ def _snapshot() -> bytes | None:
     try:
         con = sqlite3.connect(str(src))
         try:
-            con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            con.execute("PRAGMA busy_timeout=5000")
+            con.execute("PRAGMA wal_checkpoint(PASSIVE)")
         except Exception:
             pass
         dst = sqlite3.connect(str(tmp))

@@ -81,6 +81,8 @@ async def init_bridge_tables(db):
     """)
 
 
+_cached_queue_channel_id: Optional[int] = None
+
 # ---------------- 1. ОТПРАВКА И ОБНОВЛЕНИЕ ЧЕРЕЗ DISCORD REST API ----------------
 def _discord_api_request(endpoint: str, method: str = "GET", data: Optional[dict] = None) -> Optional[dict]:
     ds_token = get_discord_token()
@@ -95,7 +97,7 @@ def _discord_api_request(endpoint: str, method: str = "GET", data: Optional[dict
     body = json.dumps(data).encode("utf-8") if data else None
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=3.5) as resp:
             content = resp.read().decode("utf-8")
             return json.loads(content) if content else {}
     except Exception as e:
@@ -104,7 +106,10 @@ def _discord_api_request(endpoint: str, method: str = "GET", data: Optional[dict
 
 
 def get_discord_queue_channel_id() -> Optional[int]:
-    """Ищет канал 🚨・очередь-жалоб на сервере стаффа Discord."""
+    """Ищет канал 🚨・очередь-жалоб на сервере стаффа Discord (с кэшированием)."""
+    global _cached_queue_channel_id
+    if _cached_queue_channel_id:
+        return _cached_queue_channel_id
     guild_id = get_discord_guild_id()
     res = _discord_api_request(f"/guilds/{guild_id}/channels")
     if not res or not isinstance(res, list):
@@ -112,10 +117,12 @@ def get_discord_queue_channel_id() -> Optional[int]:
     for ch in res:
         name = ch.get("name", "")
         if "очередь" in name or "жалоб" in name or "тикет" in name:
-            return int(ch["id"])
+            _cached_queue_channel_id = int(ch["id"])
+            return _cached_queue_channel_id
     for ch in res:
         if ch.get("type") == 0:
-            return int(ch["id"])
+            _cached_queue_channel_id = int(ch["id"])
+            return _cached_queue_channel_id
     return None
 
 
@@ -284,7 +291,7 @@ def _telegram_api_request(method_name: str, payload: dict) -> Optional[dict]:
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=3.5) as resp:
             content = resp.read().decode("utf-8")
             return json.loads(content) if content else {}
     except Exception as e:

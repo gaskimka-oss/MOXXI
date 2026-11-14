@@ -366,11 +366,7 @@ async def cmd_claim_battlepass(message: Message, bot: Bot, **kw):
         if "title" in r:
             titles_given.append(r["title"])
             try:
-                await db.execute(
-                    "INSERT INTO titles (chat_id, user_id, title) VALUES (?, ?, ?) "
-                    "ON CONFLICT(chat_id, user_id) DO UPDATE SET title=excluded.title",
-                    (message.chat.id, uid, r["title"])
-                )
+                await db.unlock_user_title(uid, r["title"])
             except Exception:
                 pass
         await db.claim_battlepass_level(uid, l)

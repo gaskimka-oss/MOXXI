@@ -36,10 +36,22 @@ def _get_dc_token() -> str:
 def _get_max_token() -> str:
     return os.getenv("MAX_BOT_TOKEN", "").strip()
 
-# Базы данных других платформ на локальном диске
-VK_DB_PATH = os.path.abspath(r"C:\Users\eiema\OneDrive\Desktop\moxxivk\data\moxxi_vk.db")
-DC_DB_PATH = os.path.abspath(r"C:\Users\eiema\OneDrive\Desktop\moxxidc\data\moxxi_dc.db")
-MAX_DB_PATH = os.path.abspath(r"C:\Users\eiema\OneDrive\Desktop\moxximax\data\moxxi_max.db")
+def _find_db(name: str) -> str:
+    candidates = [
+        os.path.abspath(rf"C:\Users\eiema\OneDrive\Desktop\{name}\data\{name}.db"),
+        os.path.abspath(rf"../{name}/data/{name}.db"),
+        os.path.abspath(rf"/app/data/{name}.db"),
+        os.path.abspath(rf"data/{name}.db"),
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    return candidates[0]
+
+# Базы данных других платформ на диске (Windows / Linux / BotHost)
+VK_DB_PATH = _find_db("moxxi_vk")
+DC_DB_PATH = _find_db("moxxi_dc")
+MAX_DB_PATH = _find_db("moxxi_max")
 
 
 # ══════════════════════════════════════════════════════════════════

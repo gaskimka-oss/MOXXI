@@ -57,7 +57,7 @@ _PROV_TYPE, _URL_GUESS, _MODEL_GUESS = _guess_provider_and_model(_K_SAMPLE)
 PROVIDER_TYPE = os.getenv("AI_PROVIDER_TYPE") or _PROV_TYPE
 URL = (os.getenv("AI_API_URL") or _URL_GUESS).strip()
 MODEL = (os.getenv("AI_MODEL") or _MODEL_GUESS).strip()
-TIMEOUT = int(os.getenv("AI_TIMEOUT", "18") or 18)
+TIMEOUT = int(os.getenv("AI_TIMEOUT", "6") or 6)
 _bad_models = {"gemini-1.5-flash", "gemini-2.0-flash"}
 _g_models = ["gemini-flash-lite-latest", "gemini-2.5-flash-lite", "gemini-3.1-flash-lite", "gemini-flash-latest", "gemini-3-flash-preview", MODEL if MODEL and MODEL not in _bad_models else ""]
 GEMINI_MODELS = list(dict.fromkeys(m for m in _g_models if m))
@@ -216,7 +216,7 @@ def _ask_raw(system: str, user: str, max_tokens: int = 250, temperature: float =
     if not KEYS:
         return None
 
-    max_tries = min(len(KEYS), 6)
+    max_tries = min(len(KEYS), 3)
     for _ in range(max_tries):
         current_key = get_next_key()
         try:
