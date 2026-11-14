@@ -317,40 +317,126 @@ async def cmd_list_birthdays(message: Message, bot: Bot, **kw):
 
 
 # ---------------- 50. СЕКРЕТНЫЕ ПРОМОКОДЫ (ТОЛЬКО ВЛАДЕЛЬЦЫ БОТА) ----------------
-@router.message(Cmd("+промо", "создать промо", rank=0, group_only=False, usage="+промо [код] [кол-во] [награда]",
-                    desc="🎁 Создать промокод на монеты (ТОЛЬКО Создатели бота)"))
+@router.message(Cmd("+промо", "+промовип", "+промовип+", "+промовип++", "создать промо", "создать промокод",
+                    rank=0, group_only=False,
+                    usage="+промо [код] [кол-во] [награда / вип / вип++ [дней]]",
+                    desc="🎁 Создать промокод на монеты, VIP или VIP++ (ТОЛЬКО Создатели бота)"))
 async def cmd_create_promocode(message: Message, bot: Bot, args: str = "", **kw):
     import config
     sender_id = message.from_user.id if message.from_user else 0
     if not config.is_bot_owner(sender_id):
         return await message.reply("⛔️ Создавать промокоды могут <b>ТОЛЬКО Создатели бота</b>!\n\nОстальным пользователям и администраторам групп создание промокодов строго запрещено.")
-    parts = (args or "").strip().split()
 
-    if len(parts) < 3 or not parts[1].isdigit() or not parts[2].isdigit():
-        return await message.reply("Формат: <code>+промо ВЕСНА 10 5000</code>\n(Код, число активаций, награда монет)")
+    raw_text = (message.text or "").strip()
+    cmd_name = raw_text.split()[0].lower() if raw_text else ""
+    tokens = (args or "").strip().split()
 
-    code = parts[0].upper()
-    uses = int(parts[1])
-    reward = int(parts[2])
+    reward_type = "coins"
+    code = ""
+    uses = 0
+    reward = 0
+    duration_days = 0
+
+    if "вип++" in cmd_name or "vipplus" in cmd_name or "vip++" in cmd_name:
+        reward_type = "vipplus"
+    elif "вип+" in cmd_name or "vip+" in cmd_name:
+        reward_type = "vipplus"
+    elif "вип" in cmd_name or "vip" in cmd_name:
+        reward_type = "vip"
+
+    if not tokens:
+        return await message.reply(
+            "🎁 <b>Форматы создания промокодов (для Создателей):</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "🌟 <b>На VIP++ (VIP+ Diamond):</b>\n"
+            "• <code>+промо вип++ [КОД] [АКТИВАЦИЙ] [ДНЕЙ]</code>\n"
+            "👉 <i>Пример:</i> <code>+промо вип++ СУПЕР9 20 9</code>\n\n"
+            "⭐️ <b>На VIP (обычный):</b>\n"
+            "• <code>+промо вип [КОД] [АКТИВАЦИЙ] [ДНЕЙ]</code>\n"
+            "👉 <i>Пример:</i> <code>+промо вип ЛЕТО 20 9</code>\n\n"
+            "💰 <b>На монеты:</b>\n"
+            "• <code>+промо [КОД] [АКТИВАЦИЙ] [СУММА]</code>\n"
+            "👉 <i>Пример:</i> <code>+промо ВЕСНА 20 5000</code>"
+        )
+
+    # 1. Формат: +промо вип++ [код] [кол-во] [дней]
+    p0 = tokens[0].lower()
+    if p0 in ("вип", "vip", "вип+", "vip+", "вип++", "vip++", "vipplus"):
+        reward_type = "vipplus" if ("+" in p0 or "plus" in p0) else "vip"
+        if len(tokens) >= 4 and tokens[2].isdigit() and tokens[3].isdigit():
+            code = tokens[1].upper()
+            uses = int(tokens[2])
+            duration_days = int(tokens[3])
+        elif len(tokens) == 3 and tokens[1].isdigit() and tokens[2].isdigit():
+            code = f"{'VIPPLUS' if reward_type == 'vipplus' else 'VIP'}{int(time.time()) % 10000}"
+            uses = int(tokens[1])
+            duration_days = int(tokens[2])
+        else:
+            return await message.reply("⚠️ Формат: <code>+промо вип++ КОД 20 9</code> (Код, активаций, дней)")
+
+    # 2. Если команда была "+промовип++" или "+промовип"
+    elif reward_type in ("vip", "vipplus"):
+        if len(tokens) >= 3 and tokens[1].isdigit() and tokens[2].isdigit():
+            code = tokens[0].upper()
+            uses = int(tokens[1])
+            duration_days = int(tokens[2])
+        else:
+            return await message.reply(f"⚠️ Формат: <code>+{cmd_name} КОД 20 9</code>")
+
+    # 3. Универсальный формат: +промо [код] [кол-во] вип++ [дней]
+    elif len(tokens) >= 4 and tokens[1].isdigit() and tokens[2].lower() in ("вип", "vip", "вип+", "vip+", "вип++", "vip++", "vipplus") and tokens[3].isdigit():
+        p2 = tokens[2].lower()
+        reward_type = "vipplus" if ("+" in p2 or "plus" in p2) else "vip"
+        code = tokens[0].upper()
+        uses = int(tokens[1])
+        duration_days = int(tokens[3])
+
+    # 4. Стандартный промокод на монеты: +промо [код] [кол-во] [награда]
+    elif len(tokens) >= 3 and tokens[1].isdigit() and tokens[2].isdigit():
+        code = tokens[0].upper()
+        uses = int(tokens[1])
+        reward = int(tokens[2])
+        reward_type = "coins"
+
+    else:
+        return await message.reply(
+            "⚠️ <b>Неверный формат команды!</b>\n"
+            "• На VIP++: <code>+промо вип++ КОД 20 9</code>\n"
+            "• На VIP: <code>+промо вип КОД 20 9</code>\n"
+            "• На монеты: <code>+промо КОД 20 5000</code>"
+        )
+
+    if uses <= 0:
+        return await message.reply("❌ Число активаций должно быть больше 0!")
+
     now = int(time.time())
 
     await db.execute(
-        "INSERT INTO promocodes (code, chat_id, reward, uses_left, created_by, ts) VALUES (?, ?, ?, ?, ?, ?) "
-        "ON CONFLICT(code) DO UPDATE SET uses_left=excluded.uses_left, reward=excluded.reward",
-        (code, message.chat.id, reward, uses, message.from_user.id, now)
+        "INSERT INTO promocodes (code, chat_id, reward, uses_left, created_by, ts, reward_type, duration_days) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(code) DO UPDATE SET uses_left=excluded.uses_left, reward=excluded.reward, reward_type=excluded.reward_type, duration_days=excluded.duration_days",
+        (code, message.chat.id, reward, uses, message.from_user.id, now, reward_type, duration_days)
     )
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📢 Разослать промокод во все группы", callback_data=f"promo_bc:{code}")]
     ])
 
+    if reward_type == "vipplus":
+        reward_desc = f"🌟 <b>VIP+ Diamond (VIP++) на {duration_days} дней</b>"
+    elif reward_type == "vip":
+        reward_desc = f"⭐️ <b>VIP на {duration_days} дней</b>"
+    else:
+        reward_desc = f"💰 <b>+{reward:,} монет</b>"
+
     await message.reply(
-        f"🎁 <b>ПРОМОКОД СОЗДАН!</b>\n\n"
+        f"🎁 <b>ПРОМОКОД УСПЕШНО СОЗДАН!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🔑 Код: <code>{code}</code>\n"
         f"👥 Активаций: <b>{uses} шт.</b>\n"
-        f"💰 Награда: <b>+{reward:,} монет</b> каждому!\n\n"
-        f"Активация: <code>промо {code}</code>\n\n"
-        f"💡 <i>Нажмите кнопку ниже или введите <code>разослать промо {code}</code>, чтобы отправить промокод во все чаты!</i>",
+        f"🎁 Награда: {reward_desc} каждому!\n\n"
+        f"👉 <b>Активация для игроков:</b> <code>промо {code}</code>\n\n"
+        f"💡 <i>Нажмите кнопку ниже или введите <code>разослать промо {code}</code>, чтобы отправить промокод во все чаты (TG • VK • DS • MAX)!</i>",
         reply_markup=kb
     )
 
@@ -369,15 +455,25 @@ async def cb_broadcast_promocode(cq: CallbackQuery, bot: Bot):
 
     await cq.answer("📢 Запуск мульти-рассылки во все платформы (TG • VK • DS • MAX)...")
 
+    reward_type = (row["reward_type"] or "coins").lower() if "reward_type" in row.keys() else "coins"
+    duration_days = row["duration_days"] if "duration_days" in row.keys() and row["duration_days"] else 0
+
     from core_cross_broadcast import cross_broadcast_promo
-    stats = await cross_broadcast_promo(bot, code, row["reward"], row["uses_left"])
+    stats = await cross_broadcast_promo(bot, code, row["reward"], row["uses_left"], reward_type=reward_type, duration_days=duration_days)
+
+    if reward_type == "vipplus":
+        rew_info = f"🌟 <b>VIP++ на {duration_days} дней</b>"
+    elif reward_type == "vip":
+        rew_info = f"⭐️ <b>VIP на {duration_days} дней</b>"
+    else:
+        rew_info = f"💰 <b>+{row['reward']:,} монет</b>"
 
     try:
         await cq.message.reply(
             f"✅ <b>МУЛЬТИПЛАТФОРМЕННАЯ РАССЫЛКА ПРОМОКОДА ЗАВЕРШЕНА!</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"🔑 Промокод: <code>{code}</code>\n"
-            f"💰 Награда: <b>+{row['reward']:,} монет</b> каждому!\n"
+            f"🎁 Награда: {rew_info} каждому!\n"
             f"👥 Всего активаций: <b>{row['uses_left']} шт.</b>\n\n"
             f"📊 <b>СТАТИСТИКА ДОСТАВКИ ПО ПЛАТФОРМАМ:</b>\n"
             f"• ✈️ Telegram: <b>{stats.get('telegram', 0)} групп</b>\n"
@@ -411,6 +507,9 @@ async def cmd_broadcast_promocode(message: Message, bot: Bot, args: str = "", **
     if not row or row["uses_left"] <= 0:
         return await message.reply("⚠️ Промокод не найден или у него закончились активации!")
 
+    reward_type = (row["reward_type"] or "coins").lower() if "reward_type" in row.keys() else "coins"
+    duration_days = row["duration_days"] if "duration_days" in row.keys() and row["duration_days"] else 0
+
     m = await message.reply(
         f"📢 <b>Начинаю мультиплатформенную рассылку промокода <code>{code}</code>…</b>\n"
         f"📡 Платформы: ✈️ Telegram • 🟦 VK • 🟣 Discord • 🟢 MAX\n"
@@ -418,13 +517,20 @@ async def cmd_broadcast_promocode(message: Message, bot: Bot, args: str = "", **
     )
 
     from core_cross_broadcast import cross_broadcast_promo
-    stats = await cross_broadcast_promo(bot, code, row["reward"], row["uses_left"])
+    stats = await cross_broadcast_promo(bot, code, row["reward"], row["uses_left"], reward_type=reward_type, duration_days=duration_days)
+
+    if reward_type == "vipplus":
+        rew_info = f"🌟 <b>VIP++ на {duration_days} дней</b>"
+    elif reward_type == "vip":
+        rew_info = f"⭐️ <b>VIP на {duration_days} дней</b>"
+    else:
+        rew_info = f"💰 <b>+{row['reward']:,} монет</b>"
 
     await m.edit_text(
         f"✅ <b>МУЛЬТИПЛАТФОРМЕННАЯ РАССЫЛКА ПРОМОКОДА ЗАВЕРШЕНА!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🔑 Промокод: <code>{code}</code>\n"
-        f"💰 Награда: <b>+{row['reward']:,} монет</b> каждому!\n"
+        f"🎁 Награда: {rew_info} каждому!\n"
         f"👥 Всего активаций: <b>{row['uses_left']} шт.</b>\n\n"
         f"📊 <b>СТАТИСТИКА ДОСТАВКИ ПО ПЛАТФОРМАМ:</b>\n"
         f"• ✈️ Telegram: <b>{stats.get('telegram', 0)} групп</b>\n"
@@ -437,7 +543,7 @@ async def cmd_broadcast_promocode(message: Message, bot: Bot, args: str = "", **
 
 
 @router.message(Cmd("промо", "промокод", usage="промо [код]",
-                    desc="Активировать промокод и забрать монеты"))
+                    desc="Активировать промокод и забрать монеты, VIP или VIP++"))
 async def cmd_activate_promocode(message: Message, bot: Bot, args: str = "", **kw):
     code = (args or "").strip().upper()
     if not code:
@@ -447,34 +553,80 @@ async def cmd_activate_promocode(message: Message, bot: Bot, args: str = "", **k
     if not row or row["uses_left"] <= 0:
         return await message.reply("⚠️ Промокод не существует или закончился!")
 
+    uid = message.from_user.id
     used = await db.fetchone("SELECT 1 FROM promocode_activations WHERE code=? AND user_id=?",
-                             (code, message.from_user.id))
+                             (code, uid))
     if used:
         return await message.reply("⛔️ Вы уже активировали этот промокод!")
 
     now = int(time.time())
     await db.execute("INSERT INTO promocode_activations (code, user_id, ts) VALUES (?, ?, ?)",
-                     (code, message.from_user.id, now))
+                     (code, uid, now))
     await db.execute("UPDATE promocodes SET uses_left=uses_left-1 WHERE code=?", (code,))
-    await db.add_coins(message.from_user.id, row["reward"], "promocode_reward", code)
 
     rem = row["uses_left"] - 1
-
     total_act = await db.fetchone("SELECT COUNT(*) as cnt FROM promocode_activations WHERE code=?", (code,))
     claimed_cnt = total_act["cnt"] if total_act else 1
     total_initial = claimed_cnt + rem
 
-    # Сообщение в чат (без тега пользователя, чисто анонимный азарт)
+    reward_type = (row["reward_type"] or "coins").lower() if "reward_type" in row.keys() else "coins"
+    duration_days = row["duration_days"] if "duration_days" in row.keys() and row["duration_days"] else 0
+
+    if reward_type in ("vipplus", "vip++", "vip+"):
+        target_lvl = 2
+        status_name = "🌟 VIP+ Diamond (VIP++)"
+        days = duration_days or 9
+        cur_lvl, cur_until, is_active = await db.get_vip_info(uid)
+        start_time = max(now, cur_until if (is_active and cur_lvl >= target_lvl) else now)
+        new_until = start_time + days * 86400
+        await db.set_vip(uid, new_until, level=target_lvl)
+        import datetime
+        exp_date = datetime.datetime.fromtimestamp(new_until).strftime("%d.%m.%Y в %H:%M")
+
+        reward_text = (
+            f"👑 <b>Привилегия выдана:</b> {status_name}\n"
+            f"⏳ <b>Срок действия:</b> +{days} дней (активен до {exp_date})\n\n"
+            f"💎 <b>Ваши новые возможности VIP++:</b>\n"
+            f"• Доступ к персональному VIP-сейфу и овердрафту\n"
+            f"• Удвоенные ежедневные бонусы и супердропы\n"
+            f"• Эксклюзивные темы оформления («вип темы»)\n"
+            f"• 21 уникальная суперсила и приоритет в поддержке!"
+        )
+    elif reward_type == "vip":
+        target_lvl = 1
+        status_name = "⭐️ VIP"
+        days = duration_days or 7
+        cur_lvl, cur_until, is_active = await db.get_vip_info(uid)
+        start_time = max(now, cur_until if (is_active and cur_lvl >= target_lvl) else now)
+        new_until = start_time + days * 86400
+        await db.set_vip(uid, new_until, level=target_lvl)
+        import datetime
+        exp_date = datetime.datetime.fromtimestamp(new_until).strftime("%d.%m.%Y в %H:%M")
+
+        reward_text = (
+            f"⭐️ <b>Привилегия выдана:</b> {status_name}\n"
+            f"⏳ <b>Срок действия:</b> +{days} дней (активен до {exp_date})\n\n"
+            f"💎 <b>Ваши новые возможности VIP:</b>\n"
+            f"• Персональные неоновые темы оформления («вип темы»)\n"
+            f"• Повышенные бонусы и лимиты переводов\n"
+            f"• Золотая звезда VIP в профиле!"
+        )
+    else:
+        await db.add_coins(uid, row["reward"], "promocode_reward", code)
+        reward_text = f"💰 Вам начислено: <b>+{row['reward']:,} монет</b> на баланс!"
+
     if rem > 0:
         await message.reply(
-            f"🎉 <b>ПРОМОКОД УСПЕШНО АКТИВИРОВАН!</b>\n\n"
-            f"💰 Вам начислено: <b>+{row['reward']:,} монет</b> на баланс!\n"
+            f"🎉 <b>ПРОМОКОД УСПЕШНО АКТИВИРОВАН!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"{reward_text}\n\n"
             f"⚡ <b>Кто-то уже забрал!</b> (Забрали <b>{claimed_cnt} из {total_initial}</b> промов, осталось: <b>{rem} шт.</b>)"
         )
     else:
         await message.reply(
-            f"🎉 <b>ПРОМОКОД УСПЕШНО АКТИВИРОВАН!</b>\n\n"
-            f"💰 Вам начислено: <b>+{row['reward']:,} монет</b> на баланс!\n"
+            f"🎉 <b>ПРОМОКОД УСПЕШНО АКТИВИРОВАН!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"{reward_text}\n\n"
             f"🔥 <b>Кто-то забрал последний промокод!</b> (Все <b>{total_initial} из {total_initial}</b> промов розданы, наград больше нет!)"
         )
 

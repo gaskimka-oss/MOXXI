@@ -897,7 +897,9 @@ CREATE TABLE IF NOT EXISTS promocodes (
     reward INTEGER NOT NULL,
     uses_left INTEGER NOT NULL,
     created_by INTEGER NOT NULL,
-    ts INTEGER NOT NULL
+    ts INTEGER NOT NULL,
+    reward_type TEXT NOT NULL DEFAULT 'coins',
+    duration_days INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS promocode_activations (
@@ -1146,6 +1148,10 @@ async def _migrate() -> None:
             ("claimed_by", "INTEGER NOT NULL DEFAULT 0"),
             ("claimed_name", "TEXT NOT NULL DEFAULT ''"),
             ("claimed_at", "INTEGER NOT NULL DEFAULT 0"),
+        ],
+        "promocodes": [
+            ("reward_type", "TEXT NOT NULL DEFAULT 'coins'"),
+            ("duration_days", "INTEGER NOT NULL DEFAULT 0"),
         ],
     }
     for table, cols in wanted.items():

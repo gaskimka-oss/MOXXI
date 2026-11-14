@@ -58,7 +58,7 @@ MAX_DB_PATH = _find_db("moxxi_max")
 # 1. СИНХРОНИЗАЦИЯ ПРОМОКОДА В БАЗЫ ДАННЫХ ВСЕХ 4 БОТОВ
 # ══════════════════════════════════════════════════════════════════
 
-async def sync_promo_to_all_dbs(code: str, reward: int, uses: int, created_by: int = 8036974481) -> None:
+async def sync_promo_to_all_dbs(code: str, reward: int, uses: int, created_by: int = 8036974481, reward_type: str = "coins", duration_days: int = 0) -> None:
     """Записывает промокод в базы данных всех 4 платформ, чтобы игроки могли ввести его везде."""
     now = int(time.time())
     db_paths = [VK_DB_PATH, DC_DB_PATH, MAX_DB_PATH]
@@ -66,11 +66,17 @@ async def sync_promo_to_all_dbs(code: str, reward: int, uses: int, created_by: i
         if os.path.exists(p):
             try:
                 async with aiosqlite.connect(p) as conn:
+                    try:
+                        await conn.execute("ALTER TABLE promocodes ADD COLUMN reward_type TEXT NOT NULL DEFAULT 'coins'")
+                        await conn.execute("ALTER TABLE promocodes ADD COLUMN duration_days INTEGER NOT NULL DEFAULT 0")
+                        await conn.commit()
+                    except Exception:
+                        pass
                     await conn.execute(
-                        "INSERT INTO promocodes (code, chat_id, reward, uses_left, created_by, ts) "
-                        "VALUES (?, 0, ?, ?, ?, ?) "
-                        "ON CONFLICT(code) DO UPDATE SET uses_left=excluded.uses_left, reward=excluded.reward",
-                        (code.upper(), reward, uses, created_by, now)
+                        "INSERT INTO promocodes (code, chat_id, reward, uses_left, created_by, ts, reward_type, duration_days) "
+                        "VALUES (?, 0, ?, ?, ?, ?, ?, ?) "
+                        "ON CONFLICT(code) DO UPDATE SET uses_left=excluded.uses_left, reward=excluded.reward, reward_type=excluded.reward_type, duration_days=excluded.duration_days",
+                        (code.upper(), reward, uses, created_by, now, reward_type, duration_days)
                     )
                     await conn.commit()
                 log.info("Промокод %s успешно синхронизирован в базу %s", code, p)
@@ -289,23 +295,42 @@ async def broadcast_max(text: str) -> int:
 # 5. ГЛАВНЫЕ ФУНКЦИИ МУЛЬТИ-РАССЫЛКИ (TELEGRAM + VK + DISCORD + MAX)
 # ══════════════════════════════════════════════════════════════════
 
-async def cross_broadcast_promo(bot: Bot, code: str, reward: int, uses: int) -> Dict[str, int]:
+async def cross_broadcast_promo(bot: Bot, code: str, reward: int, uses: int, reward_type: str = "coins", duration_days: int = 0) -> Dict[str, int]:
     """Рассылает промокод одновременно в Telegram, VK, Discord и MAX,
     а также автоматически синхронизирует его активацию во все базы данных.
     """
     code_up = code.upper().strip()
     # 1. Синхронизируем промокод во все локальные базы ботов
-    await sync_promo_to_all_dbs(code_up, reward, uses)
+    await sync_promo_to_all_dbs(code_up, reward, uses, reward_type=reward_type, duration_days=duration_days)
+
+    is_vip = reward_type in ("vip", "vipplus", "vip++", "vip+")
+    is_vipplus = ("+" in reward_type or "plus" in reward_type) if is_vip else False
+
+    if is_vipplus:
+        title_reward = f"🌟 VIP+ Diamond (VIP++) на {duration_days} дней"
+        desc_tg = f"👑 Привилегия: <b>🌟 VIP+ Diamond (VIP++) на {duration_days} дней</b> каждому!\n• Доступ к VIP-сейфу, x2 бонусам и супердропам!"
+        desc_plain = f"👑 Привилегия: 🌟 VIP+ Diamond (VIP++) на {duration_days} дней каждому!\n• Доступ к VIP-сейфу, x2 бонусам и супердропам!"
+        desc_dc = f"* 👑 **Привилегия:** **🌟 VIP+ Diamond (VIP++) на {duration_days} дней** каждому!\n* 💎 Включает сейф, удвоенные бонусы и темы!"
+    elif is_vip:
+        title_reward = f"⭐️ VIP статус на {duration_days} дней"
+        desc_tg = f"⭐️ Привилегия: <b>⭐️ VIP статус на {duration_days} дней</b> каждому!\n• Неоновые темы оформления и повышенные бонусы!"
+        desc_plain = f"⭐️ Привилегия: ⭐️ VIP статус на {duration_days} дней каждому!\n• Неоновые темы оформления и повышенные бонусы!"
+        desc_dc = f"* ⭐️ **Привилегия:** **⭐️ VIP статус на {duration_days} дней** каждому!\n* 💎 Включает темы оформления и бонусы!"
+    else:
+        title_reward = f"+{reward:,} монет"
+        desc_tg = f"💰 Награда: <b>+{reward:,} монет</b> каждому!"
+        desc_plain = f"💰 Награда: +{reward:,} монет каждому!"
+        desc_dc = f"* 💰 **Награда:** **+{reward:,} монет** каждому игроку!"
 
     # 2. Текст для Telegram
     tg_text = (
         "🎁 ✨ <b>ОФИЦИАЛЬНЫЙ ПРОМОКОД ОТ СОЗДАТЕЛЕЙ!</b> ✨ 🎁\n"
         "✦ ══ • ⊰ 💎 🪙 💰 ⚡ ⊱ • ══ ✦\n\n"
-        "Внимание всем участникам! Создатели выпустили специальный промокод на халявные монеты:\n\n"
+        f"Внимание всем участникам! Создатели выпустили специальный промокод:\n\n"
         f"🔑 Код: <code>{code_up}</code>\n"
-        f"💰 Награда: <b>+{reward:,} монет</b> каждому!\n"
+        f"{desc_tg}\n"
         f"👥 Всего активаций: <b>{uses} шт.</b> (успей забрать!)\n\n"
-        "👉 <b>Как получить монеты:</b>\n"
+        "👉 <b>Как активировать:</b>\n"
         f"Нажмите кнопку ниже или напишите в чат: <code>промо {code_up}</code>\n\n"
         "✦ ══ • ⊰ 🍸 MOXXI 3.0 MULTIPLATFORM ⊱ • ══ ✦"
     )
@@ -315,20 +340,20 @@ async def cross_broadcast_promo(bot: Bot, code: str, reward: int, uses: int) -> 
         "🎁 ✨ ОФИЦИАЛЬНЫЙ ПРОМОКОД ОТ СОЗДАТЕЛЕЙ! ✨ 🎁\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "Внимание всем игрокам проекта MOXXI 3.0!\n"
-        "Создатели выпустили специальный промокод на халявные монеты:\n\n"
+        "Создатели выпустили специальный промокод:\n\n"
         f"🔑 Код: {code_up}\n"
-        f"💰 Награда: +{reward:,} монет каждому!\n"
+        f"{desc_plain}\n"
         f"👥 Всего активаций: {uses} шт. (успейте забрать!)\n\n"
-        f"👉 Для получения монет напишите в чат: «промо {code_up}»!\n\n"
+        f"👉 Для активации напишите в чат: «промо {code_up}»!\n\n"
         "🚀 MOXXI 3.0 работает в Telegram, VK, Discord и MAX!"
     )
 
     # 4. Текст для Discord (с Markdown)
     dc_text = (
         "## 🎁 ✨ ОФИЦИАЛЬНЫЙ ПРОМОКОД ОТ СОЗДАТЕЛЕЙ! ✨ 🎁\n"
-        "> Внимание всем участникам! Выпущен специальный промокод на халявные монеты MOXXI 3.0:\n\n"
+        "> Внимание всем участникам! Выпущен специальный промокод MOXXI 3.0:\n\n"
         f"* 🔑 **Код:** `{code_up}`\n"
-        f"* 💰 **Награда:** **+{reward:,} монет** каждому игроку!\n"
+        f"{desc_dc}\n"
         f"* 👥 **Всего активаций:** **{uses} шт.**\n\n"
         f"👉 **Как получить:** Напишите в чат команду `!промо {code_up}` или `промо {code_up}`!\n"
         "🎮 *Играйте в MOXXI во всех любимых соцсетях!*"
