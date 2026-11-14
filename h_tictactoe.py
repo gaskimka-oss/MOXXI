@@ -5,8 +5,10 @@
 - 6 × 6 (собрать 4 в ряд)
 - 7 × 7 (собрать 5 в ряд)
 
-Проверка линий в любом направлении (горизонталь, вертикаль, обе диагонали).
-Выбор стороны: Рандом или вручную (❌ / ⭕️) с честным разрешением жребием.
+Выбор карты И фигуры ОБОИМИ игроками:
+- Игрок 1 выбирает свою желанную арену и фигуру.
+- Игрок 2 выбирает свою желанную арену и фигуру.
+- При несовпадении честный жребий 50/50 разрешает спор и по карте, и по фигурам!
 Строгая очередность: первым всегда ходит ❌, во время чужого хода кнопки блокируются всплывающим окном.
 """
 from __future__ import annotations
@@ -34,7 +36,6 @@ ARENAS = {
     "7x7": {"size": 7, "target": 5, "name": "7 × 7", "desc": "5 в ряд"},
 }
 
-# Хранилище активных сессий: {game_id: GameSession}
 GAMES: dict[str, GameSession] = {}
 
 
@@ -48,7 +49,6 @@ class GameSession:
         target_id: Optional[int],
         target_name: Optional[str],
         bet: int,
-        arena_key: str = "6x6",
     ):
         self.game_id = game_id
         self.chat_id = chat_id
@@ -57,12 +57,18 @@ class GameSession:
         self.target_id = target_id
         self.target_name = target_name
         self.bet = bet
-        self.arena_key = arena_key
         self.state = "lobby"  # lobby | playing | finished
 
-        # Настройки выбора фигур в лобби: "random" | "X" | "O"
-        self.creator_choice = "random"
+        # Выбор карты ОБОИМИ игроками:
+        self.creator_arena = "6x6"
+        self.target_arena = "6x6"
+
+        # Выбор фигуры ОБОИМИ игроками: "random" | "X" | "O"
+        self.creator_choice = "X"
         self.target_choice = "random"
+
+        # Итоговая выбранная арена (после жребия):
+        self.arena_key = "6x6"
 
         # Игроки после старта:
         self.player_x_id = 0
@@ -70,15 +76,14 @@ class GameSession:
         self.player_o_id = 0
         self.player_o_name = ""
 
-        # Текущий ход: "X" (всегда первый) или "O"
+        # Ход: ❌ всегда начинает первым!
         self.turn = "X"
         self.last_move_ts = 0
 
-        # Поле: список строк
-        size = ARENAS[arena_key]["size"]
-        self.board = [[" " for _ in range(size)] for _ in range(size)]
+        # Поле инициализируется при старте
+        self.board: list[list[str]] = []
         self.winning_cells: list[tuple[int, int]] = []
-        self.winner: Optional[str] = None  # "X", "O", "draw"
+        self.winner: Optional[str] = None
 
 
 def _generate_game_id() -> str:
@@ -110,7 +115,6 @@ def check_winner(board: list[list[str]], target_k: int) -> tuple[Optional[str], 
                 if len(line) == target_k:
                     return sym, line
 
-    # Проверка на ничью (нет пустых клеток)
     for row in board:
         if " " in row:
             return None, []
@@ -118,50 +122,101 @@ def check_winner(board: list[list[str]], target_k: int) -> tuple[Optional[str], 
 
 
 # ══════════════════════════════════════════════════════════════════
-# КЛАВИАТУРЫ И ОТРИСОВКА
+# РАЗРЕШЕНИЕ ВЫБОРА АРЕНЫ И ФИГУР МЕЖДУ 2 ИГРОКАМИ
+# ══════════════════════════════════════════════════════════════════
+def resolve_arena(c_ar: str, t_ar: str) -> tuple[str, str]:
+    if c_ar == t_ar:
+        return c_ar, f"🏟 <i>Оба игрока выбрали арену <b>{ARENAS[c_ar]['name']}</b>!</i>"
+    
+    # Спор: жребий 50/50 решает чья карта
+    flip = random.choice([True, False])
+    if flip:
+        return c_ar, f"🎲 <i>Спор по карте ({ARENAS[c_ar]['name']} vs {ARENAS[t_ar]['name']}): жребий 50/50 выбрал карту создателя (<b>{ARENAS[c_ar]['name']}</b>)!</i>"
+    else:
+        return t_ar, f"🎲 <i>Спор по карте ({ARENAS[c_ar]['name']} vs {ARENAS[t_ar]['name']}): жребий 50/50 выбрал карту соперника (<b>{ARENAS[t_ar]['name']}</b>)!</i>"
+
+
+def resolve_sides(creator_id: int, creator_name: str, c_side: str,
+                  target_id: int, target_name: str, t_side: str) -> tuple[int, str, int, str, str]:
+    # 1. Выбрали разные конкретные фигуры
+    if c_side in ("X", "O") and t_side in ("X", "O") and c_side != t_side:
+        if c_side == "X":
+            return creator_id, creator_name, target_id, target_name, "✨ <i>Игроки выбрали разные стороны — каждый получил свою фигуру!</i>"
+        else:
+            return target_id, target_name, creator_id, creator_name, "✨ <i>Игроки выбрали разные стороны — каждый получил свою фигуру!</i>"
+
+    # 2. Создатель выбрал фигуру, соперник — рандом
+    elif c_side in ("X", "O") and t_side == "random":
+        flip = random.choice([True, False])
+        if (flip and c_side == "X") or (not flip and c_side == "O"):
+            return creator_id, creator_name, target_id, target_name, f"🎲 <i>Создатель выбрал {c_side}, соперник — рандом. Жребий отдал выбор создателю!</i>"
+        else:
+            return target_id, target_name, creator_id, creator_name, f"🎲 <i>Создатель выбрал {c_side}, соперник — рандом. Жребий перевернул стороны!</i>"
+
+    # 3. Соперник выбрал фигуру, создатель — рандом
+    elif c_side == "random" and t_side in ("X", "O"):
+        flip = random.choice([True, False])
+        if (flip and t_side == "X") or (not flip and t_side == "O"):
+            return target_id, target_name, creator_id, creator_name, f"🎲 <i>Соперник выбрал {t_side}, создатель — рандом. Жребий отдал выбор сопернику!</i>"
+        else:
+            return creator_id, creator_name, target_id, target_name, f"🎲 <i>Соперник выбрал {t_side}, создатель — рандом. Жребий перевернул стороны!</i>"
+
+    # 4. Оба выбрали одну и ту же фигуру
+    elif c_side in ("X", "O") and c_side == t_side:
+        flip = random.choice([True, False])
+        if flip:
+            return creator_id, creator_name, target_id, target_name, f"⚔️ <i>Оба хотели играть за {c_side} — жребий 50/50 решил спор!</i>"
+        else:
+            return target_id, target_name, creator_id, creator_name, f"⚔️ <i>Оба хотели играть за {c_side} — жребий 50/50 решил спор!</i>"
+
+    # 5. Оба выбрали рандом
+    else:
+        flip = random.choice([True, False])
+        if flip:
+            return creator_id, creator_name, target_id, target_name, "🎲 <i>Оба участника выбрали рандом — стороны определил жребий!</i>"
+        else:
+            return target_id, target_name, creator_id, creator_name, "🎲 <i>Оба участника выбрали рандом — стороны определил жребий!</i>"
+
+
+# ══════════════════════════════════════════════════════════════════
+# КЛАВИАТУРЫ И ТЕКСТ ЛОББИ
 # ══════════════════════════════════════════════════════════════════
 def render_lobby_kb(game: GameSession) -> InlineKeyboardMarkup:
     gid = game.game_id
     rows = []
 
-    # 1. Выбор Арены
-    arena_row = []
+    # 1. Выбор карты создателя (Ряд 1)
+    c_ar_btns = []
     for k, a in ARENAS.items():
-        is_sel = (k == game.arena_key)
+        is_sel = (k == game.creator_arena)
         prefix = "🔘" if is_sel else "⚪️"
-        arena_row.append(
-            InlineKeyboardButton(
-                text=f"{prefix} {a['name']}",
-                callback_data=f"xo:arena:{gid}:{k}"
-            )
-        )
-    rows.append(arena_row)
+        c_ar_btns.append(InlineKeyboardButton(text=f"{prefix} 👑 {a['name']}", callback_data=f"xo:ar:c:{gid}:{k}"))
+    rows.append(c_ar_btns)
 
-    # 2. Выбор стороны для создателя
+    # 2. Выбор карты соперника (Ряд 2)
+    t_ar_btns = []
+    for k, a in ARENAS.items():
+        is_sel = (k == game.target_arena)
+        prefix = "🔘" if is_sel else "⚪️"
+        t_ar_btns.append(InlineKeyboardButton(text=f"{prefix} ⚔️ {a['name']}", callback_data=f"xo:ar:t:{gid}:{k}"))
+    rows.append(t_ar_btns)
+
+    # 3. Выбор стороны создателя (Ряд 3)
     c_side = game.creator_choice
     rows.append([
-        InlineKeyboardButton(
-            text=f"{'🔘' if c_side == 'random' else '⚪️'} 🎲 Рандом",
-            callback_data=f"xo:side:{gid}:creator:random"
-        ),
-        InlineKeyboardButton(
-            text=f"{'🔘' if c_side == 'X' else '⚪️'} ❌ Хочу X",
-            callback_data=f"xo:side:{gid}:creator:X"
-        ),
-        InlineKeyboardButton(
-            text=f"{'🔘' if c_side == 'O' else '⚪️'} ⭕️ Хочу O",
-            callback_data=f"xo:side:{gid}:creator:O"
-        ),
+        InlineKeyboardButton(text=f"{'🔘' if c_side == 'random' else '⚪️'} 👑 🎲 Рандом", callback_data=f"xo:sd:c:{gid}:random"),
+        InlineKeyboardButton(text=f"{'🔘' if c_side == 'X' else '⚪️'} 👑 ❌ Хочу X", callback_data=f"xo:sd:c:{gid}:X"),
+        InlineKeyboardButton(text=f"{'🔘' if c_side == 'O' else '⚪️'} 👑 ⭕️ Хочу O", callback_data=f"xo:sd:c:{gid}:O"),
     ])
 
-    # 3. Кнопки принятия вызова соперником (с выбором стороны)
+    # 4. Выбор стороны соперника и принятие (Ряд 4)
     rows.append([
         InlineKeyboardButton(text="⚔️ Принять (🎲)", callback_data=f"xo:accept:{gid}:random"),
         InlineKeyboardButton(text="⚔️ За ❌", callback_data=f"xo:accept:{gid}:X"),
         InlineKeyboardButton(text="⚔️ За ⭕️", callback_data=f"xo:accept:{gid}:O"),
     ])
 
-    # 4. Отмена
+    # 5. Отмена
     rows.append([
         InlineKeyboardButton(text="❌ Отменить вызов", callback_data=f"xo:cancel:{gid}")
     ])
@@ -197,7 +252,6 @@ def render_board_kb(game: GameSession) -> InlineKeyboardMarkup:
             )
         rows.append(btn_row)
 
-    # Вспомогательные кнопки внизу
     if game.state == "playing":
         rows.append([
             InlineKeyboardButton(text="🏳️ Сдаться", callback_data=f"xo:surrender:{gid}"),
@@ -213,28 +267,31 @@ def render_board_kb(game: GameSession) -> InlineKeyboardMarkup:
 
 
 def _render_lobby_text(game: GameSession) -> str:
-    ar_info = ARENAS[game.arena_key]
     target_txt = f"⚔️ <b>Противник:</b> {mention_id(game.target_id, html.escape(game.target_name))}\n" if game.target_id else "👥 <b>Вызов:</b> <i>Открытый для любого желающего в чате!</i>\n"
     bet_txt = f"💰 <b>Ставка:</b> <code>{game.bet:,}</code> 🪙\n" if game.bet > 0 else "🎮 <b>Режим:</b> <i>Дружеский (без ставки)</i>\n"
 
     c_choice_map = {"random": "🎲 Рандом", "X": "❌ Крестик", "O": "⭕️ Нолик"}
     c_choice_txt = c_choice_map.get(game.creator_choice, "🎲 Рандом")
+    t_choice_txt = c_choice_map.get(game.target_choice, "🎲 Рандом")
+
+    c_ar_txt = ARENAS.get(game.creator_arena, {}).get("name", "6 × 6")
+    t_ar_txt = ARENAS.get(game.target_arena, {}).get("name", "6 × 6")
 
     return (
         f"🎮 <b>ДУЭЛЬ В КРЕСТИКИ-НОЛИКИ</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"👑 <b>Создатель:</b> {mention_id(game.creator_id, html.escape(game.creator_name))}\n"
+        f"   • Карта: <b>{c_ar_txt}</b> | Фигура: <b>{c_choice_txt}</b>\n"
         f"{target_txt}"
-        f"{bet_txt}"
-        f"🏟 <b>Арена:</b> <b>{ar_info['name']}</b> ({ar_info['desc']})\n"
-        f"🎯 <b>Желание создателя:</b> <b>{c_choice_txt}</b>\n\n"
-        f"👉 <i>Создатель настраивает арену и свой выбор выше.\n"
-        f"Соперник жмёт одну из кнопок «Принять» ниже:</i>"
+        f"   • Карта: <b>{t_ar_txt}</b> | Фигура: <b>{t_choice_txt}</b>\n"
+        f"{bet_txt}\n"
+        f"👉 <i>Оба игрока выбирают карту и фигуру кнопками ниже.\n"
+        f"Если карты или стороны не совпадут — решит честный жребий 50/50!</i>"
     )
 
 
 # ══════════════════════════════════════════════════════════════════
-# КОМАНДА ЗАПУСКА И ВЫЗОВА
+# КОМАНДА ЗАПУСКА
 # ══════════════════════════════════════════════════════════════════
 @router.message(Cmd("кн", "крестики", "крестики нолики", "крестики-нолики", "xo",
                     section=S, rank=0, group_only=True,
@@ -285,7 +342,6 @@ async def cmd_tictactoe(message: Message, bot: Bot, args: str = "", **kw):
         target_id=target_id,
         target_name=target_name,
         bet=bet,
-        arena_key="6x6",  # По умолчанию выбран 6x6 (4 в ряд)
     )
     GAMES[gid] = game
 
@@ -294,47 +350,62 @@ async def cmd_tictactoe(message: Message, bot: Bot, args: str = "", **kw):
 
 
 # ══════════════════════════════════════════════════════════════════
-# ОБРАБОТКА ДЕЙСТВИЙ В ЛОББИ
+# ДЕЙСТВИЯ В ЛОББИ: ВЫБОР КАРТЫ ДЛЯ 1-ГО И 2-ГО ИГРОКА
 # ══════════════════════════════════════════════════════════════════
-@router.callback_query(F.data.startswith("xo:arena:"))
+@router.callback_query(F.data.startswith("xo:ar:"))
 async def cb_select_arena(call: CallbackQuery):
-    _, _, gid, arena_key = call.data.split(":")
+    parts = call.data.split(":")
+    who = parts[2]  # 'c' (creator) | 't' (target)
+    gid = parts[3]
+    arena_key = parts[4]
+
     game = GAMES.get(gid)
     if not game or game.state != "lobby":
         return await call.answer("Игра уже началась или недействительна", show_alert=True)
 
     uid = call.from_user.id
-    if uid != game.creator_id and (game.target_id and uid != game.target_id):
-        return await call.answer("Настраивать параметры могут только участники дуэли!", show_alert=True)
 
-    if arena_key in ARENAS:
-        game.arena_key = arena_key
-        size = ARENAS[arena_key]["size"]
-        game.board = [[" " for _ in range(size)] for _ in range(size)]
+    if who == "c":
+        if uid != game.creator_id:
+            return await call.answer("⚠️ Это строка выбора карты для создателя дуэли!", show_alert=True)
+        game.creator_arena = arena_key
+        await call.answer(f"Создатель выбрал карту {ARENAS[arena_key]['name']}")
+    else:
+        if uid == game.creator_id:
+            return await call.answer("⚠️ Это строка выбора карты для соперника!", show_alert=True)
+        if game.target_id and uid != game.target_id:
+            return await call.answer("Этот вызов брошен конкретному игроку!", show_alert=True)
+
+        # Фиксируем соперника если был открытый вызов
+        if not game.target_id:
+            game.target_id = uid
+            game.target_name = call.from_user.first_name
+
+        game.target_arena = arena_key
+        await call.answer(f"Соперник выбрал карту {ARENAS[arena_key]['name']}")
 
     text = _render_lobby_text(game)
     await call.message.edit_text(text, reply_markup=render_lobby_kb(game), disable_web_page_preview=True)
-    await call.answer(f"Выбрана арена {ARENAS[game.arena_key]['name']}")
 
 
-@router.callback_query(F.data.startswith("xo:side:"))
+@router.callback_query(F.data.startswith("xo:sd:"))
 async def cb_select_side(call: CallbackQuery):
-    _, _, gid, role, choice = call.data.split(":")
+    parts = call.data.split(":")
+    who = parts[2]  # 'c' (creator)
+    gid = parts[3]
+    choice = parts[4]
+
     game = GAMES.get(gid)
     if not game or game.state != "lobby":
         return await call.answer("Лобби недоступно", show_alert=True)
 
     uid = call.from_user.id
-    if uid == game.creator_id:
-        game.creator_choice = choice
-        choice_name = "🎲 Рандом" if choice == "random" else ("❌ Крестик" if choice == "X" else "⭕️ Нолик")
-        await call.answer(f"Ваш выбор: {choice_name}")
-    elif uid == game.target_id:
-        game.target_choice = choice
-        choice_name = "🎲 Рандом" if choice == "random" else ("❌ Крестик" if choice == "X" else "⭕️ Нолик")
-        await call.answer(f"Ваш выбор: {choice_name}")
-    else:
-        return await call.answer("Выбирать сторону могут только участники дуэли!", show_alert=True)
+    if uid != game.creator_id:
+        return await call.answer("⚠️ Выбирать фигуру создателя может только создатель!", show_alert=True)
+
+    game.creator_choice = choice
+    choice_name = "🎲 Рандом" if choice == "random" else ("❌ Крестик" if choice == "X" else "⭕️ Нолик")
+    await call.answer(f"Ваш выбор фигуры: {choice_name}")
 
     text = _render_lobby_text(game)
     await call.message.edit_text(text, reply_markup=render_lobby_kb(game), disable_web_page_preview=True)
@@ -357,7 +428,7 @@ async def cb_cancel_game(call: CallbackQuery):
 
 
 # ══════════════════════════════════════════════════════════════════
-# ПРИНЯТИЕ ДУЭЛИ И СТАРТ
+# ПРИНЯТИЕ И ЗАПУСК
 # ══════════════════════════════════════════════════════════════════
 @router.callback_query(F.data.startswith("xo:accept:"))
 async def cb_accept_game(call: CallbackQuery):
@@ -396,78 +467,29 @@ async def cb_accept_game(call: CallbackQuery):
     game.target_name = uname
     game.target_choice = side_pref
 
-    # ══════════════════════════════════════════════════════════════════
-    # РАСПРЕДЕЛЕНИЕ ФИГУР ПО ПРАВИЛАМ
-    # ══════════════════════════════════════════════════════════════════
-    c_want = game.creator_choice
-    t_want = game.target_choice
-    c_name = game.creator_name
-    t_name = game.target_name
+    # 1. Разрешаем Арену (Карту)
+    resolved_ar, ar_note = resolve_arena(game.creator_arena, game.target_arena)
+    game.arena_key = resolved_ar
+    ar_info = ARENAS[resolved_ar]
 
-    resolve_note = ""
+    # 2. Разрешаем Фигуры (Стороны)
+    px_id, px_name, po_id, po_name, side_note = resolve_sides(
+        game.creator_id, game.creator_name, game.creator_choice,
+        game.target_id, game.target_name, game.target_choice
+    )
+    game.player_x_id, game.player_x_name = px_id, px_name
+    game.player_o_id, game.player_o_name = po_id, po_name
 
-    # 1. Если выбрали разные фигуры (один X, второй O) -> каждый получает своё
-    if c_want in ("X", "O") and t_want in ("X", "O") and c_want != t_want:
-        if c_want == "X":
-            game.player_x_id, game.player_x_name = game.creator_id, c_name
-            game.player_o_id, game.player_o_name = game.target_id, t_name
-        else:
-            game.player_o_id, game.player_o_name = game.creator_id, c_name
-            game.player_x_id, game.player_x_name = game.target_id, t_name
-        resolve_note = "✨ <i>Игроки выбрали разные стороны — каждый получил свою фигуру!</i>"
-
-    # 2. Создатель выбрал фигуру, а соперник нажал «Рандом»
-    elif c_want in ("X", "O") and t_want == "random":
-        flip = random.choice([True, False])
-        if (flip and c_want == "X") or (not flip and c_want == "O"):
-            game.player_x_id, game.player_x_name = game.creator_id, c_name
-            game.player_o_id, game.player_o_name = game.target_id, t_name
-            resolve_note = f"🎲 <i>Создатель выбрал {c_want}, соперник — рандом. Жребий отдал выбор создателю!</i>"
-        else:
-            game.player_o_id, game.player_o_name = game.creator_id, c_name
-            game.player_x_id, game.player_x_name = game.target_id, t_name
-            resolve_note = f"🎲 <i>Создатель выбрал {c_want}, соперник — рандом. Жребий перевернул стороны!</i>"
-
-    # 3. Соперник выбрал фигуру, а создатель нажал «Рандом»
-    elif c_want == "random" and t_want in ("X", "O"):
-        flip = random.choice([True, False])
-        if (flip and t_want == "X") or (not flip and t_want == "O"):
-            game.player_x_id, game.player_x_name = game.target_id, t_name
-            game.player_o_id, game.player_o_name = game.creator_id, c_name
-            resolve_note = f"🎲 <i>Соперник выбрал {t_want}, создатель — рандом. Жребий отдал выбор сопернику!</i>"
-        else:
-            game.player_o_id, game.player_o_name = game.target_id, t_name
-            game.player_x_id, game.player_x_name = game.creator_id, c_name
-            resolve_note = f"🎲 <i>Соперник выбрал {t_want}, создатель — рандом. Жребий перевернул стороны!</i>"
-
-    # 4. Оба выбрали одну и ту же фигуру (конфликт) -> жребий 50/50
-    elif c_want in ("X", "O") and c_want == t_want:
-        flip = random.choice([True, False])
-        if flip:
-            game.player_x_id, game.player_x_name = game.creator_id, c_name
-            game.player_o_id, game.player_o_name = game.target_id, t_name
-        else:
-            game.player_x_id, game.player_x_name = game.target_id, t_name
-            game.player_o_id, game.player_o_name = game.creator_id, c_name
-        resolve_note = f"⚔️ <i>Оба участника хотели играть за {c_want} — жребий 50/50 разрешил спор!</i>"
-
-    # 5. Оба нажали «Рандом» -> чистый жребий
-    else:
-        flip = random.choice([True, False])
-        if flip:
-            game.player_x_id, game.player_x_name = game.creator_id, c_name
-            game.player_o_id, game.player_o_name = game.target_id, t_name
-        else:
-            game.player_x_id, game.player_x_name = game.target_id, t_name
-            game.player_o_id, game.player_o_name = game.creator_id, c_name
-        resolve_note = "🎲 <i>Оба участника выбрали рандом — стороны определил жребий!</i>"
+    # Создаем поле под выбранную арену
+    size = ar_info["size"]
+    game.board = [[" " for _ in range(size)] for _ in range(size)]
 
     # Списание ставок
     if game.bet > 0:
         await db.add_balance(game.creator_id, -game.bet, "tictactoe_bet", gid)
         await db.add_balance(game.target_id, -game.bet, "tictactoe_bet", gid)
 
-    # Блокировка игроков от других азартных игр
+    # Блокировка игроков
     lock_game(game.player_x_id, "❌ Крестики-Нолики", game.chat_id)
     lock_game(game.player_o_id, "⭕️ Крестики-Нолики", game.chat_id)
 
@@ -475,7 +497,6 @@ async def cb_accept_game(call: CallbackQuery):
     game.turn = "X"  # Первым ВСЕГДА ходит Крестик!
     game.last_move_ts = int(time.time())
 
-    ar_info = ARENAS[game.arena_key]
     pot = game.bet * 2
     pot_txt = f"💰 <b>Банк игры:</b> <code>{pot:,}</code> 🪙\n" if pot > 0 else ""
 
@@ -486,7 +507,8 @@ async def cb_accept_game(call: CallbackQuery):
         f"⭕️ <b>Нолик:</b> {mention_id(game.player_o_id, html.escape(game.player_o_name))}\n"
         f"🎯 <b>Цель:</b> <b>{ar_info['desc']}</b> (в любом направлении!)\n"
         f"{pot_txt}\n"
-        f"{resolve_note}\n\n"
+        f"{ar_note}\n"
+        f"{side_note}\n\n"
         f"👉 <b>СЕЙЧАС ХОДИТ:</b> ❌ <b>{html.escape(game.player_x_name)}</b>\n"
         f"⏳ <i>Осталось времени на ход: 45 сек</i>"
     )
@@ -509,11 +531,9 @@ async def cb_make_move(call: CallbackQuery):
 
     uid = call.from_user.id
 
-    # 1. Защита от посторонних
     if uid not in (game.player_x_id, game.player_o_id):
         return await call.answer("⛔️ Это чужая дуэль! Начните свою: кн [ставка]", show_alert=True)
 
-    # 2. Строгая проверка очередности хода
     if game.turn == "X":
         if uid != game.player_x_id:
             return await call.answer(
@@ -533,18 +553,14 @@ async def cb_make_move(call: CallbackQuery):
         next_turn = "X"
         next_name = game.player_x_name
 
-    # 3. Проверка занятости клетки
     if game.board[r][c] != " ":
         return await call.answer("⚠️ Эта клетка уже занята! Выберите свободную.", show_alert=False)
 
-    # Совершаем ход
     game.board[r][c] = current_sym
     game.last_move_ts = int(time.time())
 
-    # Проверяем результат (победа в любом направлении: - | \ /)
     target_k = ARENAS[game.arena_key]["target"]
     winner, win_line = check_winner(game.board, target_k)
-
     ar_info = ARENAS[game.arena_key]
 
     if winner in ("X", "O"):
@@ -552,7 +568,6 @@ async def cb_make_move(call: CallbackQuery):
         game.winner = winner
         game.winning_cells = win_line
 
-        # Разблокируем игроков
         unlock_game(game.player_x_id)
         unlock_game(game.player_o_id)
 
@@ -588,7 +603,6 @@ async def cb_make_move(call: CallbackQuery):
         unlock_game(game.player_x_id)
         unlock_game(game.player_o_id)
 
-        # Возврат ставок при ничьей
         if game.bet > 0:
             await db.add_balance(game.player_x_id, game.bet, "tictactoe_refund", gid)
             await db.add_balance(game.player_o_id, game.bet, "tictactoe_refund", gid)
@@ -603,7 +617,6 @@ async def cb_make_move(call: CallbackQuery):
         await call.message.edit_text(text, reply_markup=render_board_kb(game), disable_web_page_preview=True)
         return await call.answer("Ничья!")
 
-    # Игра продолжается: переключаем ход
     game.turn = next_turn
     turn_sym = "❌" if next_turn == "X" else "⭕️"
     pot = game.bet * 2
@@ -676,7 +689,6 @@ async def cb_timeout_check(call: CallbackQuery):
     if diff < 45:
         return await call.answer(f"Тайм-аут ещё не истёк! Осталось {45 - diff} сек ожидания.", show_alert=True)
 
-    # Игрок, чей сейчас ход, затянул время -> техническое поражение
     if game.turn == "X":
         winner_id, winner_name = game.player_o_id, game.player_o_name
         loser_name = game.player_x_name
@@ -727,8 +739,11 @@ async def cb_rematch(call: CallbackQuery):
         target_id=game.target_id,
         target_name=game.target_name,
         bet=game.bet,
-        arena_key=game.arena_key,
     )
+    new_game.creator_arena = game.creator_arena
+    new_game.target_arena = game.target_arena
+    new_game.creator_choice = game.creator_choice
+    new_game.target_choice = game.target_choice
     GAMES[new_gid] = new_game
 
     text = _render_lobby_text(new_game)
