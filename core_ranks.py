@@ -57,11 +57,30 @@ async def set_rank(chat_id: int, user_id: int, rank: int, by: int = 0) -> None:
     await db.execute(
         "INSERT INTO rank_log (chat_id, user_id, rank, by_id, ts) VALUES (?,?,?,?,?)",
         (chat_id, user_id, rank, by, now))
+    invalidate_rank_cache(chat_id, user_id)
+
+
+# Кэш статуса участников в Telegram: (chat_id, user_id) -> (effective_rank, timestamp)
+_tg_rank_cache: dict[tuple[int, int], tuple[int, float]] = {}
+TG_RANK_CACHE_TTL = 300.0  # 5 минут кэширования роли участника в Telegram
+
+def invalidate_rank_cache(chat_id: int, user_id: int | None = None) -> None:
+    """Сброс кэша при изменении ранга/прав."""
+    if user_id is None:
+        for k in list(_tg_rank_cache.keys()):
+            if k[0] == chat_id:
+                _tg_rank_cache.pop(k, None)
+    else:
+        _tg_rank_cache.pop((chat_id, user_id), None)
 
 
 async def effective_rank(message: Message, bot: Bot) -> int:
     """Ранг с учётом базы данных ranks, ТГ-админки и создателя группы."""
+    if hasattr(message, "_cached_effective_rank"):
+        return message._cached_effective_rank
+
     if message.sender_chat and message.sender_chat.id == message.chat.id:
+        message._cached_effective_rank = MAX_RANK
         return MAX_RANK  # анонимный админ группы = высший ранг
     if not message.from_user:
         return 0
@@ -70,33 +89,46 @@ async def effective_rank(message: Message, bot: Bot) -> int:
     import config
     # Создатели и главные владельцы бота всегда имеют высший ранг везде
     if config.is_bot_owner(uid):
+        message._cached_effective_rank = MAX_RANK
         return MAX_RANK
 
     if message.chat.type == "private":
+        message._cached_effective_rank = 0
         return 0
 
+    cid = message.chat.id
+    cache_key = (cid, uid)
+    now = time.monotonic()
+
+    # 0. Проверяем оперативный кэш в памяти (устраняет 429 Too Many Requests от Telegram)
+    if cache_key in _tg_rank_cache:
+        cached_r, ts = _tg_rank_cache[cache_key]
+        if now - ts < TG_RANK_CACHE_TTL:
+            message._cached_effective_rank = cached_r
+            return cached_r
+
     # 1. Сначала проверяем ранг, явно назначенный в чате (таблица ranks):
-    r = await get_rank(message.chat.id, uid)
+    r = await get_rank(cid, uid)
     if r is not None and r > 0:
+        _tg_rank_cache[cache_key] = (r, now)
+        message._cached_effective_rank = r
         return r
 
-    # 2. Создатель группы в Telegram всегда наивысший ранг (если не переопределён в ranks):
+    # 2. Создатель / администратор в Telegram (строго ОДИН сетевой запрос с кэшированием):
+    res_rank = 0
     try:
-        m = await bot.get_chat_member(message.chat.id, uid)
+        m = await bot.get_chat_member(cid, uid)
         if m.status == "creator":
-            await set_rank(message.chat.id, uid, MAX_RANK, by=0)
-            return MAX_RANK
+            await set_rank(cid, uid, MAX_RANK, by=0)
+            res_rank = MAX_RANK
+        elif m.status == "administrator":
+            res_rank = 5
     except Exception:
         pass
 
-    # 3. ТГ-администратор по умолчанию получает ранг 5 (если в базе не задан другой):
-    try:
-        m = await bot.get_chat_member(message.chat.id, uid)
-        if m.status == "administrator":
-            return 5
-    except Exception:
-        pass
-    return 0
+    _tg_rank_cache[cache_key] = (res_rank, now)
+    message._cached_effective_rank = res_rank
+    return res_rank
 
 
 def rank_name(rank: int) -> str:

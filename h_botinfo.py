@@ -55,7 +55,7 @@ async def measure_ping(bot: Bot) -> float:
     """Пинг до Telegram API в миллисекундах."""
     t0 = time.perf_counter()
     try:
-        await bot.get_me()
+        await asyncio.wait_for(bot.get_me(), timeout=2.5)
     except Exception:
         return -1.0
     return (time.perf_counter() - t0) * 1000
@@ -71,7 +71,7 @@ async def bot_status_text(bot: Bot, message: Message | None = None) -> str:
     if message and message.chat and message.chat.type in ("group", "supergroup"):
         cid = message.chat.id
         try:
-            members_cnt = await bot.get_chat_member_count(cid)
+            members_cnt = await asyncio.wait_for(bot.get_chat_member_count(cid), timeout=2.0)
         except Exception:
             row = await db.fetchone("SELECT COUNT(DISTINCT user_id) c FROM chat_stats WHERE chat_id=?", (cid,))
             members_cnt = row["c"] if row else 0

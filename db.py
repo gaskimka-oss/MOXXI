@@ -1073,6 +1073,7 @@ async def init() -> None:
     _conn.row_factory = DictRow
     await _conn.execute("PRAGMA journal_mode=WAL")
     await _conn.execute("PRAGMA synchronous=NORMAL")
+    await _conn.execute("PRAGMA busy_timeout=5000")
     await _conn.execute("PRAGMA wal_autocheckpoint=100")
     await _conn.execute("PRAGMA foreign_keys=ON")
     await _conn.executescript(SCHEMA)
