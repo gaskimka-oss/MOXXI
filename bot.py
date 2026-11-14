@@ -77,6 +77,7 @@ import h_jackpot as jackpot
 import h_titles as titles
 import h_party_games as party_games
 import h_tictactoe as tictactoe
+import h_mega_games as mega_games
 import h_webapp as webapp
 import h_community_support as community_support
 import h_security_plus as security_plus
@@ -445,7 +446,7 @@ async def main() -> None:
         dk.router, chatlock.router, fun.router, modules.router, rp.router,
         userinfo.router, tournament.router, relations.router, vip.router,
         pets.router, market.router, dungeon.router, jackpot.router, titles.router,
-        party_games.router, webapp.router, community_support.router,
+        party_games.router, tictactoe.router, mega_games.router, webapp.router, community_support.router,
         player_features.router,
         security_plus.router, staff_plus.router, economy_plus.router, social_plus.router,
         veteran.router, botinfo.router, ai_features.router, callall.router,
@@ -493,6 +494,7 @@ async def main() -> None:
     dp.include_router(titles.router)
     dp.include_router(party_games.router)
     dp.include_router(tictactoe.router)
+    dp.include_router(mega_games.router)
     dp.include_router(webapp.router)
     dp.include_router(community_support.router)
     dp.include_router(player_features.router)
