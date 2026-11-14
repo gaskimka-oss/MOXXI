@@ -1110,6 +1110,34 @@ async def init() -> None:
 
 async def _migrate() -> None:
     """Добавляет недостающие колонки в уже существующих базах."""
+    try:
+        await _conn.execute(
+            "CREATE TABLE IF NOT EXISTS chat_themes ("
+            "chat_id INTEGER PRIMARY KEY, "
+            "theme TEXT NOT NULL DEFAULT 'rainbow', "
+            "hierarchy TEXT NOT NULL DEFAULT 'default', "
+            "gender_mode TEXT NOT NULL DEFAULT 'auto', "
+            "updated_at INTEGER NOT NULL DEFAULT 0, "
+            "updated_by INTEGER NOT NULL DEFAULT 0)"
+        )
+        await _conn.execute(
+            "CREATE TABLE IF NOT EXISTS group_pr_links ("
+            "chat_id INTEGER NOT NULL, "
+            "user_id INTEGER NOT NULL, "
+            "invite_link TEXT NOT NULL, "
+            "created_at INTEGER NOT NULL, "
+            "PRIMARY KEY (chat_id, user_id))"
+        )
+        await _conn.execute(
+            "CREATE TABLE IF NOT EXISTS group_referrals ("
+            "chat_id INTEGER NOT NULL, "
+            "inviter_id INTEGER NOT NULL, "
+            "joined_user_id INTEGER NOT NULL, "
+            "joined_at INTEGER NOT NULL, "
+            "PRIMARY KEY (chat_id, joined_user_id))"
+        )
+    except Exception:
+        pass
     wanted = {
         "staff": [("pos", "INTEGER NOT NULL DEFAULT 0"),
                   ("left_chat", "INTEGER NOT NULL DEFAULT 0")],
@@ -1119,7 +1147,15 @@ async def _migrate() -> None:
         "users": [("verified", "INTEGER NOT NULL DEFAULT 0"),
                   ("grams", "INTEGER NOT NULL DEFAULT 0"),
                   ("coins", "INTEGER NOT NULL DEFAULT 0"),
-                  ("crystals", "INTEGER NOT NULL DEFAULT 0")],
+                  ("crystals", "INTEGER NOT NULL DEFAULT 0"),
+                  ("gender", "TEXT NOT NULL DEFAULT 'none'")],
+        "chat_themes": [
+            ("theme", "TEXT NOT NULL DEFAULT 'rainbow'"),
+            ("hierarchy", "TEXT NOT NULL DEFAULT 'default'"),
+            ("gender_mode", "TEXT NOT NULL DEFAULT 'auto'"),
+            ("updated_at", "INTEGER NOT NULL DEFAULT 0"),
+            ("updated_by", "INTEGER NOT NULL DEFAULT 0"),
+        ],
         "relations": [("count", "INTEGER NOT NULL DEFAULT 1")],
         "profiles": [("gender", "TEXT"), ("custom", "TEXT"), ("custom_by", "INTEGER"),
                      ("custom_ts", "INTEGER"),

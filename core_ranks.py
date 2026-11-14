@@ -142,15 +142,19 @@ async def effective_rank(message: Message, bot: Bot) -> int:
     return res_rank
 
 
-def rank_name(rank: int) -> str:
-    return RANK_NAMES.get(rank, "Участник")
+def rank_name(rank: int, gender: str = "male", hierarchy: str = "default") -> str:
+    try:
+        from core_hierarchies import get_rank_title
+        return get_rank_title(rank, gender=gender, hierarchy_id=hierarchy)
+    except Exception:
+        return RANK_NAMES.get(rank, "Участник")
 
 
-def rank_label(rank: int) -> str:
-    """«👑 Владелец чата» — для ответов бота."""
+def rank_label(rank: int, gender: str = "male", hierarchy: str = "default") -> str:
+    """«👑 Владелец чата» (или «👑 Лидерша чата») — для ответов бота."""
     from core_registry import RANK_ICONS
     icon = RANK_ICONS.get(rank, "")
-    name = RANK_NAMES.get(rank, "Участник")
+    name = rank_name(rank, gender=gender, hierarchy=hierarchy)
     return f"{icon} {name}".strip()
 
 

@@ -141,6 +141,43 @@ async def on_rights_changed(event: ChatMemberUpdated, bot: Bot):
         pass
 
 
+@router.chat_member(ChatMemberUpdatedFilter(IS_NOT_MEMBER >> IS_MEMBER))
+async def on_user_joined_via_invite(event: ChatMemberUpdated, bot: Bot):
+    """Отслеживание входа по реферальной ссылке пиарщика группы."""
+    if not event.invite_link or not event.new_chat_member or not event.new_chat_member.user:
+        return
+    u = event.new_chat_member.user
+    if u.is_bot:
+        return
+    link_url = event.invite_link.invite_link
+    chat_id = event.chat.id
+    try:
+        row = await db.fetchone(
+            "SELECT user_id FROM group_pr_links WHERE chat_id=? AND invite_link=?",
+            (chat_id, link_url)
+        )
+        if not row:
+            return
+        inviter_id = row["user_id"]
+        if inviter_id == u.id:
+            return
+        import time as _t
+        now = int(_t.time())
+        await db.execute(
+            "INSERT OR IGNORE INTO group_referrals (chat_id, inviter_id, joined_user_id, joined_at) "
+            "VALUES (?, ?, ?, ?)",
+            (chat_id, inviter_id, u.id, now)
+        )
+        # Награда пиарщику за приглашение
+        await db.add_coins(inviter_id, 250)
+        # Если состоит в клане — клану начисляется казна
+        clan_row = await db.fetchone("SELECT clan_id FROM clan_members WHERE user_id=?", (inviter_id,))
+        if clan_row:
+            await db.execute("UPDATE clans SET balance=balance+100 WHERE id=?", (clan_row["clan_id"],))
+    except Exception:
+        pass
+
+
 @router.my_chat_member()
 async def on_my_chat_member_change(event: ChatMemberUpdated):
     # Если бота выгнали или он покинул чат из любого статуса (участник или админ)

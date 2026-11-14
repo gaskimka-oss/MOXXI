@@ -274,6 +274,8 @@ async def set_chat_theme(chat_id: int, theme_id: str, updated_by: int = 0) -> bo
         "CREATE TABLE IF NOT EXISTS chat_themes ("
         "chat_id INTEGER PRIMARY KEY, "
         "theme TEXT NOT NULL DEFAULT 'rainbow', "
+        "hierarchy TEXT NOT NULL DEFAULT 'default', "
+        "gender_mode TEXT NOT NULL DEFAULT 'auto', "
         "updated_at INTEGER NOT NULL DEFAULT 0, "
         "updated_by INTEGER NOT NULL DEFAULT 0)"
     )
