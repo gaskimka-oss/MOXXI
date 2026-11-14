@@ -1142,6 +1142,64 @@ async def _migrate() -> None:
             "joined_at INTEGER NOT NULL, "
             "PRIMARY KEY (chat_id, joined_user_id))"
         )
+        await _conn.execute(
+            "CREATE TABLE IF NOT EXISTS clan_bosses ("
+            "clan_id INTEGER PRIMARY KEY, "
+            "boss_name TEXT NOT NULL, "
+            "boss_icon TEXT NOT NULL DEFAULT '🐉', "
+            "max_hp INTEGER NOT NULL, "
+            "current_hp INTEGER NOT NULL, "
+            "level INTEGER NOT NULL DEFAULT 1, "
+            "spawned_ts INTEGER NOT NULL, "
+            "defeated INTEGER NOT NULL DEFAULT 0)"
+        )
+        await _conn.execute(
+            "CREATE TABLE IF NOT EXISTS clan_boss_hits ("
+            "clan_id INTEGER NOT NULL, "
+            "user_id INTEGER NOT NULL, "
+            "total_damage INTEGER NOT NULL DEFAULT 0, "
+            "last_hit_ts INTEGER NOT NULL DEFAULT 0, "
+            "PRIMARY KEY (clan_id, user_id))"
+        )
+        await _conn.execute(
+            "CREATE TABLE IF NOT EXISTS clan_quests ("
+            "clan_id INTEGER PRIMARY KEY, "
+            "quest_day INTEGER NOT NULL DEFAULT 0, "
+            "q1_done INTEGER NOT NULL DEFAULT 0, "
+            "q2_done INTEGER NOT NULL DEFAULT 0, "
+            "q3_done INTEGER NOT NULL DEFAULT 0, "
+            "q1_claimed INTEGER NOT NULL DEFAULT 0, "
+            "q2_claimed INTEGER NOT NULL DEFAULT 0, "
+            "q3_claimed INTEGER NOT NULL DEFAULT 0)"
+        )
+        await _conn.execute(
+            "CREATE TABLE IF NOT EXISTS clan_daily_stats ("
+            "clan_id INTEGER NOT NULL, "
+            "stat_day INTEGER NOT NULL, "
+            "hits_count INTEGER NOT NULL DEFAULT 0, "
+            "deposit_amt INTEGER NOT NULL DEFAULT 0, "
+            "msgs_count INTEGER NOT NULL DEFAULT 0, "
+            "PRIMARY KEY (clan_id, stat_day))"
+        )
+        await _conn.execute(
+            "CREATE TABLE IF NOT EXISTS clan_wars_history ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "clan1_id INTEGER NOT NULL, "
+            "clan2_id INTEGER NOT NULL, "
+            "winner_id INTEGER NOT NULL, "
+            "spoils INTEGER NOT NULL DEFAULT 0, "
+            "ts INTEGER NOT NULL)"
+        )
+        await _conn.execute(
+            "CREATE TABLE IF NOT EXISTS user_reputation_logs ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "from_id INTEGER NOT NULL, "
+            "to_id INTEGER NOT NULL, "
+            "delta INTEGER NOT NULL, "
+            "reason TEXT, "
+            "chat_id INTEGER NOT NULL, "
+            "ts INTEGER NOT NULL)"
+        )
     except Exception:
         pass
     wanted = {
@@ -1168,6 +1226,8 @@ async def _migrate() -> None:
             ("updated_at", "INTEGER NOT NULL DEFAULT 0"),
             ("updated_by", "INTEGER NOT NULL DEFAULT 0"),
         ],
+        "clan_members": [("role", "TEXT NOT NULL DEFAULT 'member'")],
+        "clans": [("motto", "TEXT NOT NULL DEFAULT ''")],
         "relations": [("count", "INTEGER NOT NULL DEFAULT 1")],
         "profiles": [("gender", "TEXT"), ("custom", "TEXT"), ("custom_by", "INTEGER"),
                      ("custom_ts", "INTEGER"),

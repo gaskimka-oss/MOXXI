@@ -92,6 +92,7 @@ import h_update_2_2 as update_2_2
 import h_currency_exchange as currency_exchange
 import h_vip_plus as vip_plus
 import h_moxxi_3_0 as moxxi_3_0
+import h_moxxi_apex as moxxi_apex
 import h_staff_hq as staff_hq
 
 logging.basicConfig(level=logging.INFO,
@@ -514,6 +515,7 @@ async def main() -> None:
     dp.include_router(currency_exchange.router)
     dp.include_router(vip_plus.router)
     dp.include_router(moxxi_3_0.router)
+    dp.include_router(moxxi_apex.router)
     dp.include_router(passive.router)
 
     me = None

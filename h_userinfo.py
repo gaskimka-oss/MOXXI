@@ -274,10 +274,37 @@ async def render_card(message: Message, bot: Bot, uid: int, name: str | None) ->
     elif in_chat is False:
         out.append("💔 Не состоит в чате")
     out.append("")
-    from core_registry import RANK_ICONS
-    rank_icon = RANK_ICONS.get(rank, "▫️")
-    rank_title = rank_name(rank) if rank else "Простой участник"
-    out.append(f"▫️ [{rank}] Ранг: {rank_icon} {rank_title}")
+    import core_hierarchies
+    cfg = await core_hierarchies.get_chat_design(message.chat.id)
+    cur_h = cfg.get("hierarchy", "default")
+    u_gender = await core_hierarchies.get_user_gender(uid)
+    h_info = core_hierarchies.COMMUNITY_TYPES.get(cur_h, core_hierarchies.COMMUNITY_TYPES["default"])
+    rank_icon = h_info["icons"].get(rank, "▫️")
+    if rank:
+        rank_title = core_hierarchies.get_rank_title(rank, gender=u_gender, hierarchy_id=cur_h)
+    else:
+        rank_title = "Простой участник" if u_gender != "female" else "Простая участница"
+    g_mark = " ♀" if u_gender == "female" else (" ♂" if u_gender == "male" else "")
+    out.append(f"▫️ [{rank}] Ранг: {rank_icon} <b>{rank_title}</b>{g_mark}")
+
+    # Клан пользователя
+    try:
+        clan_member = await db.fetchone(
+            "SELECT m.clan_id, m.role, c.name FROM clan_members m "
+            "JOIN clans c ON c.id=m.clan_id WHERE m.user_id=?", (uid,)
+        )
+        if clan_member:
+            role_names = {
+                "owner": "👑 Глава",
+                "deputy": "🔱 Заместитель",
+                "general": "⚔️ Полководец",
+                "veteran": "🛡️ Ветеран",
+                "member": "🗡️ Боец"
+            }
+            c_role = role_names.get(clan_member.get("role", "member"), "🗡️ Боец")
+            out.append(f"▫️ 🏰 Клан: <b>«{html.escape(clan_member['name'])}»</b> [{c_role}]")
+    except Exception:
+        pass
 
     # VIP-статус
     vip_lvl, _, vip_active = await db.get_vip_info(uid)
