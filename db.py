@@ -1116,6 +1116,12 @@ async def _migrate() -> None:
             "chat_id INTEGER PRIMARY KEY, "
             "theme TEXT NOT NULL DEFAULT 'rainbow', "
             "hierarchy TEXT NOT NULL DEFAULT 'default', "
+            "border TEXT NOT NULL DEFAULT 'classic', "
+            "crest TEXT NOT NULL DEFAULT '👑', "
+            "layout TEXT NOT NULL DEFAULT 'classic', "
+            "font TEXT NOT NULL DEFAULT 'normal', "
+            "banner_file_id TEXT, "
+            "banner_type TEXT, "
             "gender_mode TEXT NOT NULL DEFAULT 'auto', "
             "updated_at INTEGER NOT NULL DEFAULT 0, "
             "updated_by INTEGER NOT NULL DEFAULT 0)"
@@ -1152,6 +1158,12 @@ async def _migrate() -> None:
         "chat_themes": [
             ("theme", "TEXT NOT NULL DEFAULT 'rainbow'"),
             ("hierarchy", "TEXT NOT NULL DEFAULT 'default'"),
+            ("border", "TEXT NOT NULL DEFAULT 'classic'"),
+            ("crest", "TEXT NOT NULL DEFAULT '👑'"),
+            ("layout", "TEXT NOT NULL DEFAULT 'classic'"),
+            ("font", "TEXT NOT NULL DEFAULT 'normal'"),
+            ("banner_file_id", "TEXT"),
+            ("banner_type", "TEXT"),
             ("gender_mode", "TEXT NOT NULL DEFAULT 'auto'"),
             ("updated_at", "INTEGER NOT NULL DEFAULT 0"),
             ("updated_by", "INTEGER NOT NULL DEFAULT 0"),

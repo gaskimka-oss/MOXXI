@@ -218,17 +218,33 @@ def _render_staff(
     title: str = "А Д М И Н И С Т Р А Ц И Я   Б Е С Е Д Ы",
     theme: str = "rainbow",
     hierarchy: str = "default",
-    genders: dict[int, str] | None = None
+    genders: dict[int, str] | None = None,
+    border: str = "classic",
+    crest: str = "👑",
+    layout: str = "classic",
+    font: str = "normal",
+    user_meta: dict[int, dict] | None = None
 ) -> str:
-    """Оформление состава модерации с поддержкой кастомных тем чата, типов сообществ и гендера."""
+    """Оформление состава модерации с поддержкой кастомных тем чата, типов сообществ, рамок, шрифтов, гербов и видов вывода."""
     from core_registry import RANK_RAINBOW_BULLETS, RANK_RAINBOW_HEADERS, RANK_RAINBOW_PLURAL_HEADERS
 
     t = STAFF_THEMES.get(theme) or STAFF_THEMES["rainbow"]
     h_info = core_hierarchies.COMMUNITY_TYPES.get(hierarchy, core_hierarchies.COMMUNITY_TYPES["default"])
+    b_info = core_hierarchies.BORDER_STYLES.get(border, core_hierarchies.BORDER_STYLES["classic"])
     genders = genders or {}
+    user_meta = user_meta or {}
 
-    banner = t["banner"]
-    header = f"{banner}\n" + t["header_title"].format(title=title) + f"\n{banner}"
+    fancy_title = core_hierarchies.apply_fancy_font(title, font)
+    crest_icon = crest or "👑"
+
+    # Декоративные рамки
+    top_bar = b_info["top"] if border != "classic" else t["banner"]
+    bottom_bar = b_info["bottom"] if border != "classic" else t["footer_banner"]
+    box_fmt = b_info["box"] if border != "classic" else t["group_box"]
+    branch_mid = b_info["branch_mid"] if border != "classic" else t["branch_mid"]
+    branch_last = b_info["branch_last"] if border != "classic" else t["branch_last"]
+
+    header = f"{top_bar}\n{crest_icon} ✨ <b>{fancy_title}</b> ✨ {crest_icon}\n{top_bar}"
 
     if not groups:
         return (
@@ -236,7 +252,7 @@ def _render_staff(
             "<i>В этой группе ещё не назначен состав модерации.</i>\n\n"
             "👑 Создатель группы автоматически получает ранг.\n"
             "Назначить администратора: <code>+модер 3 @user</code>\n\n"
-            f"{t['footer_banner']}"
+            f"{bottom_bar}"
         )
 
     parts = [header, ""]
@@ -257,23 +273,57 @@ def _render_staff(
             raw_title = core_hierarchies.get_rank_plural_title(rank, hierarchy_id=hierarchy, all_female=all_female)
 
         rank_icon = h_info["icons"].get(rank, t["bullets"].get(rank, "🔹"))
-        head = f"{rank_icon} {raw_title}"
 
-        parts.append(t["group_box"].format(head=head))
-        bullet = t["bullets"].get(rank, RANK_RAINBOW_BULLETS.get(rank, "🔹"))
-        for idx, item in enumerate(people):
-            link = item[0]
-            left = item[1]
-            uid = item[2] if len(item) >= 3 else 0
-            is_last = (idx == len(people) - 1)
-            branch = t["branch_last"] if is_last else t["branch_mid"]
-            if left:
-                parts.append(f"{branch} 🔴 <b>{link}</b> <i>(вышел)</i>")
-            else:
-                parts.append(f"{branch} {bullet} <b>{link}</b>")
+        if layout == "compact":
+            # Компактный режим: ранг и список участников через запятую в одну строку
+            names_str = ", ".join(
+                f"<b>{item[0]}</b>" + (" <i>(вышел)</i>" if item[1] else "")
+                for item in people
+            )
+            parts.append(f"{rank_icon} <b>{raw_title}:</b> {names_str}")
+        elif layout == "cards":
+            # VIP-Карточки с цитатой или сообщениями
+            head = f"{rank_icon} {raw_title}"
+            parts.append(box_fmt.format(head=head))
+            bullet = t["bullets"].get(rank, "🔹")
+            for idx, item in enumerate(people):
+                link = item[0]
+                left = item[1]
+                uid = item[2] if len(item) >= 3 else 0
+                is_last = (idx == len(people) - 1)
+                br = branch_last if is_last else branch_mid
+                meta = user_meta.get(uid, {})
+                status_note = ""
+                if meta.get("custom"):
+                    c_clean = str(meta["custom"]).strip().replace("\n", " ")[:28]
+                    status_note = f" ── 💭 <i>«{c_clean}»</i>"
+                elif meta.get("messages"):
+                    status_note = f" ── 💬 <i>{meta['messages']} смс</i>"
+                if left:
+                    parts.append(f"{br} 🔴 <b>{link}</b> <i>(вышел)</i>{status_note}")
+                else:
+                    parts.append(f"{br} {bullet} <b>{link}</b>{status_note}")
+            parts.append("")
+        else:
+            # Классический режим (Дерево)
+            head = f"{rank_icon} {raw_title}"
+            parts.append(box_fmt.format(head=head))
+            bullet = t["bullets"].get(rank, "🔹")
+            for idx, item in enumerate(people):
+                link = item[0]
+                left = item[1]
+                is_last = (idx == len(people) - 1)
+                br = branch_last if is_last else branch_mid
+                if left:
+                    parts.append(f"{br} 🔴 <b>{link}</b> <i>(вышел)</i>")
+                else:
+                    parts.append(f"{br} {bullet} <b>{link}</b>")
+            parts.append("")
+
+    if layout == "compact":
         parts.append("")
 
-    parts.append(t["footer_banner"])
+    parts.append(bottom_bar)
     parts.append(t["footer_fmt"].format(total=total_staff))
     return "\n".join(parts).strip()
 
@@ -791,12 +841,19 @@ async def cmd_staff(message: Message, bot: Bot, **kw):
         except Exception:
             pass
 
-    t_row = await db.fetchone("SELECT theme, hierarchy FROM chat_themes WHERE chat_id=?", (message.chat.id,))
-    cur_theme = t_row["theme"] if (t_row and t_row.get("theme")) else "rainbow"
-    cur_hierarchy = t_row["hierarchy"] if (t_row and t_row.get("hierarchy")) else "default"
+    cfg = await core_hierarchies.get_chat_design(message.chat.id)
+    cur_theme = cfg["theme"]
+    cur_hierarchy = cfg["hierarchy"]
+    cur_border = cfg["border"]
+    cur_crest = cfg["crest"]
+    cur_layout = cfg["layout"]
+    cur_font = cfg["font"]
+    banner_id = cfg.get("banner_file_id")
+    banner_type = cfg.get("banner_type", "photo")
 
     uids = [item[2] for people in groups.values() for item in people if len(item) >= 3 and item[2]]
     genders = {}
+    user_meta = {}
     if uids:
         placeholders = ",".join("?" for _ in uids)
         rows = await db.fetchall(f"SELECT user_id, gender FROM users WHERE user_id IN ({placeholders})", tuple(uids))
@@ -813,9 +870,49 @@ async def cmd_staff(message: Message, bot: Bot, **kw):
                 if g != "none":
                     genders[r["user_id"]] = g
 
+        if cur_layout == "cards":
+            try:
+                stats_rows = await db.fetchall(
+                    f"SELECT user_id, messages FROM chat_stats WHERE chat_id=? AND user_id IN ({placeholders})",
+                    (message.chat.id, *uids)
+                )
+                for sr in stats_rows:
+                    user_meta.setdefault(sr["user_id"], {})["messages"] = sr["messages"]
+                prof_rows = await db.fetchall(
+                    f"SELECT user_id, custom FROM profiles WHERE user_id IN ({placeholders})",
+                    tuple(uids)
+                )
+                for pr in prof_rows:
+                    if pr.get("custom"):
+                        user_meta.setdefault(pr["user_id"], {})["custom"] = pr["custom"]
+            except Exception:
+                pass
+
     h_info = core_hierarchies.COMMUNITY_TYPES.get(cur_hierarchy, core_hierarchies.COMMUNITY_TYPES["default"])
     title_text = f"Состав: {h_info['short_name']}"
-    text = _render_staff(groups, title_text, theme=cur_theme, hierarchy=cur_hierarchy, genders=genders)
+    text = _render_staff(
+        groups, title_text,
+        theme=cur_theme, hierarchy=cur_hierarchy,
+        genders=genders, border=cur_border,
+        crest=cur_crest, layout=cur_layout,
+        font=cur_font, user_meta=user_meta
+    )
+
+    if banner_id:
+        try:
+            if len(text) <= 1024:
+                if banner_type == "animation":
+                    return await message.reply_animation(banner_id, caption=text, disable_web_page_preview=True)
+                else:
+                    return await message.reply_photo(banner_id, caption=text, disable_web_page_preview=True)
+            else:
+                if banner_type == "animation":
+                    await message.reply_animation(banner_id)
+                else:
+                    await message.reply_photo(banner_id)
+                return await message.reply(text, disable_web_page_preview=True)
+        except Exception:
+            pass
     await message.reply(text, disable_web_page_preview=True)
 
 
@@ -1197,42 +1294,102 @@ async def cmd_global_ranks(message: Message, bot: Bot, args: str = "", **kw):
 # 🎨 КАСТОМИЗАЦИЯ ДИЗАЙНА ЧАТА, ИЕРАРХИИ И ГЕНДЕРОВ (Обновление 3.0)
 # ═════════════════════════════════════════════════════════════════════
 
-def _make_design_hub_kb(cur_theme: str, cur_hierarchy: str, user_gender: str) -> InlineKeyboardMarkup:
+def _make_design_hub_kb(cfg_or_theme: Any, cur_hierarchy: str = "default", user_gender: str = "none") -> InlineKeyboardMarkup:
     """Главная клавиатура Центра дизайна MOXXI 3.0."""
+    if isinstance(cfg_or_theme, dict):
+        cfg = cfg_or_theme
+    else:
+        cfg = {"theme": cfg_or_theme, "hierarchy": cur_hierarchy, "border": "classic", "crest": "👑", "layout": "classic", "font": "normal"}
+
+    cur_theme = cfg.get("theme", "rainbow")
+    cur_h = cfg.get("hierarchy", "default")
+    cur_b = cfg.get("border", "classic")
+    cur_c = cfg.get("crest", "👑")
+    cur_l = cfg.get("layout", "classic")
+    cur_f = cfg.get("font", "normal")
+    has_banner = bool(cfg.get("banner_file_id"))
+
     t_info = STAFF_THEMES.get(cur_theme, STAFF_THEMES["rainbow"])
-    h_info = core_hierarchies.COMMUNITY_TYPES.get(cur_hierarchy, core_hierarchies.COMMUNITY_TYPES["default"])
+    h_info = core_hierarchies.COMMUNITY_TYPES.get(cur_h, core_hierarchies.COMMUNITY_TYPES["default"])
+    b_info = core_hierarchies.BORDER_STYLES.get(cur_b, core_hierarchies.BORDER_STYLES["classic"])
+    l_info = core_hierarchies.LAYOUT_STYLES.get(cur_l, core_hierarchies.LAYOUT_STYLES["classic"])
+    f_info = core_hierarchies.FONT_STYLES.get(cur_f, core_hierarchies.FONT_STYLES["normal"])
 
     if user_gender == "female":
-        gender_btn = "👤 Мой пол: 🙋‍♀️ Девушка (Сменить на 🙋‍♂️)"
+        gender_btn = "👤 Пол: 🙋‍♀️ Дев (-> 🙋‍♂️)"
     elif user_gender == "male":
-        gender_btn = "👤 Мой пол: 🙋‍♂️ Парень (Сменить на 🙋‍♀️)"
+        gender_btn = "👤 Пол: 🙋‍♂️ Пар (-> 🙋‍♀️)"
     else:
-        gender_btn = "👤 Мой пол: ❓ Не выбран (Выбрать 🙋‍♀️ / 🙋‍♂️)"
+        gender_btn = "👤 Пол: ❓ Выбрать"
+
+    banner_btn = "🖼️ Баннер: ✅ Есть" if has_banner else "🖼️ Баннер: ➕ Задать"
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(
-                text=f"🎨 Тема: {t_info['badge']} {t_info['name'].split('(')[0].strip()}",
-                callback_data="chat_theme:themes"
-            )
+            InlineKeyboardButton(text=f"🎨 Тема: {t_info['badge']} {t_info['name'].split('(')[0].strip()}", callback_data="chat_theme:themes"),
+            InlineKeyboardButton(text=f"🏰 Иерархия: {h_info['icon']} {h_info['short_name']}", callback_data="chat_theme:hierarchies"),
         ],
         [
-            InlineKeyboardButton(
-                text=f"🏰 Иерархия: {h_info['icon']} {h_info['short_name']}",
-                callback_data="chat_theme:hierarchies"
-            )
+            InlineKeyboardButton(text=f"🔲 Рамка: {b_info['icon']} {b_info['name'].split('(')[0].strip()}", callback_data="chat_theme:borders"),
+            InlineKeyboardButton(text=f"⚜️ Герб: {cur_c}", callback_data="chat_theme:crests"),
         ],
         [
-            InlineKeyboardButton(
-                text=gender_btn,
-                callback_data="chat_theme:toggle_gender"
-            )
+            InlineKeyboardButton(text=f"📜 Вид: {l_info['icon']} {l_info['name']}", callback_data="chat_theme:layouts"),
+            InlineKeyboardButton(text=f"🔤 Шрифт: {f_info['icon']} {f_info['name'].split('(')[0].strip()}", callback_data="chat_theme:fonts"),
+        ],
+        [
+            InlineKeyboardButton(text=banner_btn, callback_data="chat_theme:banner_info"),
+            InlineKeyboardButton(text=gender_btn, callback_data="chat_theme:toggle_gender"),
         ],
         [
             InlineKeyboardButton(text="👁 Живой пример", callback_data="chat_theme:live_preview"),
-            InlineKeyboardButton(text="📋 Состав чата", callback_data="chat_theme:view_staff")
+            InlineKeyboardButton(text="📋 Состав чата", callback_data="chat_theme:view_staff"),
         ]
     ])
+
+
+def _format_design_hub_text(cfg: dict, user_gender: str) -> str:
+    """Форматирует красивый информационный текст главного меню дизайна."""
+    cur_theme = cfg.get("theme", "rainbow")
+    cur_h = cfg.get("hierarchy", "default")
+    cur_b = cfg.get("border", "classic")
+    cur_c = cfg.get("crest", "👑")
+    cur_l = cfg.get("layout", "classic")
+    cur_f = cfg.get("font", "normal")
+    has_banner = bool(cfg.get("banner_file_id"))
+
+    t_info = STAFF_THEMES.get(cur_theme, STAFF_THEMES["rainbow"])
+    h_info = core_hierarchies.COMMUNITY_TYPES.get(cur_h, core_hierarchies.COMMUNITY_TYPES["default"])
+    b_info = core_hierarchies.BORDER_STYLES.get(cur_b, core_hierarchies.BORDER_STYLES["classic"])
+    l_info = core_hierarchies.LAYOUT_STYLES.get(cur_l, core_hierarchies.LAYOUT_STYLES["classic"])
+    f_info = core_hierarchies.FONT_STYLES.get(cur_f, core_hierarchies.FONT_STYLES["normal"])
+
+    gender_text = "🙋‍♀️ Девушка" if user_gender == "female" else ("🙋‍♂️ Парень" if user_gender == "male" else "Не указан (нажмите кнопку ниже)")
+    banner_text = "🟢 Установлен (фото/гиф)" if has_banner else "⚪️ Не установлен (+баннер)"
+    fancy_sample = core_hierarchies.apply_fancy_font("СОСТАВ БЕСЕДЫ", cur_f)
+
+    leader_sample = core_hierarchies.get_rank_title(10, gender=user_gender, hierarchy_id=cur_h)
+    zam_sample = core_hierarchies.get_rank_title(9, gender=user_gender, hierarchy_id=cur_h)
+
+    return (
+        "🎨 ════════════ • 💎 • ════════════ 🎨\n"
+        "👑 ✨ <b>ЦЕНТР ДИЗАЙНА И ОФОРМЛЕНИЯ ЧАТА</b> ✨ 👑\n"
+        "🎨 ════════════ • 💎 • ════════════ 🎨\n\n"
+        "Добро пожаловать в центр кастомизации MOXXI 3.0!\n"
+        "Полная персонализация списков администрации под формат вашей группы:\n\n"
+        f"• 🎨 <b>Цветовая тема:</b> {t_info['badge']} <b>{t_info['name']}</b>\n"
+        f"• 🏰 <b>Формат группы:</b> {h_info['icon']} <b>{h_info['name']}</b>\n"
+        f"• 🔲 <b>Стиль рамки:</b> {b_info['icon']} <b>{b_info['name']}</b>\n"
+        f"• ⚜️ <b>Герб чата:</b> {cur_c}\n"
+        f"• 📜 <b>Вид вывода:</b> {l_info['icon']} <b>{l_info['name']}</b>\n"
+        f"• 🔤 <b>Шрифт заголовка:</b> <b>{fancy_sample}</b> ({f_info['name']})\n"
+        f"• 🖼️ <b>Медиа-баннер:</b> {banner_text}\n"
+        f"• 👤 <b>Ваш личный пол:</b> <b>{gender_text}</b>\n"
+        f"• 👑 <b>Титул лидера:</b> <b>{leader_sample}</b>\n"
+        f"• 🔱 <b>Титул зама:</b> <b>{zam_sample}</b>\n\n"
+        "💡 <i>Все настройки полностью изолированы для каждого чата.</i>\n\n"
+        "👇 <b>Выберите категорию для настройки:</b>"
+    )
 
 
 def _make_theme_menu_kb(cur_theme: str) -> InlineKeyboardMarkup:
@@ -1253,7 +1410,7 @@ def _make_theme_menu_kb(cur_theme: str) -> InlineKeyboardMarkup:
 
 
 def _make_hierarchies_menu_kb(cur_hierarchy: str) -> InlineKeyboardMarkup:
-    """Генерирует клавиатуру выбора типа сообщества (Клан, Чат, Синдикат, Самураи, Ковен, Империя)."""
+    """Генерирует клавиатуру выбора типа сообщества (10 форматов)."""
     kb_rows = []
     h_list = list(core_hierarchies.COMMUNITY_TYPES.values())
     for i in range(0, len(h_list), 2):
@@ -1269,53 +1426,92 @@ def _make_hierarchies_menu_kb(cur_hierarchy: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
 
+def _make_borders_menu_kb(cur_border: str) -> InlineKeyboardMarkup:
+    """Генерирует клавиатуру выбора стиля рамок и разделителей (8 стилей)."""
+    kb_rows = []
+    b_list = list(core_hierarchies.BORDER_STYLES.values())
+    for i in range(0, len(b_list), 2):
+        row = []
+        for b in b_list[i:i+2]:
+            mark = " ✅" if b["id"] == cur_border else ""
+            row.append(InlineKeyboardButton(text=f"{b['icon']} {b['name'].split('(')[0].strip()}{mark}",
+                                              callback_data=f"chat_theme:b_select:{b['id']}"))
+        kb_rows.append(row)
+    kb_rows.append([
+        InlineKeyboardButton(text="◀️ В главное меню дизайна", callback_data="chat_theme:hub")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
+
+def _make_crests_menu_kb(cur_crest: str) -> InlineKeyboardMarkup:
+    """Генерирует клавиатуру выбора герба чата (16 готовых эмодзи)."""
+    kb_rows = []
+    crests = core_hierarchies.AVAILABLE_CRESTS
+    for i in range(0, len(crests), 4):
+        row = []
+        for c in crests[i:i+4]:
+            mark = " •" if c == cur_crest else ""
+            row.append(InlineKeyboardButton(text=f"{c}{mark}", callback_data=f"chat_theme:c_select:{c}"))
+        kb_rows.append(row)
+    kb_rows.append([
+        InlineKeyboardButton(text="◀️ В главное меню дизайна", callback_data="chat_theme:hub")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
+
+def _make_layouts_menu_kb(cur_layout: str) -> InlineKeyboardMarkup:
+    """Генерирует клавиатуру выбора режима вывода списка состава (3 режима)."""
+    kb_rows = []
+    for l_id, l_info in core_hierarchies.LAYOUT_STYLES.items():
+        mark = " ✅" if l_id == cur_layout else ""
+        kb_rows.append([
+            InlineKeyboardButton(text=f"{l_info['icon']} {l_info['name']}{mark}", callback_data=f"chat_theme:l_select:{l_id}")
+        ])
+    kb_rows.append([
+        InlineKeyboardButton(text="◀️ В главное меню дизайна", callback_data="chat_theme:hub")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
+
+def _make_fonts_menu_kb(cur_font: str) -> InlineKeyboardMarkup:
+    """Генерирует клавиатуру выбора Unicode-шрифта для заголовков (5 шрифтов)."""
+    kb_rows = []
+    for f_id, f_info in core_hierarchies.FONT_STYLES.items():
+        mark = " ✅" if f_id == cur_font else ""
+        sample_title = core_hierarchies.apply_fancy_font("СОСТАВ", f_id)
+        kb_rows.append([
+            InlineKeyboardButton(text=f"{f_info['icon']} {f_info['name']} ({sample_title}){mark}", callback_data=f"chat_theme:f_select:{f_id}")
+        ])
+    kb_rows.append([
+        InlineKeyboardButton(text="◀️ В главное меню дизайна", callback_data="chat_theme:hub")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
+
+def _make_banner_menu_kb(has_banner: bool) -> InlineKeyboardMarkup:
+    """Генерирует меню управления медиа-баннером."""
+    kb_rows = []
+    if has_banner:
+        kb_rows.append([
+            InlineKeyboardButton(text="🗑️ Удалить текущий баннер", callback_data="chat_theme:del_banner")
+        ])
+    kb_rows.append([
+        InlineKeyboardButton(text="◀️ В главное меню дизайна", callback_data="chat_theme:hub")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
+
 @router.message(Cmd("дизайн", "дизайн чата", "дизайн группы", "стиль оформления", "тема оформления",
                     "дизайн состава", "тема состава", "стиль состава", "стиль чата", "оформление состава", "оформление чата",
                     section=34, group_only=True,
-                    usage="дизайн чата", desc="🎨 Настройка дизайна оформления, иерархии рангов и пола"))
+                    usage="дизайн чата", desc="🎨 Настройка оформления, тем, рамок, шрифтов, гербов и баннеров"))
 async def cmd_chat_design(message: Message, bot: Bot, **kw):
-    from config import is_bot_owner
     uid = message.from_user.id if message.from_user else 0
-
-    await db.execute(
-        "CREATE TABLE IF NOT EXISTS chat_themes ("
-        "chat_id INTEGER PRIMARY KEY, "
-        "theme TEXT NOT NULL DEFAULT 'rainbow', "
-        "hierarchy TEXT NOT NULL DEFAULT 'default', "
-        "gender_mode TEXT NOT NULL DEFAULT 'auto', "
-        "updated_at INTEGER NOT NULL DEFAULT 0, "
-        "updated_by INTEGER NOT NULL DEFAULT 0)"
-    )
-
-    t_row = await db.fetchone("SELECT theme, hierarchy FROM chat_themes WHERE chat_id=?", (message.chat.id,))
-    cur_theme = t_row["theme"] if (t_row and t_row.get("theme")) else "rainbow"
-    cur_hierarchy = t_row["hierarchy"] if (t_row and t_row.get("hierarchy")) else "default"
-
-    t_info = STAFF_THEMES.get(cur_theme, STAFF_THEMES["rainbow"])
-    h_info = core_hierarchies.COMMUNITY_TYPES.get(cur_hierarchy, core_hierarchies.COMMUNITY_TYPES["default"])
-
+    cfg = await core_hierarchies.get_chat_design(message.chat.id)
     user_gender = await core_hierarchies.get_user_gender(uid)
-    gender_text = "🙋‍♀️ Девушка" if user_gender == "female" else ("🙋‍♂️ Парень" if user_gender == "male" else "Не указан (нажмите кнопку ниже)")
 
-    leader_sample = core_hierarchies.get_rank_title(10, gender=user_gender, hierarchy_id=cur_hierarchy)
-    zam_sample = core_hierarchies.get_rank_title(9, gender=user_gender, hierarchy_id=cur_hierarchy)
-
-    txt = (
-        "🎨 ════════════ • 💎 • ════════════ 🎨\n"
-        "👑 ✨ <b>ЦЕНТР ДИЗАЙНА И ОФОРМЛЕНИЯ ЧАТА</b> ✨ 👑\n"
-        "🎨 ════════════ • 💎 • ════════════ 🎨\n\n"
-        "Добро пожаловать в центр кастомизации MOXXI 3.0!\n"
-        "Настройте оформление, стиль сообщества и титулы рангов для вашей группы:\n\n"
-        f"• 🎨 <b>Цветовая тема:</b> {t_info['badge']} <b>{t_info['name']}</b>\n"
-        f"• 🏰 <b>Тип группы:</b> {h_info['icon']} <b>{h_info['name']}</b>\n"
-        f"• 👤 <b>Ваш личный пол:</b> <b>{gender_text}</b>\n"
-        f"• 👑 <b>Титул лидера:</b> <b>{leader_sample}</b>\n"
-        f"• 🔱 <b>Титул зама:</b> <b>{zam_sample}</b>\n\n"
-        "💡 <i>Девушки могут включить отображение в женском роде (Лидерша чата, Заместительница, Админша, Модераторша) кликом по кнопке «Мой пол»!</i>\n\n"
-        "👇 <b>Выберите категорию для настройки:</b>"
-    )
-
-    await message.reply(txt, reply_markup=_make_design_hub_kb(cur_theme, cur_hierarchy, user_gender))
+    txt = _format_design_hub_text(cfg, user_gender)
+    await message.reply(txt, reply_markup=_make_design_hub_kb(cfg, user_gender=user_gender))
 
 
 @router.callback_query(F.data == "chat_theme:hub")
@@ -1323,41 +1519,20 @@ async def cb_theme_hub(cq: CallbackQuery, bot: Bot):
     chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
     uid = cq.from_user.id
 
-    t_row = await db.fetchone("SELECT theme, hierarchy FROM chat_themes WHERE chat_id=?", (chat_id,))
-    cur_theme = t_row["theme"] if (t_row and t_row.get("theme")) else "rainbow"
-    cur_hierarchy = t_row["hierarchy"] if (t_row and t_row.get("hierarchy")) else "default"
-
-    t_info = STAFF_THEMES.get(cur_theme, STAFF_THEMES["rainbow"])
-    h_info = core_hierarchies.COMMUNITY_TYPES.get(cur_hierarchy, core_hierarchies.COMMUNITY_TYPES["default"])
+    cfg = await core_hierarchies.get_chat_design(chat_id)
     user_gender = await core_hierarchies.get_user_gender(uid)
-    gender_text = "🙋‍♀️ Девушка" if user_gender == "female" else ("🙋‍♂️ Парень" if user_gender == "male" else "Не указан")
-
-    leader_sample = core_hierarchies.get_rank_title(10, gender=user_gender, hierarchy_id=cur_hierarchy)
-    zam_sample = core_hierarchies.get_rank_title(9, gender=user_gender, hierarchy_id=cur_hierarchy)
-
-    txt = (
-        "🎨 ════════════ • 💎 • ════════════ 🎨\n"
-        "👑 ✨ <b>ЦЕНТР ДИЗАЙНА И ОФОРМЛЕНИЯ ЧАТА</b> ✨ 👑\n"
-        "🎨 ════════════ • 💎 • ════════════ 🎨\n\n"
-        "Добро пожаловать в центр кастомизации MOXXI 3.0!\n\n"
-        f"• 🎨 <b>Цветовая тема:</b> {t_info['badge']} <b>{t_info['name']}</b>\n"
-        f"• 🏰 <b>Тип группы:</b> {h_info['icon']} <b>{h_info['name']}</b>\n"
-        f"• 👤 <b>Ваш личный пол:</b> <b>{gender_text}</b>\n"
-        f"• 👑 <b>Титул лидера:</b> <b>{leader_sample}</b>\n"
-        f"• 🔱 <b>Титул зама:</b> <b>{zam_sample}</b>\n\n"
-        "👇 <b>Выберите категорию для настройки:</b>"
-    )
+    txt = _format_design_hub_text(cfg, user_gender)
 
     if cq.message:
-        await cq.message.edit_text(txt, reply_markup=_make_design_hub_kb(cur_theme, cur_hierarchy, user_gender))
+        await cq.message.edit_text(txt, reply_markup=_make_design_hub_kb(cfg, user_gender=user_gender))
     await cq.answer()
 
 
 @router.callback_query(F.data.in_({"chat_theme:themes", "chat_theme:menu"}))
 async def cb_theme_themes_menu(cq: CallbackQuery, bot: Bot):
     chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
-    t_row = await db.fetchone("SELECT theme FROM chat_themes WHERE chat_id=?", (chat_id,))
-    cur_theme = t_row["theme"] if (t_row and t_row.get("theme")) else "rainbow"
+    cfg = await core_hierarchies.get_chat_design(chat_id)
+    cur_theme = cfg.get("theme", "rainbow")
     t_info = STAFF_THEMES.get(cur_theme, STAFF_THEMES["rainbow"])
 
     txt = (
@@ -1380,8 +1555,8 @@ async def cb_theme_select(cq: CallbackQuery, bot: Bot):
         return await cq.answer("⚠️ Неизвестная тема", show_alert=True)
 
     chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
-    t_row = await db.fetchone("SELECT theme FROM chat_themes WHERE chat_id=?", (chat_id,))
-    cur_theme = t_row["theme"] if (t_row and t_row.get("theme")) else "rainbow"
+    cfg = await core_hierarchies.get_chat_design(chat_id)
+    cur_theme = cfg.get("theme", "rainbow")
     is_active = (theme_id == cur_theme)
 
     txt = (
@@ -1425,21 +1600,7 @@ async def cb_theme_apply(cq: CallbackQuery, bot: Bot):
     if not t:
         return await cq.answer("⚠️ Неизвестная тема", show_alert=True)
 
-    now = int(time.time())
-    await db.execute(
-        "CREATE TABLE IF NOT EXISTS chat_themes ("
-        "chat_id INTEGER PRIMARY KEY, "
-        "theme TEXT NOT NULL DEFAULT 'rainbow', "
-        "hierarchy TEXT NOT NULL DEFAULT 'default', "
-        "gender_mode TEXT NOT NULL DEFAULT 'auto', "
-        "updated_at INTEGER NOT NULL DEFAULT 0, "
-        "updated_by INTEGER NOT NULL DEFAULT 0)"
-    )
-    await db.execute(
-        "INSERT INTO chat_themes (chat_id, theme, updated_at, updated_by) VALUES (?, ?, ?, ?) "
-        "ON CONFLICT(chat_id) DO UPDATE SET theme=excluded.theme, updated_at=excluded.updated_at, updated_by=excluded.updated_by",
-        (chat_id, theme_id, now, uid)
-    )
+    await core_hierarchies.update_chat_design(chat_id, updated_by=uid, theme=theme_id)
 
     success_txt = (
         "🎉 <b>СТИЛЬ УСПЕШНО УСТАНОВЛЕН!</b>\n\n"
@@ -1470,8 +1631,12 @@ async def cb_theme_preview(cq: CallbackQuery, bot: Bot):
         return await cq.answer("⚠️ Неизвестная тема", show_alert=True)
 
     chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
-    t_row = await db.fetchone("SELECT hierarchy FROM chat_themes WHERE chat_id=?", (chat_id,))
-    cur_h = t_row["hierarchy"] if (t_row and t_row.get("hierarchy")) else "default"
+    cfg = await core_hierarchies.get_chat_design(chat_id)
+    cur_h = cfg["hierarchy"]
+    cur_b = cfg["border"]
+    cur_c = cfg["crest"]
+    cur_l = cfg["layout"]
+    cur_f = cfg["font"]
 
     uid = cq.from_user.id
     u_gender = await core_hierarchies.get_user_gender(uid)
@@ -1484,8 +1649,11 @@ async def cb_theme_preview(cq: CallbackQuery, bot: Bot):
     }
     sample_genders = {uid: u_gender}
 
-    rendered_sample = _render_staff(sample_groups, "СОСТАВ АДМИНИСТРАЦИИ (ПРЕВЬЮ)",
-                                    theme=theme_id, hierarchy=cur_h, genders=sample_genders)
+    rendered_sample = _render_staff(
+        sample_groups, "СОСТАВ АДМИНИСТРАЦИИ (ПРЕВЬЮ)",
+        theme=theme_id, hierarchy=cur_h, genders=sample_genders,
+        border=cur_b, crest=cur_c, layout=cur_l, font=cur_f
+    )
 
     preview_msg = (
         f"👁 <b>ПРЕДПРОСМОТР СТИЛЯ: {t['name']}</b>\n"
@@ -1505,20 +1673,24 @@ async def cb_theme_preview(cq: CallbackQuery, bot: Bot):
 @router.callback_query(F.data == "chat_theme:hierarchies")
 async def cb_hierarchies_menu(cq: CallbackQuery, bot: Bot):
     chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
-    t_row = await db.fetchone("SELECT hierarchy FROM chat_themes WHERE chat_id=?", (chat_id,))
-    cur_h = t_row["hierarchy"] if (t_row and t_row.get("hierarchy")) else "default"
+    cfg = await core_hierarchies.get_chat_design(chat_id)
+    cur_h = cfg.get("hierarchy", "default")
     h_info = core_hierarchies.COMMUNITY_TYPES.get(cur_h, core_hierarchies.COMMUNITY_TYPES["default"])
 
     txt = (
         "🏰 <b>ВЫБОР ТИПА СООБЩЕСТВА И ИЕРАРХИИ РАНГОВ</b>\n\n"
-        "В зависимости от формата чата вы можете выбрать подходящие звания:\n"
-        "• <b>Клан / Гильдия</b> — звания: Глава, Советница, Маршалы, Валькирии, Ветераны, Рекруты.\n"
-        "• <b>Обычная беседа</b> — звания: Владелец, Заместительница, Админы, Модеры, Стажёры.\n"
-        "• <b>Кибер-Синдикат</b> — звания: Босс, Госпожа Синдиката, Вице-Президент, Нетраннеры.\n"
-        "• <b>Самураи / Аниме</b> — звания: Сёгун, Императрица, Советница, Даймё, Самураи, Куноити.\n"
-        "• <b>Тёмный Ковен</b> — звания: Князь Тьмы, Владычица Ночи, Жрицы, Лорды Крови.\n"
-        "• <b>Императорский Двор</b> — звания: Император, Канцлерша, Герцоги, Рыцари.\n\n"
-        f"📌 Текущий тип: {h_info['icon']} <b>{h_info['name']}</b>\n\n"
+        "Выберите формат сообщества, чтобы адаптировать титулы и звания (10 вариантов):\n"
+        "• ⚔️ <b>Клан / Гильдия</b> — Глава, Советница, Маршалы, Валькирии, Ветераны\n"
+        "• 💬 <b>Обычная беседа</b> — Владелец, Лидерша, Заместительница, Админы\n"
+        "• 🌌 <b>Кибер-Синдикат</b> — Босс, Госпожа Синдиката, Вице-Президент, Нетраннеры\n"
+        "• 🏮 <b>Самураи / Аниме</b> — Сёгун, Императрица, Советница, Даймё, Куноити\n"
+        "• 🩸 <b>Тёмный Ковен</b> — Князь Тьмы, Владычица Ночи, Жрицы, Лорды Крови\n"
+        "• 👑 <b>Императорский Двор</b> — Император, Императрица, Канцлеры, Герцоги\n"
+        "• 🕶️ <b>Мафия / Семья</b> — Дон Семьи, Крёстная Мать, Консильери, Капо, Бойцы\n"
+        "• 🔮 <b>Академия Магии</b> — Верховный Архимаг, Декан, Магистры, Адепты\n"
+        "• 🎮 <b>Киберспорт</b> — CEO Клуба, Капитан Ростера, Звездный Снайпер, Мейджор\n"
+        "• ☕ <b>Уютное Кафе</b> — Шеф-Бариста, Управляющая, Старший Мастер, Гости\n\n"
+        f"📌 Текущий формат: {h_info['icon']} <b>{h_info['name']}</b>\n\n"
         "👇 Выберите тип группы ниже для просмотра деталей и установки:"
     )
 
@@ -1535,8 +1707,8 @@ async def cb_h_select(cq: CallbackQuery, bot: Bot):
         return await cq.answer("⚠️ Неизвестный тип сообщества", show_alert=True)
 
     chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
-    t_row = await db.fetchone("SELECT hierarchy FROM chat_themes WHERE chat_id=?", (chat_id,))
-    cur_h = t_row["hierarchy"] if (t_row and t_row.get("hierarchy")) else "default"
+    cfg = await core_hierarchies.get_chat_design(chat_id)
+    cur_h = cfg.get("hierarchy", "default")
     is_active = (h_id == cur_h)
 
     txt = (
@@ -1586,7 +1758,7 @@ async def cb_h_apply(cq: CallbackQuery, bot: Bot):
     if not h:
         return await cq.answer("⚠️ Неизвестный тип сообщества", show_alert=True)
 
-    await core_hierarchies.set_chat_hierarchy(chat_id, h_id, updated_by=uid)
+    await core_hierarchies.update_chat_design(chat_id, updated_by=uid, hierarchy=h_id)
 
     success_txt = (
         "🎉 <b>ТИП СООБЩЕСТВА УСПЕШНО ИЗМЕНЁН!</b>\n\n"
@@ -1617,8 +1789,12 @@ async def cb_h_preview(cq: CallbackQuery, bot: Bot):
         return await cq.answer("⚠️ Неизвестный тип", show_alert=True)
 
     chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
-    t_row = await db.fetchone("SELECT theme FROM chat_themes WHERE chat_id=?", (chat_id,))
-    cur_theme = t_row["theme"] if (t_row and t_row.get("theme")) else "rainbow"
+    cfg = await core_hierarchies.get_chat_design(chat_id)
+    cur_theme = cfg["theme"]
+    cur_b = cfg["border"]
+    cur_c = cfg["crest"]
+    cur_l = cfg["layout"]
+    cur_f = cfg["font"]
 
     uid = cq.from_user.id
     u_gender = await core_hierarchies.get_user_gender(uid)
@@ -1632,8 +1808,11 @@ async def cb_h_preview(cq: CallbackQuery, bot: Bot):
     }
     sample_genders = {uid: u_gender}
 
-    rendered_sample = _render_staff(sample_groups, f"СОСТАВ: {h['name'].upper()}",
-                                    theme=cur_theme, hierarchy=h_id, genders=sample_genders)
+    rendered_sample = _render_staff(
+        sample_groups, f"СОСТАВ: {h['name'].upper()}",
+        theme=cur_theme, hierarchy=h_id, genders=sample_genders,
+        border=cur_b, crest=cur_c, layout=cur_l, font=cur_f
+    )
 
     preview_msg = (
         f"👁 <b>ПРЕДПРОСМОТР ИЕРАРХИИ: {h['name']}</b>\n"
@@ -1648,6 +1827,448 @@ async def cb_h_preview(cq: CallbackQuery, bot: Bot):
     await cq.answer("👁 Превью отправлено в чат!", show_alert=False)
 
 
+# ---------------- Рамки и разделители ----------------
+
+@router.callback_query(F.data == "chat_theme:borders")
+async def cb_borders_menu(cq: CallbackQuery, bot: Bot):
+    chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
+    cfg = await core_hierarchies.get_chat_design(chat_id)
+    cur_b = cfg.get("border", "classic")
+    b_info = core_hierarchies.BORDER_STYLES.get(cur_b, core_hierarchies.BORDER_STYLES["classic"])
+    txt = (
+        "🔲 <b>ВЫБОР РАМКИ И РАЗДЕЛИТЕЛЕЙ</b>\n\n"
+        f"📌 Текущая рамка: {b_info['icon']} <b>{b_info['name']}</b>\n\n"
+        "Пример рамки в чате:\n"
+        f"<code>{b_info['top']}</code>\n"
+        f"<code>{b_info['box'].format(head='Пример ранга')}</code>\n"
+        f"<code>{b_info['branch_mid']} Участник 1</code>\n"
+        f"<code>{b_info['branch_last']} Участник 2</code>\n"
+        f"<code>{b_info['bottom']}</code>\n\n"
+        "👇 Выберите стиль рамки ниже:"
+    )
+    if cq.message:
+        await cq.message.edit_text(txt, reply_markup=_make_borders_menu_kb(cur_b))
+    await cq.answer()
+
+
+@router.callback_query(F.data.startswith("chat_theme:b_select:"))
+async def cb_border_select(cq: CallbackQuery, bot: Bot):
+    b_id = cq.data.split(":", 2)[2]
+    if b_id not in core_hierarchies.BORDER_STYLES:
+        return await cq.answer("⚠️ Неизвестный стиль рамки", show_alert=True)
+    chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
+    uid = cq.from_user.id
+    me = await effective_rank(cq.message, bot) if cq.message else 0
+    from config import is_bot_owner
+    if me < 3 and not is_bot_owner(uid):
+        return await cq.answer("⛔️ Менять стиль рамки могут администраторы от 3 ранга!", show_alert=True)
+
+    await core_hierarchies.update_chat_design(chat_id, updated_by=uid, border=b_id)
+    b_info = core_hierarchies.BORDER_STYLES[b_id]
+    txt = (
+        f"✅ <b>РАМКА ИЗМЕНЕНА: {b_info['icon']} {b_info['name']}</b>\n\n"
+        f"<code>{b_info['top']}</code>\n"
+        f"<code>{b_info['box'].format(head='Пример ранга')}</code>\n"
+        f"<code>{b_info['branch_last']} Игрок</code>\n"
+        f"<code>{b_info['bottom']}</code>\n\n"
+        "✨ Теперь списки <code>состав</code> оформлены этой рамкой!"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👁 Живой пример", callback_data="chat_theme:live_preview")],
+        [InlineKeyboardButton(text="◀️ В главное меню дизайна", callback_data="chat_theme:hub")]
+    ])
+    if cq.message:
+        await cq.message.edit_text(txt, reply_markup=kb)
+    await cq.answer(f"✅ Рамка «{b_info['name']}» активирована!", show_alert=True)
+
+
+# ---------------- Гербы и символы чата ----------------
+
+@router.callback_query(F.data == "chat_theme:crests")
+async def cb_crests_menu(cq: CallbackQuery, bot: Bot):
+    chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
+    cfg = await core_hierarchies.get_chat_design(chat_id)
+    cur_c = cfg.get("crest", "👑")
+    txt = (
+        "⚜️ <b>ВЫБОР ГЕРБА / СИМВОЛА БЕСЕДЫ</b>\n\n"
+        f"📌 Текущий герб: <b>{cur_c}</b>\n\n"
+        "Герб украшает заголовок и завершение списка администрации:\n"
+        f"<code>{cur_c} ✨ СОСТАВ БЕСЕДЫ ✨ {cur_c}</code>\n\n"
+        "👇 Выберите герб из готовых пресетов или установите любой эмодзи командой:\n"
+        "<code>герб 🦅</code> или <code>герб 🗡️</code>"
+    )
+    if cq.message:
+        await cq.message.edit_text(txt, reply_markup=_make_crests_menu_kb(cur_c))
+    await cq.answer()
+
+
+@router.callback_query(F.data.startswith("chat_theme:c_select:"))
+async def cb_crest_select(cq: CallbackQuery, bot: Bot):
+    c_val = cq.data.split(":", 2)[2]
+    chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
+    uid = cq.from_user.id
+    me = await effective_rank(cq.message, bot) if cq.message else 0
+    from config import is_bot_owner
+    if me < 3 and not is_bot_owner(uid):
+        return await cq.answer("⛔️ Менять герб могут администраторы от 3 ранга!", show_alert=True)
+
+    await core_hierarchies.update_chat_design(chat_id, updated_by=uid, crest=c_val)
+    txt = (
+        f"✅ <b>ГЕРБ ЧАТА ОБНОВЛЁН: {c_val}</b>\n\n"
+        f"Пример заголовка:\n"
+        f"{c_val} ✨ <b>СОСТАВ БЕСЕДЫ</b> ✨ {c_val}\n\n"
+        "✨ Проверьте командой: <code>состав</code> или кнопкой ниже!"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👁 Живой пример", callback_data="chat_theme:live_preview")],
+        [InlineKeyboardButton(text="◀️ В главное меню дизайна", callback_data="chat_theme:hub")]
+    ])
+    if cq.message:
+        await cq.message.edit_text(txt, reply_markup=kb)
+    await cq.answer(f"✅ Герб {c_val} установлен!", show_alert=True)
+
+
+# ---------------- Режимы вывода состава (Layouts) ----------------
+
+@router.callback_query(F.data == "chat_theme:layouts")
+async def cb_layouts_menu(cq: CallbackQuery, bot: Bot):
+    chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
+    cfg = await core_hierarchies.get_chat_design(chat_id)
+    cur_l = cfg.get("layout", "classic")
+    txt = (
+        "📜 <b>ВИД ОТОБРАЖЕНИЯ СПИСКА СОСТАВА</b>\n\n"
+        "• 🌲 <b>Классическое дерево:</b> ветвистый древовидный список с декоративными линиями.\n"
+        "• 📄 <b>Компактный список:</b> одна строка на каждый ранг через запятую (идеально для бесед 100+ людей).\n"
+        "• 🗂️ <b>VIP-Карточки:</b> показывает статус, личную цитату или количество сообщений каждого админа.\n\n"
+        f"📌 Текущий режим: <b>{core_hierarchies.LAYOUT_STYLES.get(cur_l, {}).get('name', 'Классика')}</b>\n\n"
+        "👇 Выберите подходящий вид:"
+    )
+    if cq.message:
+        await cq.message.edit_text(txt, reply_markup=_make_layouts_menu_kb(cur_l))
+    await cq.answer()
+
+
+@router.callback_query(F.data.startswith("chat_theme:l_select:"))
+async def cb_layout_select(cq: CallbackQuery, bot: Bot):
+    l_id = cq.data.split(":", 2)[2]
+    if l_id not in core_hierarchies.LAYOUT_STYLES:
+        return await cq.answer("⚠️ Неизвестный вид", show_alert=True)
+    chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
+    uid = cq.from_user.id
+    me = await effective_rank(cq.message, bot) if cq.message else 0
+    from config import is_bot_owner
+    if me < 3 and not is_bot_owner(uid):
+        return await cq.answer("⛔️ Менять вид состава могут администраторы от 3 ранга!", show_alert=True)
+
+    await core_hierarchies.update_chat_design(chat_id, updated_by=uid, layout=l_id)
+    l_info = core_hierarchies.LAYOUT_STYLES[l_id]
+    txt = (
+        f"✅ <b>РЕЖИМ ОТОБРАЖЕНИЯ ИЗМЕНЁН: {l_info['icon']} {l_info['name']}</b>\n\n"
+        f"📝 <i>{l_info['desc']}</i>\n\n"
+        "✨ Посмотреть результат можно прямо сейчас!"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👁 Живой пример", callback_data="chat_theme:live_preview")],
+        [InlineKeyboardButton(text="◀️ В главное меню дизайна", callback_data="chat_theme:hub")]
+    ])
+    if cq.message:
+        await cq.message.edit_text(txt, reply_markup=kb)
+    await cq.answer(f"✅ Режим «{l_info['name']}» активирован!", show_alert=True)
+
+
+# ---------------- Шрифты заголовков (Fonts) ----------------
+
+@router.callback_query(F.data == "chat_theme:fonts")
+async def cb_fonts_menu(cq: CallbackQuery, bot: Bot):
+    chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
+    cfg = await core_hierarchies.get_chat_design(chat_id)
+    cur_f = cfg.get("font", "normal")
+    f_info = core_hierarchies.FONT_STYLES.get(cur_f, core_hierarchies.FONT_STYLES["normal"])
+    txt = (
+        "🔤 <b>ВЫБОР ШРИФТА ЗАГОЛОВКА</b>\n\n"
+        f"📌 Текущий шрифт: <b>{f_info['name']}</b>\n\n"
+        "Шрифт автоматически украшает заголовок списка администрации красивыми символами Unicode без лишних тегов.\n\n"
+        "👇 Выберите стиль шрифта:"
+    )
+    if cq.message:
+        await cq.message.edit_text(txt, reply_markup=_make_fonts_menu_kb(cur_f))
+    await cq.answer()
+
+
+@router.callback_query(F.data.startswith("chat_theme:f_select:"))
+async def cb_font_select(cq: CallbackQuery, bot: Bot):
+    f_id = cq.data.split(":", 2)[2]
+    if f_id not in core_hierarchies.FONT_STYLES:
+        return await cq.answer("⚠️ Неизвестный шрифт", show_alert=True)
+    chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
+    uid = cq.from_user.id
+    me = await effective_rank(cq.message, bot) if cq.message else 0
+    from config import is_bot_owner
+    if me < 3 and not is_bot_owner(uid):
+        return await cq.answer("⛔️ Менять шрифт могут администраторы от 3 ранга!", show_alert=True)
+
+    await core_hierarchies.update_chat_design(chat_id, updated_by=uid, font=f_id)
+    f_info = core_hierarchies.FONT_STYLES[f_id]
+    sample_res = core_hierarchies.apply_fancy_font("СОСТАВ БЕСЕДЫ", f_id)
+    txt = (
+        f"✅ <b>ШРИФТ ИЗМЕНЁН: {f_info['name']}</b>\n\n"
+        f"Пример заголовка: <b>{sample_res}</b>\n\n"
+        "✨ Проверьте командой: <code>состав</code>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👁 Живой пример", callback_data="chat_theme:live_preview")],
+        [InlineKeyboardButton(text="◀️ В главное меню дизайна", callback_data="chat_theme:hub")]
+    ])
+    if cq.message:
+        await cq.message.edit_text(txt, reply_markup=kb)
+    await cq.answer(f"✅ Шрифт «{f_info['name']}» активирован!", show_alert=True)
+
+
+# ---------------- Медиа-баннеры составов ----------------
+
+@router.callback_query(F.data == "chat_theme:banner_info")
+async def cb_banner_info(cq: CallbackQuery, bot: Bot):
+    chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
+    cfg = await core_hierarchies.get_chat_design(chat_id)
+    has_banner = bool(cfg.get("banner_file_id"))
+    b_type = cfg.get("banner_type", "фото")
+    status = f"🟢 Установлен ({b_type})" if has_banner else "⚪️ Не установлен"
+    txt = (
+        "🖼️ <b>МЕДИА-БАННЕР ДЛЯ СПИСКА СОСТАВА</b>\n\n"
+        f"• Статус в этом чате: <b>{status}</b>\n\n"
+        "Прикреплённое фото или GIF-анимация будет красиво отображаться над списком модерации при вызове команд <code>состав</code> и <code>админы</code>!\n\n"
+        "📸 <b>Как установить баннер:</b>\n"
+        "1. Отправьте в чат картинку или GIF-анимацию с подписью <code>+баннер</code>\n"
+        "2. Или ответьте (reply) на любое изображение/гифку командой: <code>+баннер</code>\n\n"
+        "🗑 <b>Как удалить баннер:</b>\n"
+        "Напишите команду <code>-баннер</code> или нажмите кнопку ниже:"
+    )
+    if cq.message:
+        await cq.message.edit_text(txt, reply_markup=_make_banner_menu_kb(has_banner))
+    await cq.answer()
+
+
+@router.callback_query(F.data == "chat_theme:del_banner")
+async def cb_del_banner(cq: CallbackQuery, bot: Bot):
+    chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
+    uid = cq.from_user.id
+    me = await effective_rank(cq.message, bot) if cq.message else 0
+    from config import is_bot_owner
+    if me < 3 and not is_bot_owner(uid):
+        return await cq.answer("⛔️ Удалять баннер могут администраторы от 3 ранга!", show_alert=True)
+
+    await core_hierarchies.update_chat_design(chat_id, updated_by=uid, banner_file_id=None, banner_type=None)
+    txt = (
+        "🗑️ <b>МЕДИА-БАННЕР УДАЛЁН!</b>\n\n"
+        "Теперь список модерации отправляется как обычное текстовое сообщение.\n"
+        "Вы всегда можете поставить новый баннер командой <code>+баннер</code>!"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ В главное меню дизайна", callback_data="chat_theme:hub")]
+    ])
+    if cq.message:
+        await cq.message.edit_text(txt, reply_markup=kb)
+    await cq.answer("✅ Баннер удалён!", show_alert=True)
+
+
+# ---------------- Прямые команды настройки оформления ----------------
+
+@router.message(Cmd("+баннер", "установить баннер", "поставить баннер", section=34, group_only=True,
+                    usage="+баннер (в ответ на фото/гифку)", desc="🖼️ Установить медиа-баннер для списка состава"))
+async def cmd_add_banner(message: Message, bot: Bot, **kw):
+    from config import is_bot_owner
+    from core_resolve import real_reply
+    uid = message.from_user.id if message.from_user else 0
+    me = await effective_rank(message, bot)
+    if me < 3 and not is_bot_owner(uid):
+        return await message.reply("⛔️ Устанавливать баннер беседы могут администраторы (от <b>3 ранга</b>) и выше!")
+
+    target_msg = real_reply(message) or message
+    file_id = None
+    media_type = "photo"
+
+    if target_msg.photo:
+        file_id = target_msg.photo[-1].file_id
+        media_type = "photo"
+    elif target_msg.animation:
+        file_id = target_msg.animation.file_id
+        media_type = "animation"
+    elif target_msg.document and target_msg.document.mime_type and target_msg.document.mime_type.startswith("image/"):
+        file_id = target_msg.document.file_id
+        media_type = "photo"
+
+    if not file_id:
+        return await message.reply(
+            "⚠️ <b>Фото или анимация не найдены!</b>\n\n"
+            "• Отправьте картинку с подписью: <code>+баннер</code>\n"
+            "• Или ответьте (reply) на фотографию/гифку командой: <code>+баннер</code>"
+        )
+
+    await core_hierarchies.update_chat_design(
+        message.chat.id, updated_by=uid,
+        banner_file_id=file_id, banner_type=media_type
+    )
+
+    await message.reply(
+        "🎉 <b>Медиа-баннер успешно установлен!</b> 🖼️\n\n"
+        f"Тип: <b>{'GIF-анимация' if media_type == 'animation' else 'Фотография'}</b>\n"
+        "✨ Теперь команды <code>состав</code> и <code>админы</code> будут отправляться с этим баннером!\n"
+        "🗑 Удалить баннер: <code>-баннер</code>"
+    )
+
+
+@router.message(Cmd("-баннер", "удалить баннер", "снять баннер", section=34, group_only=True,
+                    usage="-баннер", desc="🗑️ Удалить медиа-баннер списка состава"))
+async def cmd_remove_banner(message: Message, bot: Bot, **kw):
+    from config import is_bot_owner
+    uid = message.from_user.id if message.from_user else 0
+    me = await effective_rank(message, bot)
+    if me < 3 and not is_bot_owner(uid):
+        return await message.reply("⛔️ Удалять баннер могут администраторы (от <b>3 ранга</b>) и выше!")
+
+    await core_hierarchies.update_chat_design(
+        message.chat.id, updated_by=uid,
+        banner_file_id=None, banner_type=None
+    )
+    await message.reply("✅ <b>Медиа-баннер удалён!</b> Список состава снова отправляется обычным текстом.")
+
+
+@router.message(Cmd("герб", "символ", section=34, group_only=True,
+                    usage="герб [эмодзи]", desc="⚜️ Установить герб / символ беседы для оформления"))
+async def cmd_set_crest(message: Message, bot: Bot, args: str = "", **kw):
+    from config import is_bot_owner
+    uid = message.from_user.id if message.from_user else 0
+    me = await effective_rank(message, bot)
+    if me < 3 and not is_bot_owner(uid):
+        return await message.reply("⛔️ Менять герб могут администраторы (от <b>3 ранга</b>) и выше!")
+
+    arg = (args or "").strip()
+    if not arg:
+        cfg = await core_hierarchies.get_chat_design(message.chat.id)
+        cur_c = cfg.get("crest", "👑")
+        available = " ".join(core_hierarchies.AVAILABLE_CRESTS)
+        return await message.reply(
+            f"⚜️ <b>ГЕРБ БЕСЕДЫ</b>\n\n"
+            f"Текущий герб: <b>{cur_c}</b>\n\n"
+            f"Готовые варианты: {available}\n\n"
+            "💡 Установить свой эмодзи: <code>герб 🦅</code> или <code>герб 🗡️</code>\n"
+            "Или выберите в меню: <code>дизайн</code>"
+        )
+
+    crest_val = arg.split()[0][:4]
+    await core_hierarchies.update_chat_design(message.chat.id, updated_by=uid, crest=crest_val)
+    await message.reply(
+        f"✅ <b>Герб беседы установлен: {crest_val}</b>\n\n"
+        f"Пример: {crest_val} ✨ <b>СОСТАВ БЕСЕДЫ</b> ✨ {crest_val}\n"
+        "🔍 Проверьте командой: <code>состав</code>"
+    )
+
+
+@router.message(Cmd("рамка", "стиль рамки", section=34, group_only=True,
+                    usage="рамка [стиль]", desc="🔲 Выбрать стиль декоративной рамки"))
+async def cmd_set_border(message: Message, bot: Bot, args: str = "", **kw):
+    from config import is_bot_owner
+    uid = message.from_user.id if message.from_user else 0
+    me = await effective_rank(message, bot)
+    if me < 3 and not is_bot_owner(uid):
+        return await message.reply("⛔️ Менять стиль рамки могут администраторы (от <b>3 ранга</b>) и выше!")
+
+    arg = (args or "").strip().lower()
+    mapping = {
+        "классика": "classic", "classic": "classic",
+        "звезды": "stars", "звёзды": "stars", "stars": "stars",
+        "сакура": "sakura", "sakura": "sakura", "цветы": "sakura",
+        "япония": "japanese", "japanese": "japanese", "тории": "japanese",
+        "киберпанк": "cyberpunk", "cyberpunk": "cyberpunk", "молнии": "cyberpunk",
+        "готика": "gothic", "gothic": "gothic", "крест": "gothic",
+        "сердца": "hearts", "hearts": "hearts", "любовь": "hearts",
+        "минимал": "minimal", "minimal": "minimal", "минимализм": "minimal",
+    }
+    target_id = mapping.get(arg)
+    if not target_id:
+        lines = ["🔲 <b>ДОСТУПНЫЕ СТИЛИ РАМОК:</b>\n"]
+        for b_id, b_info in core_hierarchies.BORDER_STYLES.items():
+            lines.append(f"• <code>рамка {b_id}</code> — {b_info['icon']} {b_info['name']}")
+        lines.append("\n💡 Или откройте меню: <code>дизайн</code>")
+        return await message.reply("\n".join(lines))
+
+    await core_hierarchies.update_chat_design(message.chat.id, updated_by=uid, border=target_id)
+    b = core_hierarchies.BORDER_STYLES[target_id]
+    await message.reply(
+        f"🎉 <b>Стиль рамки изменён: {b['icon']} {b['name']}!</b>\n\n"
+        "🔍 Проверьте результат командой: <code>состав</code>"
+    )
+
+
+@router.message(Cmd("вид состава", "режим состава", section=34, group_only=True,
+                    usage="вид состава [классика / компакт / карточки]", desc="📜 Режим вывода списка состава"))
+async def cmd_set_layout(message: Message, bot: Bot, args: str = "", **kw):
+    from config import is_bot_owner
+    uid = message.from_user.id if message.from_user else 0
+    me = await effective_rank(message, bot)
+    if me < 3 and not is_bot_owner(uid):
+        return await message.reply("⛔️ Менять вид состава могут администраторы (от <b>3 ранга</b>) и выше!")
+
+    arg = (args or "").strip().lower()
+    mapping = {
+        "классика": "classic", "дерево": "classic", "classic": "classic",
+        "компакт": "compact", "строка": "compact", "список": "compact", "compact": "compact",
+        "карточки": "cards", "vip": "cards", "вип": "cards", "cards": "cards",
+    }
+    target_id = mapping.get(arg)
+    if not target_id:
+        return await message.reply(
+            "📜 <b>РЕЖИМЫ ВЫВОДА СОСТАВА:</b>\n\n"
+            "• <code>вид состава классика</code> — 🌲 Полное древовидное отображение\n"
+            "• <code>вид состава компакт</code> — 📄 Компактная строка по рангам (для больших чатов)\n"
+            "• <code>вид состава карточки</code> — 🗂️ VIP-карточки со статусами и цитатами\n\n"
+            "💡 Или настройте кнопками в меню: <code>дизайн</code>"
+        )
+
+    await core_hierarchies.update_chat_design(message.chat.id, updated_by=uid, layout=target_id)
+    l_info = core_hierarchies.LAYOUT_STYLES[target_id]
+    await message.reply(
+        f"🎉 <b>Вид состава переключен на: {l_info['icon']} {l_info['name']}!</b>\n\n"
+        f"📝 <i>{l_info['desc']}</i>\n"
+        "🔍 Проверьте командой: <code>состав</code>"
+    )
+
+
+@router.message(Cmd("шрифт", "шрифт заголовка", section=34, group_only=True,
+                    usage="шрифт [готика / двойной / курсив / япония / обычный]", desc="🔤 Красивый Unicode шрифт заголовков"))
+async def cmd_set_font(message: Message, bot: Bot, args: str = "", **kw):
+    from config import is_bot_owner
+    uid = message.from_user.id if message.from_user else 0
+    me = await effective_rank(message, bot)
+    if me < 3 and not is_bot_owner(uid):
+        return await message.reply("⛔️ Менять шрифт могут администраторы (от <b>3 ранга</b>) и выше!")
+
+    arg = (args or "").strip().lower()
+    mapping = {
+        "обычный": "normal", "стандарт": "normal", "normal": "normal",
+        "готика": "gothic", "gothic": "gothic",
+        "двойной": "double", "double": "double", "контурный": "double",
+        "курсив": "script", "рукописный": "script", "script": "script",
+        "япония": "fullwidth", "широкий": "fullwidth", "fullwidth": "fullwidth",
+    }
+    target_id = mapping.get(arg)
+    if not target_id:
+        lines = ["🔤 <b>ДОСТУПНЫЕ ШРИФТЫ ЗАГОЛОВКОВ:</b>\n"]
+        for f_id, f_info in core_hierarchies.FONT_STYLES.items():
+            sample_t = core_hierarchies.apply_fancy_font("СОСТАВ БЕСЕДЫ", f_id)
+            lines.append(f"• <code>шрифт {f_id}</code> — {f_info['icon']} <b>{sample_t}</b> ({f_info['name']})")
+        lines.append("\n💡 Или выберите в меню: <code>дизайн</code>")
+        return await message.reply("\n".join(lines))
+
+    await core_hierarchies.update_chat_design(message.chat.id, updated_by=uid, font=target_id)
+    sample_t = core_hierarchies.apply_fancy_font("СОСТАВ БЕСЕДЫ", target_id)
+    await message.reply(
+        f"🎉 <b>Шрифт заголовка установлен: {core_hierarchies.FONT_STYLES[target_id]['name']}!</b>\n\n"
+        f"Пример: <b>{sample_t}</b>\n"
+        "🔍 Проверьте командой: <code>состав</code>"
+    )
+
+
 # ---------------- Интерактивная смена пола ----------------
 
 @router.callback_query(F.data == "chat_theme:toggle_gender")
@@ -1658,32 +2279,11 @@ async def cb_toggle_gender(cq: CallbackQuery, bot: Bot):
     await core_hierarchies.set_user_gender(uid, new_g)
 
     chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
-    t_row = await db.fetchone("SELECT theme, hierarchy FROM chat_themes WHERE chat_id=?", (chat_id,))
-    cur_theme = t_row["theme"] if (t_row and t_row.get("theme")) else "rainbow"
-    cur_hierarchy = t_row["hierarchy"] if (t_row and t_row.get("hierarchy")) else "default"
-
-    t_info = STAFF_THEMES.get(cur_theme, STAFF_THEMES["rainbow"])
-    h_info = core_hierarchies.COMMUNITY_TYPES.get(cur_hierarchy, core_hierarchies.COMMUNITY_TYPES["default"])
-
-    gender_text = "🙋‍♀️ Девушка" if new_g == "female" else "🙋‍♂️ Парень"
-    leader_sample = core_hierarchies.get_rank_title(10, gender=new_g, hierarchy_id=cur_hierarchy)
-    zam_sample = core_hierarchies.get_rank_title(9, gender=new_g, hierarchy_id=cur_hierarchy)
-
-    txt = (
-        "🎨 ════════════ • 💎 • ════════════ 🎨\n"
-        "👑 ✨ <b>ЦЕНТР ДИЗАЙНА И ОФОРМЛЕНИЯ ЧАТА</b> ✨ 👑\n"
-        "🎨 ════════════ • 💎 • ════════════ 🎨\n\n"
-        "Добро пожаловать в центр кастомизации MOXXI 3.0!\n\n"
-        f"• 🎨 <b>Цветовая тема:</b> {t_info['badge']} <b>{t_info['name']}</b>\n"
-        f"• 🏰 <b>Тип группы:</b> {h_info['icon']} <b>{h_info['name']}</b>\n"
-        f"• 👤 <b>Ваш личный пол:</b> <b>{gender_text}</b>\n"
-        f"• 👑 <b>Титул лидера:</b> <b>{leader_sample}</b>\n"
-        f"• 🔱 <b>Титул зама:</b> <b>{zam_sample}</b>\n\n"
-        "👇 <b>Выберите категорию для настройки:</b>"
-    )
+    cfg = await core_hierarchies.get_chat_design(chat_id)
+    txt = _format_design_hub_text(cfg, new_g)
 
     if cq.message:
-        await cq.message.edit_text(txt, reply_markup=_make_design_hub_kb(cur_theme, cur_hierarchy, new_g))
+        await cq.message.edit_text(txt, reply_markup=_make_design_hub_kb(cfg, user_gender=new_g))
 
     if new_g == "female":
         alert_txt = (
@@ -1711,9 +2311,13 @@ async def cb_live_preview(cq: CallbackQuery, bot: Bot):
     chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
     uid = cq.from_user.id
 
-    t_row = await db.fetchone("SELECT theme, hierarchy FROM chat_themes WHERE chat_id=?", (chat_id,))
-    cur_theme = t_row["theme"] if (t_row and t_row.get("theme")) else "rainbow"
-    cur_hierarchy = t_row["hierarchy"] if (t_row and t_row.get("hierarchy")) else "default"
+    cfg = await core_hierarchies.get_chat_design(chat_id)
+    cur_theme = cfg["theme"]
+    cur_hierarchy = cfg["hierarchy"]
+    cur_border = cfg["border"]
+    cur_crest = cfg["crest"]
+    cur_layout = cfg["layout"]
+    cur_font = cfg["font"]
 
     u_gender = await core_hierarchies.get_user_gender(uid)
     h_info = core_hierarchies.COMMUNITY_TYPES.get(cur_hierarchy, core_hierarchies.COMMUNITY_TYPES["default"])
@@ -1725,16 +2329,24 @@ async def cb_live_preview(cq: CallbackQuery, bot: Bot):
         4: [("Максим", False, 0), ("Катя", False, 0)]
     }
     sample_genders = {uid: u_gender, 0: "female"}
+    sample_meta = {
+        uid: {"custom": "Владелец стиля ✨", "messages": 1337},
+        0: {"custom": "На страже чата 🛡️", "messages": 420}
+    }
 
-    rendered_sample = _render_staff(sample_groups, f"СОСТАВ: {h_info['name'].upper()}",
-                                    theme=cur_theme, hierarchy=cur_hierarchy, genders=sample_genders)
+    rendered_sample = _render_staff(
+        sample_groups, f"СОСТАВ: {h_info['name'].upper()}",
+        theme=cur_theme, hierarchy=cur_hierarchy, genders=sample_genders,
+        border=cur_border, crest=cur_crest, layout=cur_layout,
+        font=cur_font, user_meta=sample_meta
+    )
 
     preview_msg = (
         f"👁 <b>ЖИВОЙ ПРИМЕР ОФОРМЛЕНИЯ ВАШЕГО ЧАТА</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         f"{rendered_sample}\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "💡 <i>Сменить тему, иерархию или пол можно прямо в интерактивном меню выше!</i>"
+        "💡 <i>Сменить тему, иерархию, рамку, герб, шрифт или пол можно в меню дизайна!</i>"
     )
 
     if cq.message:
@@ -1747,12 +2359,19 @@ async def cb_view_staff(cq: CallbackQuery, bot: Bot):
     chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
     groups = await _staff_rows(chat_id, bot)
 
-    t_row = await db.fetchone("SELECT theme, hierarchy FROM chat_themes WHERE chat_id=?", (chat_id,))
-    cur_theme = t_row["theme"] if (t_row and t_row.get("theme")) else "rainbow"
-    cur_hierarchy = t_row["hierarchy"] if (t_row and t_row.get("hierarchy")) else "default"
+    cfg = await core_hierarchies.get_chat_design(chat_id)
+    cur_theme = cfg["theme"]
+    cur_hierarchy = cfg["hierarchy"]
+    cur_border = cfg["border"]
+    cur_crest = cfg["crest"]
+    cur_layout = cfg["layout"]
+    cur_font = cfg["font"]
+    banner_id = cfg.get("banner_file_id")
+    banner_type = cfg.get("banner_type", "photo")
 
     uids = [item[2] for people in groups.values() for item in people if len(item) >= 3 and item[2]]
     genders = {}
+    user_meta = {}
     if uids:
         placeholders = ",".join("?" for _ in uids)
         rows = await db.fetchall(f"SELECT user_id, gender FROM users WHERE user_id IN ({placeholders})", tuple(uids))
@@ -1761,10 +2380,49 @@ async def cb_view_staff(cq: CallbackQuery, bot: Bot):
             if g != "none":
                 genders[r["user_id"]] = g
 
+        if cur_layout == "cards":
+            try:
+                stats_rows = await db.fetchall(
+                    f"SELECT user_id, messages FROM chat_stats WHERE chat_id=? AND user_id IN ({placeholders})",
+                    (chat_id, *uids)
+                )
+                for sr in stats_rows:
+                    user_meta.setdefault(sr["user_id"], {})["messages"] = sr["messages"]
+                prof_rows = await db.fetchall(
+                    f"SELECT user_id, custom FROM profiles WHERE user_id IN ({placeholders})",
+                    tuple(uids)
+                )
+                for pr in prof_rows:
+                    if pr.get("custom"):
+                        user_meta.setdefault(pr["user_id"], {})["custom"] = pr["custom"]
+            except Exception:
+                pass
+
     h_info = core_hierarchies.COMMUNITY_TYPES.get(cur_hierarchy, core_hierarchies.COMMUNITY_TYPES["default"])
-    text = _render_staff(groups, f"Состав: {h_info['short_name']}", theme=cur_theme, hierarchy=cur_hierarchy, genders=genders)
+    text = _render_staff(
+        groups, f"Состав: {h_info['short_name']}",
+        theme=cur_theme, hierarchy=cur_hierarchy, genders=genders,
+        border=cur_border, crest=cur_crest, layout=cur_layout,
+        font=cur_font, user_meta=user_meta
+    )
 
     if cq.message:
+        if banner_id:
+            try:
+                if len(text) <= 1024:
+                    if banner_type == "animation":
+                        await cq.message.reply_animation(banner_id, caption=text, disable_web_page_preview=True)
+                    else:
+                        await cq.message.reply_photo(banner_id, caption=text, disable_web_page_preview=True)
+                else:
+                    if banner_type == "animation":
+                        await cq.message.reply_animation(banner_id)
+                    else:
+                        await cq.message.reply_photo(banner_id)
+                    await cq.message.reply(text, disable_web_page_preview=True)
+                return await cq.answer()
+            except Exception:
+                pass
         await cq.message.reply(text, disable_web_page_preview=True)
     await cq.answer()
 
@@ -1884,7 +2542,7 @@ async def cb_set_user_gender(cq: CallbackQuery, bot: Bot):
 
 @router.message(Cmd("тип чата", "тип группы", "стиль группы", "иерархия чата",
                     section=34, group_only=True,
-                    usage="тип чата [клан / беседа / синдикат / самураи / ковен / империя]",
+                    usage="тип чата [клан / беседа / синдикат / самураи / ковен / империя / мафия / магия / киберспорт / кафе]",
                     desc="🏰 Быстрая смена формата сообщества и названий рангов"))
 async def cmd_set_chat_type(message: Message, bot: Bot, args: str = "", **kw):
     from config import is_bot_owner
@@ -1901,17 +2559,25 @@ async def cmd_set_chat_type(message: Message, bot: Bot, args: str = "", **kw):
         "самураи": "samurai", "аниме": "samurai", "сегунат": "samurai", "samurai": "samurai",
         "ковен": "coven", "вампиры": "coven", "тьма": "coven", "coven": "coven",
         "империя": "royalty", "двор": "royalty", "королевство": "royalty", "royalty": "royalty",
+        "мафия": "mafia", "семья": "mafia", "mafia": "mafia", "коза ностра": "mafia",
+        "магия": "magic", "академия": "magic", "magic": "magic", "волшебство": "magic", "чародейство": "magic",
+        "киберспорт": "esports", "esports": "esports", "гейминг": "esports", "спорт": "esports",
+        "кафе": "cafe", "лаундж": "cafe", "бар": "cafe", "клуб": "cafe", "cafe": "cafe",
     }
     target_id = mapping.get(arg)
     if not target_id:
         return await message.reply(
-            "🏰 <b>ДОСТУПНЫЕ ТИПЫ СООБЩЕСТВ:</b>\n\n"
-            "• <code>тип чата клан</code> — ⚔️ Клан / Игровая Гильдия (Глава, Советница, Маршалы, Валькирии)\n"
-            "• <code>тип чата беседа</code> — 💬 Обычная беседа (Владелец, Лидерша, Заместительница, Админы)\n"
-            "• <code>тип чата синдикат</code> — 🌌 Кибер-Синдикат (Босс, Госпожа, Вице-Президент, Нетраннеры)\n"
-            "• <code>тип чата самураи</code> — 🏮 Самурайский Орден (Сёгун, Императрица, Даймё, Куноити)\n"
-            "• <code>тип чата ковен</code> — 🩸 Тёмный Ковен (Князь Тьмы, Владычица Ночи, Жрицы, Лорды)\n"
-            "• <code>тип чата империя</code> — 👑 Императорский Двор (Император, Императрица, Канцлеры)\n\n"
+            "🏰 <b>ДОСТУПНЫЕ ТИПЫ СООБЩЕСТВ (10 ВАРИАНТОВ):</b>\n\n"
+            "• <code>тип чата клан</code> — ⚔️ Клан / Игровая Гильдия\n"
+            "• <code>тип чата беседа</code> — 💬 Обычная беседа\n"
+            "• <code>тип чата синдикат</code> — 🌌 Кибер-Синдикат\n"
+            "• <code>тип чата самураи</code> — 🏮 Самурайский Орден\n"
+            "• <code>тип чата ковен</code> — 🩸 Тёмный Ковен\n"
+            "• <code>тип чата империя</code> — 👑 Императорский Двор\n"
+            "• <code>тип чата мафия</code> — 🕶️ Мафия / Криминальная Семья\n"
+            "• <code>тип чата магия</code> — 🔮 Академия Магии & Чародейства\n"
+            "• <code>тип чата киберспорт</code> — 🎮 Pro-Gaming / Киберспорт Клуб\n"
+            "• <code>тип чата кафе</code> — ☕ Уютное Кафе / Лаундж-Клуб\n\n"
             "💡 Или откройте интерактивное меню: <code>дизайн</code>"
         )
 
