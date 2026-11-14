@@ -1753,18 +1753,20 @@ async def cmd_rules(message: Message, bot: Bot, **kw):
     is_comm = (message.chat.type == "private") or (chat_u.lower() == "moxxi_chat") or (comm_chat and str(message.chat.id) == comm_chat)
 
     if message.chat.type != "private" and not is_comm:
+        from h_chatset import DEFAULT_CHAT_RULES, render_rules_card, get_rules_topic
         custom_rules = await db.get_setting(message.chat.id, "rules_text") or await db.get_setting(message.chat.id, "rules")
-        if custom_rules:
-            from h_chatset import render_rules_card, get_rules_topic
-            frame_on = (await db.get_setting(message.chat.id, "rules_card_frame", "1") == "1")
-            rtopic = await get_rules_topic(message.chat.id)
-            is_forum = bool(getattr(message.chat, "is_forum", False))
-            title = message.chat.title or "Беседа"
-            if frame_on:
-                card, kb_custom = render_rules_card(title, custom_rules, is_forum=is_forum, chat_id=message.chat.id, rules_topic=rtopic)
-                return await message.reply(card, reply_markup=kb_custom, disable_web_page_preview=True)
-            else:
-                return await message.reply(custom_rules, disable_web_page_preview=True)
+        if not custom_rules:
+            custom_rules = DEFAULT_CHAT_RULES
+
+        frame_on = (await db.get_setting(message.chat.id, "rules_card_frame", "1") == "1")
+        rtopic = await get_rules_topic(message.chat.id)
+        is_forum = bool(getattr(message.chat, "is_forum", False))
+        title = message.chat.title or "Беседа"
+        if frame_on:
+            card, kb_custom = render_rules_card(title, custom_rules, is_forum=is_forum, chat_id=message.chat.id, rules_topic=rtopic)
+            return await message.reply(card, reply_markup=kb_custom, disable_web_page_preview=True)
+        else:
+            return await message.reply(custom_rules, disable_web_page_preview=True)
 
     me = await bot.me()
     kb = InlineKeyboardMarkup(inline_keyboard=[

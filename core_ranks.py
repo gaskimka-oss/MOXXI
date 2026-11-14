@@ -114,6 +114,17 @@ async def effective_rank(message: Message, bot: Bot) -> int:
         message._cached_effective_rank = r
         return r
 
+    # Также проверяем состав модерации чата (таблица staff):
+    row_st = await db.fetchone(
+        "SELECT rank FROM staff WHERE chat_id=? AND user_id=? AND left_chat=0",
+        (cid, uid)
+    )
+    if row_st and row_st["rank"] and int(row_st["rank"]) > 0:
+        st_r = int(row_st["rank"])
+        _tg_rank_cache[cache_key] = (st_r, now)
+        message._cached_effective_rank = st_r
+        return st_r
+
     # 2. Создатель / администратор в Telegram (строго ОДИН сетевой запрос с кэшированием):
     res_rank = 0
     try:
@@ -155,7 +166,7 @@ async def require(message: Message, bot: Bot, need: int, key: str = "") -> bool:
     # Фраза без префикса случайно совпала с командой («всем привет») —
     # молча пропускаем, ругаться на обычное сообщение нельзя.
     text = (message.text or message.caption or "").strip()
-    if text and text[0] not in "!./":
+    if text and text[0] not in "!./+":
         low = text.lower()
         if not low.startswith(("мокси", "моккси", "moxxi", "бот")):
             return False

@@ -339,10 +339,18 @@ async def group_log_page(chat_id: int, page: int) -> tuple[str, InlineKeyboardMa
 
 
 async def group_rules_page(chat_id: int) -> tuple[str, InlineKeyboardMarkup]:
-    from h_chatset import DEFAULT_CHAT_RULES
     txt = await db.get_setting(chat_id, "rules_text") or await db.get_setting(chat_id, "rules")
     if not txt:
-        txt = DEFAULT_CHAT_RULES
+        txt = (
+            "⚠️ <i>Правила для этой беседы ещё не установлены.</i>\n\n"
+            "Установить свои правила:\n"
+            "• <code>+правила [текст ваших правил]</code>\n"
+            "• Или ответом на сообщение с правилами: <code>+правила</code>\n\n"
+            "Либо выберите готовый шаблон:\n"
+            "• <code>шаблон правил 1</code> (игровой)\n"
+            "• <code>шаблон правил 2</code> (лайт)\n"
+            "• <code>шаблон правил 3</code> (строгий)"
+        )
     return (
         f"📜 <b>Действующие правила чата:</b>\n\n{txt}"[:3800],
         InlineKeyboardMarkup(inline_keyboard=[[

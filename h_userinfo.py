@@ -1255,11 +1255,67 @@ async def cmd_nick_show(message: Message, bot: Bot, args: str = "", **kw):
                     section=S, rank=0, usage="никлист",
                     desc="Кто поставил себе ник"))
 async def cmd_nick_list(message: Message, bot: Bot, args: str = "", **kw):
-    if getattr(message.chat, "type", "") in {"group", "supergroup"} and message.chat.id != MAIN_CHAT:
-        return await message.reply(
-            "ℹ️ <b>Список игровых ников клана доступен в основном чате:</b>\n"
-            "https://t.me/+-vFNcAElB3lmMzli",
-            disable_web_page_preview=True)
+    cid = message.chat.id
+    in_group = getattr(message.chat, "type", "") in {"group", "supergroup"}
+
+    if in_group:
+        rows = await db.fetchall(
+            """
+            SELECT 
+                cm.user_id,
+                COALESCE(cn.nick, cp.hobby, u.nick, p.hobby) AS nick,
+                u.username,
+                u.first_name,
+                COALESCE(cp.real_name, p.real_name, u.first_name) AS display_name
+            FROM chat_members cm
+            LEFT JOIN chat_nicks cn ON cn.chat_id = cm.chat_id AND cn.user_id = cm.user_id
+            LEFT JOIN chat_profiles cp ON cp.chat_id = cm.chat_id AND cp.user_id = cm.user_id
+            LEFT JOIN users u ON u.user_id = cm.user_id
+            LEFT JOIN profiles p ON p.user_id = cm.user_id
+            WHERE cm.chat_id = ? AND cm.is_member = 1
+              AND (
+                  (cn.nick IS NOT NULL AND cn.nick != '' AND cn.nick != '—')
+                  OR (cp.hobby IS NOT NULL AND cp.hobby != '' AND cp.hobby != '—')
+                  OR (u.nick IS NOT NULL AND u.nick != '' AND u.nick != '—')
+                  OR (p.hobby IS NOT NULL AND p.hobby != '' AND p.hobby != '—')
+              )
+            UNION
+            SELECT 
+                cn.user_id,
+                cn.nick,
+                u.username,
+                u.first_name,
+                COALESCE(cp.real_name, p.real_name, u.first_name) AS display_name
+            FROM chat_nicks cn
+            LEFT JOIN chat_profiles cp ON cp.chat_id = cn.chat_id AND cp.user_id = cn.user_id
+            LEFT JOIN users u ON u.user_id = cn.user_id
+            LEFT JOIN profiles p ON p.user_id = cn.user_id
+            WHERE cn.chat_id = ?
+              AND (cn.nick IS NOT NULL AND cn.nick != '' AND cn.nick != '—')
+            LIMIT 80
+            """,
+            (cid, cid)
+        )
+        total_m = await db.fetchone("SELECT COUNT(*) c FROM chat_members WHERE chat_id=? AND is_member=1", (cid,))
+        total_count = total_m["c"] if total_m and total_m["c"] else len(rows)
+
+        if not rows:
+            return await message.reply(
+                "🏷 <b>Никлист беседы</b>\n\n"
+                "Пока никто в этой группе не установил ник.\n\n"
+                "Поставить: <code>+ник ваш ник</code>"
+            )
+
+        title = html.escape(message.chat.title or "Беседа")
+        out = [f"🏷 <b>Ники участников · {title}</b> ({len(rows)} из {total_count})\n"]
+        for r in rows:
+            nick = r["nick"]
+            nm = r["display_name"] or r["first_name"] or (f"@{r['username']}" if r["username"] else str(r["user_id"]))
+            out.append(f"• {mention_id(r['user_id'], html.escape(nm))} — "
+                       f"<b>{html.escape(str(nick)[:32])}</b>")
+        if len(rows) >= 80:
+            out.append("\n<i>…показаны первые 80 участников с ником</i>")
+        return await message.reply("\n".join(out)[:3900], disable_web_page_preview=True)
 
     rows = await db.fetchall(
         "SELECT u.user_id, u.username, u.first_name, u.nick, p.hobby, p.real_name, p.nick2 "
@@ -1274,7 +1330,7 @@ async def cmd_nick_list(message: Message, bot: Bot, args: str = "", **kw):
             "🏷 <b>Ники</b>\n\nПока никто не поставил ник.\n\n"
             "Поставить: <code>+ник ваш ник</code>")
 
-    out = [f"🏷 <b>Ники — {len(rows)} из {total['c']} участников</b>\n"]
+    out = [f"🏷 <b>Ники — {len(rows)} из {total['c'] if total else len(rows)} участников</b>\n"]
     for r in rows:
         nick = r["hobby"] or r["nick"] or r["nick2"]
         nm = r["real_name"] or r["first_name"] or (f"@{r['username']}" if r["username"] else str(r["user_id"]))
@@ -1288,16 +1344,103 @@ async def cmd_nick_list(message: Message, bot: Bot, args: str = "", **kw):
                     "все описания", "все анкеты", "кто заполнил", "лист описаний", "лист анкет",
                     section=S, usage="описание лист", desc="Список участников с анкетами/описаниями"))
 async def cmd_desc_list(message: Message, bot: Bot, args: str = "", **kw):
-    if getattr(message.chat, "type", "") in {"group", "supergroup"} and message.chat.id != MAIN_CHAT:
-        return await message.reply(
-            "ℹ️ <b>Список анкет участников клана доступен в основном чате:</b>\n"
-            "https://t.me/+-vFNcAElB3lmMzli",
-            disable_web_page_preview=True)
+    cid = message.chat.id
+    in_group = getattr(message.chat, "type", "") in {"group", "supergroup"}
+
+    if in_group:
+        rows = await db.fetchall(
+            """
+            SELECT 
+                cm.user_id,
+                COALESCE(cp.real_name, p.real_name, u.first_name) AS real_name,
+                COALESCE(cp.hobby, cn.nick, p.hobby, u.nick) AS hobby,
+                COALESCE(cp.age, p.age) AS age,
+                COALESCE(cp.country, p.country) AS country,
+                COALESCE(cp.city, p.city) AS city,
+                COALESCE(cp.custom, p.custom) AS custom,
+                COALESCE(cp.filled, p.filled, 0) AS filled,
+                u.username,
+                u.first_name,
+                u.nick
+            FROM chat_members cm
+            LEFT JOIN chat_profiles cp ON cp.chat_id = cm.chat_id AND cp.user_id = cm.user_id
+            LEFT JOIN chat_nicks cn ON cn.chat_id = cm.chat_id AND cn.user_id = cm.user_id
+            LEFT JOIN profiles p ON p.user_id = cm.user_id
+            LEFT JOIN users u ON u.user_id = cm.user_id
+            WHERE cm.chat_id = ? AND cm.is_member = 1
+            ORDER BY cm.updated_at DESC
+            LIMIT 150
+            """,
+            (cid,)
+        )
+        if not rows:
+            rows = await db.fetchall(
+                """
+                SELECT 
+                    cp.user_id,
+                    COALESCE(cp.real_name, p.real_name, u.first_name) AS real_name,
+                    COALESCE(cp.hobby, cn.nick, p.hobby, u.nick) AS hobby,
+                    COALESCE(cp.age, p.age) AS age,
+                    COALESCE(cp.country, p.country) AS country,
+                    COALESCE(cp.city, p.city) AS city,
+                    COALESCE(cp.custom, p.custom) AS custom,
+                    COALESCE(cp.filled, p.filled, 0) AS filled,
+                    u.username,
+                    u.first_name,
+                    u.nick
+                FROM chat_profiles cp
+                LEFT JOIN chat_nicks cn ON cn.chat_id = cp.chat_id AND cn.user_id = cp.user_id
+                LEFT JOIN profiles p ON p.user_id = cp.user_id
+                LEFT JOIN users u ON u.user_id = cp.user_id
+                WHERE cp.chat_id = ?
+                LIMIT 150
+                """,
+                (cid,)
+            )
+
+        done, empty = [], []
+        for r in rows:
+            has = bool(
+                ("custom" in r.keys() and r["custom"] and not str(r["custom"]).startswith("🧠 ИИ проверил"))
+                or r["filled"]
+                or sum(1 for _, _, c in FIELDS if c in r.keys() and r[c]) >= MIN_FIELDS
+            )
+            (done if has else empty).append(r)
+
+        title = html.escape(message.chat.title or "Беседа")
+        out = [
+            f"📝 <b>Список описаний (анкет) · {title}</b>\n",
+            f"✅ Заполнили описание: <b>{len(done)}</b>",
+            f"❌ Без описания: <b>{len(empty)}</b>",
+            f"👥 Всего участников в списке: <b>{len(rows)}</b>\n",
+        ]
+
+        if not done:
+            out.append("<i>Пока никто в этой группе не заполнил описание.</i>\nЗаполнить: напишите <code>шаблон</code>")
+        else:
+            out.append("<b>📋 Заполненные анкеты беседы:</b>")
+            for idx, r in enumerate(done[:60], 1):
+                nm = r["real_name"] or r["hobby"] or r["first_name"] or (f"@{r['username']}" if r["username"] else str(r["user_id"]))
+                details = []
+                if r["age"]:
+                    details.append(f"{r['age']} лет")
+                if r["country"]:
+                    details.append(r["country"])
+                if r["hobby"]:
+                    details.append(f"ник: {r['hobby']}")
+                det_str = f" ({', '.join(details)})" if details else ""
+                out.append(f"<b>{idx}.</b> {mention_id(r['user_id'], html.escape(nm))}{html.escape(det_str)}")
+
+            if len(done) > 60:
+                out.append(f"<i>…и ещё {len(done) - 60} анкет</i>")
+
+        out.append("\n💡 <i>Чтобы посмотреть полное описание участника — напишите «описание @юзер»</i>")
+        return await message.reply("\n".join(out)[:3900], disable_web_page_preview=True)
 
     rows = await db.fetchall(
         "SELECT p.*, u.username, u.first_name, u.nick FROM profiles p "
         "LEFT JOIN users u ON u.user_id=p.user_id "
-        "ORDER BY p.filled_ts DESC, p.user_id ASC")
+        "ORDER BY p.filled_ts DESC, p.user_id ASC LIMIT 150")
 
     done, empty = [], []
     for r in rows:
@@ -1311,7 +1454,7 @@ async def cmd_desc_list(message: Message, bot: Bot, args: str = "", **kw):
         f"📝 <b>Список описаний (анкет участников)</b>\n",
         f"✅ Заполнили описание: <b>{len(done)}</b>",
         f"❌ Без описания: <b>{len(empty)}</b>",
-        f"👥 Всего в базе: <b>{total['c']}</b>\n",
+        f"👥 Всего в базе: <b>{total['c'] if total else len(rows)}</b>\n",
     ]
 
     if not done:
