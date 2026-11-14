@@ -989,3 +989,991 @@ async def cb_quiz_answer(call: CallbackQuery):
         )
     else:
         await call.answer("❌ Неверный ответ! Попробуйте другой вариант или дайте шанс другим.", show_alert=True)
+
+
+
+# ══════════════════════════════════════════════════════════════════
+# 7. 🏰 БАШНЯ / ЛЕСЕНКА (TOWER LADDER)
+# ══════════════════════════════════════════════════════════════════
+
+ACTIVE_TOWERS: dict[str, dict] = {}
+TOWER_MULTS = {1: 1.40, 2: 2.00, 3: 3.00, 4: 4.50, 5: 7.00}
+
+
+def _get_tower_kb(gid: str, floor: int, can_cashout: bool, cur_win: int) -> InlineKeyboardMarkup:
+    buttons = [
+        [
+            InlineKeyboardButton(text="🚪 Дверь #1", callback_data=f"tw:door:{gid}:0"),
+            InlineKeyboardButton(text="🚪 Дверь #2", callback_data=f"tw:door:{gid}:1"),
+            InlineKeyboardButton(text="🚪 Дверь #3", callback_data=f"tw:door:{gid}:2"),
+        ]
+    ]
+    if can_cashout and cur_win > 0:
+        buttons.append([
+            InlineKeyboardButton(text=f"💰 ЗАБРАТЬ КУШ ({cur_win:,} 🪙)", callback_data=f"tw:cashout:{gid}")
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+@router.message(Cmd("башня", "лесенка", "tower", "ladder", section=S_GAMES,
+                    usage="башня {ставка}", desc="🏰 Подъём по этажам башни до x7.0 куша"))
+async def cmd_tower(message: Message, args: str = "", **kw):
+    if not await _check_casino_allowed(message):
+        return
+
+    uid = message.from_user.id
+    uname = message.from_user.first_name
+    u_data = await db.get_user(uid)
+    u_bal = int(u_data.get("balance", 0) or 0)
+
+    bet = _parse_bet_arg(args, u_bal)
+    if bet < MIN_BET:
+        text = (
+            "🏰 <b>Игра «Башня / Лесенка»:</b>\n"
+            "Пройдите 5 этажей цитадели и заберите супер-куш <b>х7.00</b>!\n"
+            "На каждом этаже 3 двери: 2 безопасных пути и 1 коварная ловушка.\n\n"
+            f"👉 <b>Пример:</b> <code>башня 1000</code> (минимум {MIN_BET} 🪙)"
+        )
+        return await message.reply(text)
+
+    if u_bal < bet:
+        return await message.reply(f"💰 Недостаточно монет! Баланс: {money(u_bal)} 🪙, ставка: {money(bet)} 🪙")
+
+    gid = f"tw_{uid}_{int(time.time() * 1000)}"
+    await db.add_balance(uid, -bet, "tower_bet")
+    lock_game(uid, "tower", message.chat.id)
+
+    trap = random.randint(0, 2)
+    ACTIVE_TOWERS[gid] = {
+        "uid": uid,
+        "uname": uname,
+        "bet": bet,
+        "floor": 1,
+        "cur_win": 0,
+        "trap": trap,
+        "created_at": time.time()
+    }
+
+    kb = _get_tower_kb(gid, floor=1, can_cashout=False, cur_win=0)
+    text = (
+        "🏰 <b>БАШНЯ MOXXI · ЭТАЖ 1 ИЗ 5</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 Игрок: {_mention_u(uid, uname)}\n"
+        f"💵 Ставка: <code>{bet:,}</code> 🪙\n"
+        f"🎯 Множитель этажа: <b>x{TOWER_MULTS[1]}</b>\n\n"
+        "⚠️ <i>На этаже 3 двери. За одной из них — смертельная ловушка!</i>\n"
+        "👇 <b>Выберите дверь для входа:</b>"
+    )
+    await message.reply(text, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("tw:door:"))
+async def cb_tower_door(call: CallbackQuery):
+    parts = call.data.split(":")
+    gid, chosen_door = parts[2], int(parts[3])
+    st = ACTIVE_TOWERS.get(gid)
+    if not st:
+        return await call.answer("Игра завершена или время истекло.", show_alert=True)
+
+    uid = call.from_user.id
+    if uid != st["uid"]:
+        return await call.answer("Это не ваша башня!", show_alert=True)
+
+    floor = st["floor"]
+    trap = st["trap"]
+    bet = st["bet"]
+    uname = st["uname"]
+
+    if chosen_door == trap:
+        ACTIVE_TOWERS.pop(gid, None)
+        unlock_game(uid)
+        doors_view = ["🚪", "🚪", "🚪"]
+        doors_view[trap] = "💥 ЛОВУШКА!"
+        text = (
+            "💥 <b>ОБВАЛ ЭТАЖА! ВЫ ПОГИБЛИ!</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 Игрок: {_mention_u(uid, uname)}\n"
+            f"💀 Дверь #{chosen_door + 1} оказалась ловушкой!\n"
+            f"🚪 Раскладка: <code>{' | '.join(doors_view)}</code>\n\n"
+            f"💸 <b>Потеряно:</b> <code>-{bet:,}</code> 🪙\n"
+            f"🏰 Попробуйте подняться снова: <code>башня {bet}</code>"
+        )
+        return await call.message.edit_text(text)
+
+    cur_win = int(bet * TOWER_MULTS[floor])
+    st["cur_win"] = cur_win
+
+    if floor >= 5:
+        ACTIVE_TOWERS.pop(gid, None)
+        unlock_game(uid)
+        bal = await db.add_balance(uid, cur_win, "tower_jackpot")
+        await db.add_game_xp(uid, 100)
+        text = (
+            "👑 <b>ВЕРШИНА БАШНИ ПОКОРЕНА! МЕГА-КУШ!</b> 👑\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"🏆 Герой: {_mention_u(uid, uname)}\n"
+            "🏰 Все 5 этажей успешно пройдены!\n"
+            f"🔥 Множитель: <b>x{TOWER_MULTS[5]}</b>\n\n"
+            f"💰 <b>ВЫИГРЫШ:</b> +<code>{cur_win:,}</code> 🪙 (Баланс: {money(bal)})\n"
+            "⭐ Опыт: <b>+100 XP</b>!"
+        )
+        return await call.message.edit_text(text)
+
+    st["floor"] += 1
+    st["trap"] = random.randint(0, 2)
+    next_floor = st["floor"]
+    next_mult = TOWER_MULTS[next_floor]
+
+    kb = _get_tower_kb(gid, floor=next_floor, can_cashout=True, cur_win=cur_win)
+    text = (
+        f"🏰 <b>ЭТАЖ {floor} ПРОЙДЕН! ПОДЪЁМ НА ЭТАЖ {next_floor}</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 Игрок: {_mention_u(uid, uname)}\n"
+        f"💰 Накопленный куш: <b>+{cur_win:,}</b> 🪙 (x{TOWER_MULTS[floor]})\n"
+        f"🎯 Множитель этажа {next_floor}: <b>x{next_mult}</b>\n\n"
+        f"👇 <i>Откройте дверь на этаже {next_floor} или заберите золото:</i>"
+    )
+    await call.message.edit_text(text, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("tw:cashout:"))
+async def cb_tower_cashout(call: CallbackQuery):
+    parts = call.data.split(":")
+    gid = parts[2]
+    st = ACTIVE_TOWERS.pop(gid, None)
+    if not st:
+        return await call.answer("Игра уже завершена.", show_alert=True)
+
+    uid = call.from_user.id
+    if uid != st["uid"]:
+        return await call.answer("Это не ваша башня!", show_alert=True)
+
+    unlock_game(uid)
+    cur_win = st["cur_win"]
+    bal = await db.add_balance(uid, cur_win, "tower_win")
+    await db.add_game_xp(uid, 30)
+
+    text = (
+        "💰 <b>КУШ УСПЕШНО ЗАБРАН ИЗ БАШНИ!</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 Игрок: {_mention_u(uid, st['uname'])}\n"
+        f"🏰 Завершено на этаже: <b>#{st['floor']}</b>\n"
+        f"🎉 <b>Выигрыш:</b> +<code>{cur_win:,}</code> 🪙\n"
+        f"💳 Текущий баланс: {money(bal)} 🪙"
+    )
+    await call.message.edit_text(text)
+
+
+# ══════════════════════════════════════════════════════════════════
+# 8. 📦 СУНДУКИ ФОРТУНЫ (CHESTS OF FORTUNE)
+# ══════════════════════════════════════════════════════════════════
+
+ACTIVE_CHESTS: dict[str, dict] = {}
+
+
+@router.message(Cmd("сундуки", "сундук", "chests", "chest", section=S_GAMES,
+                    usage="сундуки {ставка}", desc="📦 4 сундука удачи с множителем до x3.50"))
+async def cmd_chests(message: Message, args: str = "", **kw):
+    if not await _check_casino_allowed(message):
+        return
+
+    uid = message.from_user.id
+    uname = message.from_user.first_name
+    u_data = await db.get_user(uid)
+    u_bal = int(u_data.get("balance", 0) or 0)
+
+    bet = _parse_bet_arg(args, u_bal)
+    if bet < MIN_BET:
+        text = (
+            "📦 <b>Игра «Сундуки Фортуны»:</b>\n"
+            "Перед вами 4 древних сундука. В одном из них спрятан <b>Бриллиантовый куш х3.50</b>!\n"
+            "Призы: 💎 х3.50 | 💰 х2.00 | 🪙 х1.25 | 💀 0х (Мимик)\n\n"
+            f"👉 <b>Пример:</b> <code>сундуки 1000</code>"
+        )
+        return await message.reply(text)
+
+    if u_bal < bet:
+        return await message.reply(f"💰 Недостаточно монет! Баланс: {money(u_bal)} 🪙, ставка: {money(bet)} 🪙")
+
+    gid = f"ch_{uid}_{int(time.time() * 1000)}"
+    await db.add_balance(uid, -bet, "chests_bet")
+    lock_game(uid, "chests", message.chat.id)
+
+    pool = [3.50, 2.00, 1.25, 0.0]
+    random.shuffle(pool)
+
+    ACTIVE_CHESTS[gid] = {
+        "uid": uid,
+        "uname": uname,
+        "bet": bet,
+        "pool": pool,
+        "created_at": time.time()
+    }
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="📦 Сундук #1", callback_data=f"ch:pick:{gid}:0"),
+            InlineKeyboardButton(text="📦 Сундук #2", callback_data=f"ch:pick:{gid}:1"),
+        ],
+        [
+            InlineKeyboardButton(text="📦 Сундук #3", callback_data=f"ch:pick:{gid}:2"),
+            InlineKeyboardButton(text="📦 Сундук #4", callback_data=f"ch:pick:{gid}:3"),
+        ]
+    ])
+
+    text = (
+        "📦 <b>СУНДУКИ ФОРТУНЫ MOXXI</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 Искатель сокровищ: {_mention_u(uid, uname)}\n"
+        f"💵 Ставка: <code>{bet:,}</code> 🪙\n\n"
+        "👇 <i>Откройте один из 4 сундуков удачи:</i>"
+    )
+    await message.reply(text, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("ch:pick:"))
+async def cb_chests_pick(call: CallbackQuery):
+    parts = call.data.split(":")
+    gid, chosen = parts[2], int(parts[3])
+    st = ACTIVE_CHESTS.pop(gid, None)
+    if not st:
+        return await call.answer("Игра завершена или время истекло.", show_alert=True)
+
+    uid = call.from_user.id
+    if uid != st["uid"]:
+        return await call.answer("Это не ваши сундуки!", show_alert=True)
+
+    unlock_game(uid)
+    bet = st["bet"]
+    pool = st["pool"]
+    uname = st["uname"]
+    mult = pool[chosen]
+
+    icons = {3.50: "💎 x3.50", 2.00: "💰 x2.00", 1.25: "🪙 x1.25", 0.0: "💀 0x (Мимик)"}
+    revealed_lines = [f"{'👉 ' if i == chosen else '   '}Сундук #{i+1}: {icons[pool[i]]}" for i in range(4)]
+
+    if mult > 0:
+        win = int(bet * mult)
+        bal = await db.add_balance(uid, win, "chests_win")
+        await db.add_game_xp(uid, 25)
+        text = (
+            f"🎉 <b>СУНДУК ВЗЛОМАН! ВЫИГРЫШ: +{win:,} 🪙</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 Игрок: {_mention_u(uid, uname)}\n"
+            f"✨ В выбранном сундуке: <b>{icons[mult]}</b>\n\n"
+            "📋 <b>Содержимое всех сундуков:</b>\n"
+            + "\n".join(revealed_lines) + "\n\n"
+            f"💳 Баланс: {money(bal)} 🪙 | ⭐ Опыт: <b>+25 XP</b>"
+        )
+        await call.message.edit_text(text)
+    else:
+        text = (
+            "💀 <b>ПУСТОЙ СУНДУК! ЛОВУШКА МИМИКА!</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 Игрок: {_mention_u(uid, uname)}\n"
+            f"❌ В сундуке #{chosen+1} не оказалось сокровищ!\n\n"
+            "📋 <b>Где лежали сокровища:</b>\n"
+            + "\n".join(revealed_lines) + "\n\n"
+            f"💸 Потеряно: <code>-{bet:,}</code> 🪙\n"
+            f"📦 Попробовать ещё раз: <code>сундуки {bet}</code>"
+        )
+        await call.message.edit_text(text)
+
+
+# ══════════════════════════════════════════════════════════════════
+# 9. 🃏 ХАЙ-ЛОУ (БОЛЬШЕ ИЛИ МЕНЬШЕ)
+# ══════════════════════════════════════════════════════════════════
+
+ACTIVE_HIGHLOW: dict[str, dict] = {}
+HL_MULTS = [1.40, 2.20, 3.50, 5.50, 10.00]
+CARD_RANKS = {2: "2", 3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8", 9: "9", 10: "10", 11: "Валет (J)", 12: "Дама (Q)", 13: "Король (K)", 14: "Туз (A)"}
+CARD_SUITS = ["♠️", "♥️", "♦️", "♣️"]
+
+
+def _format_card(rank: int, suit: str) -> str:
+    return f"<b>[{CARD_RANKS[rank]} {suit}]</b>"
+
+
+@router.message(Cmd("хайлоу", "больше меньше", "highlow", "карты", section=S_GAMES,
+                    usage="хайлоу {ставка}", desc="🃏 Угадай карту: больше или меньше (до x10.0)"))
+async def cmd_highlow(message: Message, args: str = "", **kw):
+    if not await _check_casino_allowed(message):
+        return
+
+    uid = message.from_user.id
+    uname = message.from_user.first_name
+    u_data = await db.get_user(uid)
+    u_bal = int(u_data.get("balance", 0) or 0)
+
+    bet = _parse_bet_arg(args, u_bal)
+    if bet < MIN_BET:
+        text = (
+            "🃏 <b>Игра «Хай-Лоу (Больше / Меньше)»:</b>\n"
+            "Угадайте, будет ли следующая карта колоды старше или младше текущей!\n"
+            "Серия побед: 1x (х1.4) ➔ 2x (х2.2) ➔ 3x (х3.5) ➔ 4x (х5.5) ➔ 5x (х10.0)!\n\n"
+            f"👉 <b>Пример:</b> <code>хайлоу 1000</code>"
+        )
+        return await message.reply(text)
+
+    if u_bal < bet:
+        return await message.reply(f"💰 Недостаточно монет! Баланс: {money(u_bal)} 🪙, ставка: {money(bet)} 🪙")
+
+    gid = f"hl_{uid}_{int(time.time() * 1000)}"
+    await db.add_balance(uid, -bet, "highlow_bet")
+    lock_game(uid, "highlow", message.chat.id)
+
+    cur_rank = random.randint(3, 13)
+    cur_suit = random.choice(CARD_SUITS)
+
+    ACTIVE_HIGHLOW[gid] = {
+        "uid": uid,
+        "uname": uname,
+        "bet": bet,
+        "streak": 0,
+        "cur_rank": cur_rank,
+        "cur_suit": cur_suit,
+        "history": [_format_card(cur_rank, cur_suit)],
+        "created_at": time.time()
+    }
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🔼 БОЛЬШЕ", callback_data=f"hl:g:{gid}:hi"),
+            InlineKeyboardButton(text="🔽 МЕНЬШЕ", callback_data=f"hl:g:{gid}:lo"),
+        ]
+    ])
+
+    text = (
+        "🃏 <b>ХАЙ-ЛОУ MOXXI · РАУНД 1</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 Игрок: {_mention_u(uid, uname)}\n"
+        f"💵 Ставка: <code>{bet:,}</code> 🪙\n"
+        f"🎴 Открытая карта: {_format_card(cur_rank, cur_suit)}\n"
+        f"🎯 Множитель следующего шага: <b>x{HL_MULTS[0]}</b>\n\n"
+        "👇 <i>Следующая карта будет выше или ниже?</i>"
+    )
+    await message.reply(text, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("hl:g:"))
+async def cb_highlow_guess(call: CallbackQuery):
+    parts = call.data.split(":")
+    gid, guess = parts[2], parts[3]
+    st = ACTIVE_HIGHLOW.get(gid)
+    if not st:
+        return await call.answer("Игра завершена или время вышло.", show_alert=True)
+
+    uid = call.from_user.id
+    if uid != st["uid"]:
+        return await call.answer("Это не ваша партия!", show_alert=True)
+
+    cur_rank = st["cur_rank"]
+    next_rank = random.randint(2, 14)
+    while next_rank == cur_rank:
+        next_rank = random.randint(2, 14)
+    next_suit = random.choice(CARD_SUITS)
+    st["history"].append(_format_card(next_rank, next_suit))
+
+    is_higher = next_rank > cur_rank
+    user_won = (guess == "hi" and is_higher) or (guess == "lo" and not is_higher)
+
+    bet = st["bet"]
+    uname = st["uname"]
+
+    if not user_won:
+        ACTIVE_HIGHLOW.pop(gid, None)
+        unlock_game(uid)
+        text = (
+            "💀 <b>НЕ УГАДАЛИ! КАРТА НЕ СЫГРАЛА!</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 Игрок: {_mention_u(uid, uname)}\n"
+            f"Было: {_format_card(cur_rank, st['cur_suit'])}\n"
+            f"Выпало: {_format_card(next_rank, next_suit)} ({'Выше' if is_higher else 'Ниже'})\n\n"
+            f"💸 Потеряно: <code>-{bet:,}</code> 🪙\n"
+            f"🃏 Сыграть снова: <code>хайлоу {bet}</code>"
+        )
+        return await call.message.edit_text(text)
+
+    st["streak"] += 1
+    st["cur_rank"] = next_rank
+    st["cur_suit"] = next_suit
+    streak = st["streak"]
+    mult = HL_MULTS[streak - 1]
+    cur_win = int(bet * mult)
+
+    if streak >= 5:
+        ACTIVE_HIGHLOW.pop(gid, None)
+        unlock_game(uid)
+        bal = await db.add_balance(uid, cur_win, "highlow_jackpot")
+        await db.add_game_xp(uid, 120)
+        text = (
+            "👑 <b>5 ИЗ 5 ПОБЕД В ХАЙ-ЛОУ! ДЖЕКПОТ х10.0!</b> 👑\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"🏆 Победитель: {_mention_u(uid, uname)}\n"
+            f"Цепочка карт: {' ➔ '.join(st['history'])}\n\n"
+            f"💰 <b>ВЫИГРЫШ:</b> +<code>{cur_win:,}</code> 🪙 (Баланс: {money(bal)})\n"
+            "⭐ Опыт: <b>+120 XP</b>!"
+        )
+        return await call.message.edit_text(text)
+
+    next_mult = HL_MULTS[streak]
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🔼 БОЛЬШЕ", callback_data=f"hl:g:{gid}:hi"),
+            InlineKeyboardButton(text="🔽 МЕНЬШЕ", callback_data=f"hl:g:{gid}:lo"),
+        ],
+        [
+            InlineKeyboardButton(text=f"💰 ЗАБРАТЬ {cur_win:,} 🪙 (x{mult})", callback_data=f"hl:cash:{gid}")
+        ]
+    ])
+
+    text = (
+        f"🎉 <b>УГАДАЛИ! СЕРИЯ: {streak} ПОДРЯД (x{mult})</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 Игрок: {_mention_u(uid, uname)}\n"
+        f"🎴 Текущая карта: {_format_card(next_rank, next_suit)}\n"
+        f"💰 Накопленный куш: <b>+{cur_win:,}</b> 🪙\n"
+        f"🎯 Следующий множитель: <b>x{next_mult}</b>\n\n"
+        "👇 <i>Следующая карта больше или меньше? Или заберёте куш:</i>"
+    )
+    await call.message.edit_text(text, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("hl:cash:"))
+async def cb_highlow_cashout(call: CallbackQuery):
+    parts = call.data.split(":")
+    gid = parts[2]
+    st = ACTIVE_HIGHLOW.pop(gid, None)
+    if not st:
+        return await call.answer("Игра уже завершена.", show_alert=True)
+
+    uid = call.from_user.id
+    if uid != st["uid"]:
+        return await call.answer("Это не ваша партия!", show_alert=True)
+
+    unlock_game(uid)
+    streak = st["streak"]
+    mult = HL_MULTS[streak - 1]
+    cur_win = int(st["bet"] * mult)
+    bal = await db.add_balance(uid, cur_win, "highlow_win")
+    await db.add_game_xp(uid, 30)
+
+    text = (
+        "💰 <b>КУШ ХАЙ-ЛОУ ЗАФИКСИРОВАН!</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 Игрок: {_mention_u(uid, st['uname'])}\n"
+        f"🎯 Угадано подряд: <b>{streak} карт</b> (x{mult})\n"
+        f"🎉 <b>Выигрыш:</b> +<code>{cur_win:,}</code> 🪙\n"
+        f"💳 Баланс: {money(bal)} 🪙"
+    )
+    await call.message.edit_text(text)
+
+
+# ══════════════════════════════════════════════════════════════════
+# 10. 🎯 ТИР / СНАЙПЕР (SHOOTING RANGE)
+# ══════════════════════════════════════════════════════════════════
+
+ACTIVE_TARGETS: dict[str, dict] = {}
+
+
+@router.message(Cmd("тир", "снайпер", "target", "мишень", section=S_GAMES,
+                    usage="тир {ставка}", desc="🎯 Выстрел по 5 мишеням: множители до x5.0"))
+async def cmd_target(message: Message, args: str = "", **kw):
+    if not await _check_casino_allowed(message):
+        return
+
+    uid = message.from_user.id
+    uname = message.from_user.first_name
+    u_data = await db.get_user(uid)
+    u_bal = int(u_data.get("balance", 0) or 0)
+
+    bet = _parse_bet_arg(args, u_bal)
+    if bet < MIN_BET:
+        text = (
+            "🎯 <b>Стрелковый Тир Moxxi:</b>\n"
+            "Перед вами 5 мишеней на стрельбище. Сделайте прицельный выстрел!\n"
+            "Призы: 💥 Порох (х5.0) | 🎯 Яблочко (х3.0) | 🔘 Десятка (х1.75) | ⚪️ Касание (х0.8) | 💨 Мимо (0х)\n\n"
+            f"👉 <b>Пример:</b> <code>тир 1000</code>"
+        )
+        return await message.reply(text)
+
+    if u_bal < bet:
+        return await message.reply(f"💰 Недостаточно монет! Баланс: {money(u_bal)} 🪙, ставка: {money(bet)} 🪙")
+
+    gid = f"tg_{uid}_{int(time.time() * 1000)}"
+    await db.add_balance(uid, -bet, "target_bet")
+    lock_game(uid, "target", message.chat.id)
+
+    pool = [5.0, 3.0, 1.75, 0.8, 0.0]
+    random.shuffle(pool)
+
+    ACTIVE_TARGETS[gid] = {
+        "uid": uid,
+        "uname": uname,
+        "bet": bet,
+        "pool": pool,
+        "created_at": time.time()
+    }
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🎯 Мишень #1", callback_data=f"tg:s:{gid}:0"),
+            InlineKeyboardButton(text="🎯 Мишень #2", callback_data=f"tg:s:{gid}:1"),
+            InlineKeyboardButton(text="🎯 Мишень #3", callback_data=f"tg:s:{gid}:2"),
+        ],
+        [
+            InlineKeyboardButton(text="🎯 Мишень #4", callback_data=f"tg:s:{gid}:3"),
+            InlineKeyboardButton(text="🎯 Мишень #5", callback_data=f"tg:s:{gid}:4"),
+        ]
+    ])
+
+    text = (
+        "🎯 <b>СТРЕЛЬБИЩЕ MOXXI · ОГОНЬ ПО ГОТОВНОСТИ!</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 Снайпер: {_mention_u(uid, uname)}\n"
+        f"💵 Ставка: <code>{bet:,}</code> 🪙\n\n"
+        "👇 <i>Выберите мишень для выстрела:</i>"
+    )
+    await message.reply(text, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("tg:s:"))
+async def cb_target_shoot(call: CallbackQuery):
+    parts = call.data.split(":")
+    gid, chosen = parts[2], int(parts[3])
+    st = ACTIVE_TARGETS.pop(gid, None)
+    if not st:
+        return await call.answer("Выстрел уже сделан или время вышло.", show_alert=True)
+
+    uid = call.from_user.id
+    if uid != st["uid"]:
+        return await call.answer("Это не ваша винтовка!", show_alert=True)
+
+    unlock_game(uid)
+    bet = st["bet"]
+    pool = st["pool"]
+    uname = st["uname"]
+    mult = pool[chosen]
+
+    labels = {
+        5.0: "💥 Бочка с порохом (x5.0)",
+        3.0: "🎯 Точно в яблочко! (x3.0)",
+        1.75: "🔘 В десятку! (x1.75)",
+        0.8: "⚪️ По касательной (x0.8)",
+        0.0: "💨 Рикошет / Мимо (0x)"
+    }
+    revealed_lines = [f"{'👉 ' if i == chosen else '   '}Мишень #{i+1}: {labels[pool[i]]}" for i in range(5)]
+
+    if mult > 0:
+        win = int(bet * mult)
+        bal = await db.add_balance(uid, win, "target_win")
+        await db.add_game_xp(uid, 30)
+        text = (
+            f"🎯 <b>ВЫСТРЕЛ В ЯБЛОЧКО! ВЫИГРЫШ: +{win:,} 🪙</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 Стрелок: {_mention_u(uid, uname)}\n"
+            f"💥 Результат попадания: <b>{labels[mult]}</b>\n\n"
+            "📋 <b>Раскладка мишеней:</b>\n"
+            + "\n".join(revealed_lines) + "\n\n"
+            f"💳 Баланс: {money(bal)} 🪙 | ⭐ Опыт: <b>+30 XP</b>"
+        )
+        await call.message.edit_text(text)
+    else:
+        text = (
+            "💨 <b>ПРОМАХ! ПУЛЯ УШЛА В МОЛОКО!</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 Стрелок: {_mention_u(uid, uname)}\n"
+            f"❌ Мишень #{chosen+1} оказалась пустой мишенью!\n\n"
+            "📋 <b>Где были призы:</b>\n"
+            + "\n".join(revealed_lines) + "\n\n"
+            f"💸 Потеряно: <code>-{bet:,}</code> 🪙\n"
+            f"🎯 Попробовать снова: <code>тир {bet}</code>"
+        )
+        await call.message.edit_text(text)
+
+
+# ══════════════════════════════════════════════════════════════════
+# 11. 🍾 БУТЫЛОЧКА В БЕСЕДЕ (SPIN THE BOTTLE)
+# ══════════════════════════════════════════════════════════════════
+
+BOTTLE_TASKS = [
+    "Страстно поцеловать друг друга в щёчку при всей беседе 💋",
+    "Обняться так крепко, чтобы захрустели рёбра 🤗",
+    "Сказать самый безумный и романтичный комплимент в голосовом сообщении 🎙️",
+    "Поставить парные аватарки в профиле на 24 часа 📸",
+    "Перевести 2 500 монет на шоколадку («передать @юзер 2500») 🍫",
+    "Признаться в тайной симпатии перед всей беседой 💖",
+    "Придумать смешное милое прозвище и называть так целый день 🥰",
+    "Отправить самый угарный стикер или кружочек с танцем в чат 💃",
+    "Написать 3 факта, за что вы искренне уважаете этого человека ✨",
+    "Сделать совместное предложение пожениться в боте («брак @юзер») 💍",
+    "Подарить букет цветов или виртуальный подарок в боте 🌹",
+    "Сыграть дружескую дуэль в кости на символические 500 монет 🎲",
+    "Написать четверостишие про своего партнёра по бутылочке ✍️",
+    "Включить режим личного телохранителя и защищать в спорах целый день 🛡️",
+    "Сказать «Мяу» в голосовом сообщении для чата 🐱",
+    "Рассказать самую неловкую и смешную историю из своей жизни 🙈",
+]
+
+LAST_BOTTLE_SPIN: dict[int, float] = {}
+
+
+@router.message(Cmd("бутылочка", "бутылка", "spin", "крутить бутылочку", section=S_GAMES,
+                    usage="бутылочка", desc="🍾 Крутить бутылочку для участников беседы с забавными заданиями"))
+async def cmd_bottle(message: Message, bot: Bot, **kw):
+    if message.chat.type == "private":
+        return await message.reply("🍾 <b>Бутылочка создана только для бесед и групп!</b> Добавьте Мокси в чат с друзьями!")
+
+    cid = message.chat.id
+    now = time.time()
+    if now - LAST_BOTTLE_SPIN.get(cid, 0) < 5:
+        return await message.reply("⏳ Бутылочка ещё не успела остановиться! Подождите пару секунд.")
+    LAST_BOTTLE_SPIN[cid] = now
+
+    caller_id = message.from_user.id
+    caller_name = message.from_user.first_name
+
+    candidate_ids = []
+    try:
+        rows = await db.fetchall("SELECT user_id, first_name FROM users WHERE balance > 0 ORDER BY updated_at DESC LIMIT 30")
+        candidate_ids = [r["user_id"] for r in rows if r["user_id"] != caller_id and r["user_id"] > 0]
+    except Exception:
+        pass
+
+    if not candidate_ids:
+        candidate_ids = [caller_id]
+
+    partner_id = random.choice(candidate_ids) if candidate_ids else caller_id
+    partner_name = "Соперник"
+    try:
+        p_user = await bot.get_chat_member(cid, partner_id)
+        partner_name = p_user.user.first_name
+    except Exception:
+        pass
+
+    task = random.choice(BOTTLE_TASKS)
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Задание выполнено (+1 000 🪙 обоим)", callback_data=f"btl:done:{caller_id}:{partner_id}")
+        ],
+        [
+            InlineKeyboardButton(text="🔄 Крутить бутылочку снова", callback_data="btl:spin")
+        ]
+    ])
+
+    text = (
+        "🍾 <b>БУТЫЛОЧКА КРУТИТСЯ... 🌀</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Горлышко бутылочки остановилось и указало на:\n"
+        f"👉 {_mention_u(caller_id, caller_name)}  ❤️  {_mention_u(partner_id, partner_name)} 👈\n\n"
+        "🎲 <b>ЗАДАНИЕ ОТ MOXXI:</b>\n"
+        f"«<i>{task}</i>»\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "👇 <i>Выполните задание и подтвердите кнопкой:</i>"
+    )
+    await message.reply(text, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("btl:done:"))
+async def cb_bottle_done(call: CallbackQuery):
+    parts = call.data.split(":")
+    u1, u2 = int(parts[2]), int(parts[3])
+    clicker = call.from_user.id
+
+    if clicker not in (u1, u2):
+        return await call.answer("Подтвердить выполнение могут только участники этой пары!", show_alert=True)
+
+    await db.add_balance(u1, 1000, "bottle_reward")
+    await db.add_balance(u2, 1000, "bottle_reward")
+    await db.add_game_xp(u1, 20)
+    await db.add_game_xp(u2, 20)
+
+    text = (
+        "🎉 <b>ЗАДАНИЕ БУТЫЛОЧКИ ВЫПОЛНЕНО!</b> 🎉\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Оба участника получили по <b>+1 000 🪙</b> и <b>+20 XP</b> за смелость и активность!\n\n"
+        "🍾 Чтобы раскрутить снова, напишите <code>бутылочка</code>!"
+    )
+    await call.message.edit_text(text)
+
+
+@router.callback_query(F.data == "btl:spin")
+async def cb_bottle_spin(call: CallbackQuery, bot: Bot):
+    await call.answer("Крутим бутылочку...")
+    cid = call.message.chat.id
+    caller_id = call.from_user.id
+    caller_name = call.from_user.first_name
+
+    candidate_ids = []
+    try:
+        rows = await db.fetchall("SELECT user_id, first_name FROM users WHERE balance > 0 ORDER BY updated_at DESC LIMIT 30")
+        candidate_ids = [r["user_id"] for r in rows if r["user_id"] != caller_id and r["user_id"] > 0]
+    except Exception:
+        pass
+
+    partner_id = random.choice(candidate_ids) if candidate_ids else caller_id
+    partner_name = "Участник"
+    try:
+        p_user = await bot.get_chat_member(cid, partner_id)
+        partner_name = p_user.user.first_name
+    except Exception:
+        pass
+
+    task = random.choice(BOTTLE_TASKS)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Задание выполнено (+1 000 🪙 обоим)", callback_data=f"btl:done:{caller_id}:{partner_id}")
+        ],
+        [
+            InlineKeyboardButton(text="🔄 Крутить бутылочку снова", callback_data="btl:spin")
+        ]
+    ])
+
+    text = (
+        "🍾 <b>БУТЫЛОЧКА СНОВА ВРАЩАЕТСЯ... 💫</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "Новая судьбоносная пара беседы:\n"
+        f"👉 {_mention_u(caller_id, caller_name)}  ❤️  {_mention_u(partner_id, partner_name)} 👈\n\n"
+        "🎲 <b>НОВОЕ ЗАДАНИЕ:</b>\n"
+        f"«<i>{task}</i>»\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "👇 <i>Действуйте!</i>"
+    )
+    await call.message.edit_text(text, reply_markup=kb)
+
+
+# ══════════════════════════════════════════════════════════════════
+# 12. 🎳 БОУЛИНГ И ⚽️ ПЕНАЛЬТИ
+# ══════════════════════════════════════════════════════════════════
+
+@router.message(Cmd("боулинг", "bowling", section=S_GAMES,
+                    usage="боулинг [ставка]", desc="🎳 Бросок шара по кеглям (Страйк = x3.0)"))
+async def cmd_bowling_solo(message: Message, bot: Bot, args: str = "", **kw):
+    if not await _check_casino_allowed(message):
+        return
+
+    uid = message.from_user.id
+    uname = message.from_user.first_name
+    u_data = await db.get_user(uid)
+    u_bal = int(u_data.get("balance", 0) or 0)
+
+    bet = _parse_bet_arg(args, u_bal)
+    if bet < MIN_BET:
+        text = (
+            "🎳 <b>Боулинг Клуб Moxxi:</b>\n"
+            "Бросьте шар и выбейте страйк!\n"
+            "💥 Страйк (6 кеглей): <b>х3.00</b>\n"
+            "🔘 4-5 кеглей: <b>х1.60</b>\n"
+            "⚪️ 1-3 кегли: <b>0х</b>\n\n"
+            f"👉 <b>Пример:</b> <code>боулинг 1000</code>"
+        )
+        return await message.reply(text)
+
+    if u_bal < bet:
+        return await message.reply(f"💰 Недостаточно монет! Баланс: {money(u_bal)} 🪙, ставка: {money(bet)} 🪙")
+
+    await db.add_balance(uid, -bet, "bowling_bet")
+    lock_game(uid, "bowling", message.chat.id)
+
+    dice_msg = await bot.send_dice(message.chat.id, emoji="🎳")
+    await asyncio.sleep(3.5)
+    unlock_game(uid)
+
+    val = dice_msg.dice.value
+    if val == 6:
+        win = int(bet * 3.0)
+        bal = await db.add_balance(uid, win, "bowling_strike")
+        await db.add_game_xp(uid, 40)
+        text = (
+            "💥 <b>СТРАЙК! ВСЕ 6 КЕГЛЕЙ СБИТЫ!</b> 🎳\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 Игрок: {_mention_u(uid, uname)}\n"
+            f"💰 <b>Выигрыш (х3.0):</b> +<code>{win:,}</code> 🪙 (Баланс: {money(bal)})"
+        )
+        await dice_msg.reply(text)
+    elif val in (4, 5):
+        win = int(bet * 1.6)
+        bal = await db.add_balance(uid, win, "bowling_win")
+        await db.add_game_xp(uid, 20)
+        text = (
+            f"🎳 <b>ОТЛИЧНЫЙ БРОСОК! СБИТО {val} КЕГЛЕЙ!</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 Игрок: {_mention_u(uid, uname)}\n"
+            f"💰 <b>Выигрыш (х1.6):</b> +<code>{win:,}</code> 🪙 (Баланс: {money(bal)})"
+        )
+        await dice_msg.reply(text)
+    else:
+        text = (
+            f"💨 <b>ШАР УШЁЛ В ЖЕЛОБ! Сбито всего {val} кеглей.</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 Игрок: {_mention_u(uid, uname)}\n"
+            f"💸 Потеряно: <code>-{bet:,}</code> 🪙\n"
+            f"🎳 Реванш: <code>боулинг {bet}</code>"
+        )
+        await dice_msg.reply(text)
+
+
+@router.message(Cmd("пенальти", "футбол", "penalty", section=S_GAMES,
+                    usage="пенальти [ставка]", desc="⚽️ Пробитие 11-метрового пенальти по воротам (x1.95)"))
+async def cmd_penalty_solo(message: Message, bot: Bot, args: str = "", **kw):
+    if not await _check_casino_allowed(message):
+        return
+
+    uid = message.from_user.id
+    uname = message.from_user.first_name
+    u_data = await db.get_user(uid)
+    u_bal = int(u_data.get("balance", 0) or 0)
+
+    bet = _parse_bet_arg(args, u_bal)
+    if bet < MIN_BET:
+        text = (
+            "⚽️ <b>Серия Пенальти Moxxi:</b>\n"
+            "Пробейте точный 11-метровый удар в сетку ворот!\n"
+            "⚽️ Гол в девятку/сетку: <b>х1.95</b>\n"
+            "🧤 Сейф вратаря / Штанга: <b>0х</b>\n\n"
+            f"👉 <b>Пример:</b> <code>пенальти 1000</code>"
+        )
+        return await message.reply(text)
+
+    if u_bal < bet:
+        return await message.reply(f"💰 Недостаточно монет! Баланс: {money(u_bal)} 🪙, ставка: {money(bet)} 🪙")
+
+    await db.add_balance(uid, -bet, "penalty_bet")
+    lock_game(uid, "penalty", message.chat.id)
+
+    dice_msg = await bot.send_dice(message.chat.id, emoji="⚽️")
+    await asyncio.sleep(3.5)
+    unlock_game(uid)
+
+    val = dice_msg.dice.value
+    if val in (3, 4, 5):
+        win = int(bet * 1.95)
+        bal = await db.add_balance(uid, win, "penalty_goal")
+        await db.add_game_xp(uid, 25)
+        text = (
+            "⚽️🔥 <b>ГОООООЛ! ТОЧНО В ДЕВЯТКУ!</b> 🥅\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 Форвард: {_mention_u(uid, uname)}\n"
+            f"💰 <b>Выигрыш (х1.95):</b> +<code>{win:,}</code> 🪙 (Баланс: {money(bal)})"
+        )
+        await dice_msg.reply(text)
+    else:
+        text = (
+            "🧤❌ <b>ВРАТАРЬ ПАРИРОВАЛ УДАР! МИМО ВОРОТ!</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 Игрок: {_mention_u(uid, uname)}\n"
+            f"💸 Потеряно: <code>-{bet:,}</code> 🪙\n"
+            f"⚽️ Повторить удар: <code>пенальти {bet}</code>"
+        )
+        await dice_msg.reply(text)
+
+
+# ══════════════════════════════════════════════════════════════════
+# 13. 🔐 ВЗЛОМ СЕЙФА (SAFE CRACKER)
+# ══════════════════════════════════════════════════════════════════
+
+ACTIVE_SAFES: dict[str, dict] = {}
+
+
+@router.message(Cmd("сейф игра", "взлом сейфа", "сейф", "safe", section=S_GAMES,
+                    usage="сейф {ставка}", desc="🔐 Подбор шифра от сейфа из 6 цифр (куш x5.0)"))
+async def cmd_safe_crack(message: Message, args: str = "", **kw):
+    if not await _check_casino_allowed(message):
+        return
+
+    uid = message.from_user.id
+    uname = message.from_user.first_name
+    u_data = await db.get_user(uid)
+    u_bal = int(u_data.get("balance", 0) or 0)
+
+    bet = _parse_bet_arg(args, u_bal)
+    if bet < MIN_BET:
+        text = (
+            "🔐 <b>Взлом Сейфа Банка Moxxi:</b>\n"
+            "Сейф защищён 6-значной кодовой панелью. Угадайте верную цифру шифра!\n"
+            f"💰 За верный код вы сорвёте джекпот <b>х5.00</b> от ставки!\n\n"
+            f"👉 <b>Пример:</b> <code>сейф 1000</code>"
+        )
+        return await message.reply(text)
+
+    if u_bal < bet:
+        return await message.reply(f"💰 Недостаточно монет! Баланс: {money(u_bal)} 🪙, ставка: {money(bet)} 🪙")
+
+    gid = f"sf_{uid}_{int(time.time() * 1000)}"
+    await db.add_balance(uid, -bet, "safe_bet")
+    lock_game(uid, "safe", message.chat.id)
+
+    code = random.randint(1, 6)
+    ACTIVE_SAFES[gid] = {
+        "uid": uid,
+        "uname": uname,
+        "bet": bet,
+        "code": code,
+        "created_at": time.time()
+    }
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🔐 Цифра 1", callback_data=f"sf:d:{gid}:1"),
+            InlineKeyboardButton(text="🔐 Цифра 2", callback_data=f"sf:d:{gid}:2"),
+            InlineKeyboardButton(text="🔐 Цифра 3", callback_data=f"sf:d:{gid}:3"),
+        ],
+        [
+            InlineKeyboardButton(text="🔐 Цифра 4", callback_data=f"sf:d:{gid}:4"),
+            InlineKeyboardButton(text="🔐 Цифра 5", callback_data=f"sf:d:{gid}:5"),
+            InlineKeyboardButton(text="🔐 Цифра 6", callback_data=f"sf:d:{gid}:6"),
+        ]
+    ])
+
+    text = (
+        "🔐 <b>ОГРАБЛЕНИЕ СЕЙФА MOXXI VAULT</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 Взломщик: {_mention_u(uid, uname)}\n"
+        f"💵 Ставка: <code>{bet:,}</code> 🪙\n"
+        f"🏆 Выигрыш при успехе: <b>+{bet * 5:,} 🪙 (х5.0)</b>\n\n"
+        "👇 <i>Введите цифру шифра на кодовой панели:</i>"
+    )
+    await message.reply(text, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("sf:d:"))
+async def cb_safe_digit(call: CallbackQuery):
+    parts = call.data.split(":")
+    gid, chosen = parts[2], int(parts[3])
+    st = ACTIVE_SAFES.pop(gid, None)
+    if not st:
+        return await call.answer("Код уже введён или время вышло.", show_alert=True)
+
+    uid = call.from_user.id
+    if uid != st["uid"]:
+        return await call.answer("Это не ваш сейф!", show_alert=True)
+
+    unlock_game(uid)
+    bet = st["bet"]
+    code = st["code"]
+    uname = st["uname"]
+
+    if chosen == code:
+        win = int(bet * 5.0)
+        bal = await db.add_balance(uid, win, "safe_heist")
+        await db.add_game_xp(uid, 50)
+        text = (
+            "🔓💎 <b>СЕЙФ УСПЕШНО ВЗЛОМАН! ДЖЕКПОТ x5.0!</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 Взломщик: {_mention_u(uid, uname)}\n"
+            f"✅ Код <b>#{chosen}</b> подошёл идеально!\n\n"
+            f"💰 <b>КУШ:</b> +<code>{win:,}</code> 🪙 (Баланс: {money(bal)})\n"
+            "⭐ Опыт: <b>+50 XP</b>!"
+        )
+        await call.message.edit_text(text)
+    else:
+        text = (
+            "🚨 <b>ТРЕВОГА! КОД НЕВЕРНЫЙ! СИГНАЛИЗАЦИЯ!</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 Взломщик: {_mention_u(uid, uname)}\n"
+            f"❌ Вы ввели цифру <b>#{chosen}</b>, а правильный код был <b>#{code}</b>!\n\n"
+            f"💸 Потеряно: <code>-{bet:,}</code> 🪙\n"
+            f"🔐 Попробовать новый шифр: <code>сейф {bet}</code>"
+        )
+        await call.message.edit_text(text)
