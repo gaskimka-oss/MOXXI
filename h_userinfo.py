@@ -890,24 +890,47 @@ async def cmd_add_description(message: Message, bot: Bot, args: str = "", **kw):
 @router.message(Cmd("шаблон", "+шаблон", "+ шаблон", "шаблон описания", "заполнить описание", "как заполнить описание", "анкета шаблон", "форма описания", section=S,
                     usage="шаблон", desc="Шаблон анкеты и как её заполнить"))
 async def cmd_template(message: Message, bot: Bot, **kw):
-    """Шаблон анкеты — ОДНИМ сообщением, чтобы удобно копировать."""
-    where = ""
-    if message.chat.type != "private":
-        ft = await get_form_topic(message.chat.id)
-        if ft and topic_id(message) != ft:
-            where = ("\n\n📌 Заполнять нужно в теме описаний:\n"
-                     + topic_link(message.chat.id, ft))
-
-    sent = await message.reply(
-        "📝 <b>Заполните описание</b>\n\n"
+    """Шаблон анкеты — отправляется в тему описаний (если настроена) или по месту вызова."""
+    u_mention = mention(message.from_user) if message.from_user else "Участник"
+    template_body = (
+        f"📝 <b>Заполните описание</b> (запрос от {u_mention})\n\n"
         "Нажмите на форму — она скопируется. Впишите свои данные "
-        "после двоеточий и отправьте сюда.\n\n"
+        "после двоеточий и отправьте сюда:\n\n"
         f"<code>{TEMPLATE}</code>\n\n"
         "Оформлять можно как угодно — хоть с эмодзи, бот поймёт.\n"
         "Достаточно заполнить хотя бы 2 строки. "
         "Заполняется <b>один раз</b>."
-        + where,
-        disable_web_page_preview=True)
+    )
+
+    if message.chat.type != "private":
+        ft = await get_form_topic(message.chat.id)
+        current_tid = topic_id(message)
+        # Если задана отдельная тема описаний и вызов произошел вне её
+        if ft and ft > 0 and current_tid != ft:
+            try:
+                # 1. Отправляем форму прямо в тему описаний
+                sent_topic = await bot.send_message(
+                    message.chat.id,
+                    template_body,
+                    message_thread_id=ft,
+                    disable_web_page_preview=True
+                )
+                _autodel(sent_topic, 600)
+            except Exception:
+                pass
+
+            # 2. В текущей ветке даём прямую ссылку на тему описаний
+            link = topic_link(message.chat.id, ft)
+            sent = await message.reply(
+                f"📝 {u_mention}, <b>шаблон анкеты отправлен в тему описаний:</b>\n"
+                f"👉 {link}\n\n"
+                f"<i>Перейдите в тему описаний, скопируйте форму и отправьте её туда!</i>",
+                disable_web_page_preview=True
+            )
+            _autodel(sent, 60)
+            return
+
+    sent = await message.reply(template_body, disable_web_page_preview=True)
     _autodel(sent, 300)
 
 async def is_topping_up(uid: int, data: dict) -> bool:

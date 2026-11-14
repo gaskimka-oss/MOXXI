@@ -68,7 +68,7 @@ CRIME_COOLDOWN = 90 * 60
 CRIME_SUCCESS_CHANCE = 0.55
 
 MIN_BET = 50
-MAX_BET = 500_000
+MAX_BET = 10**72                     # Астрономический максимум ставок
 TRANSFER_FEE = 0.03              # 3% комиссия за перевод
 BANK_RATE = 0.02                 # 2% в сутки по вкладу
 

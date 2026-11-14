@@ -1867,15 +1867,22 @@ async def get_balance(user_id: int) -> int:
     return int(row["balance"])
 
 
+MAX_SQL_INT = 9_223_372_036_854_775_807  # Максимальное 64-битное число SQLite (9.22 квинтиллиона)
+
+
 async def add_balance(user_id: int, amount: int, action: str = "", meta: str = "") -> int:
     await get_user(user_id)
-    # Защита от NaN / бесконечности / переполнений
+    # Защита от NaN / некорректных типов
     try:
         amt = int(amount)
     except Exception:
         amt = 0
-    # Максимальная разумная граница баланса для защиты от переполнений (100 млрд)
-    await execute("UPDATE users SET balance = MIN(100000000000, MAX(0, balance + ?)) WHERE user_id=?", (amt, user_id))
+    # Поддерживаем максимальный размер 64-битного целого числа SQLite (9 квинтиллионов)
+    amt = max(-MAX_SQL_INT, min(MAX_SQL_INT, amt))
+    await execute(
+        "UPDATE users SET balance = MIN(?, MAX(0, balance + ?)) WHERE user_id=?",
+        (MAX_SQL_INT, amt, user_id)
+    )
     if action:
         await execute(
             "INSERT INTO log (user_id, action, amount, meta, ts) VALUES (?,?,?,?,?)",
@@ -1887,7 +1894,7 @@ async def add_balance(user_id: int, amount: int, action: str = "", meta: str = "
 
 async def set_balance(user_id: int, amount: int) -> int:
     await get_user(user_id)
-    val = max(0, int(amount))
+    val = max(0, min(MAX_SQL_INT, int(amount)))
     await execute("UPDATE users SET balance=? WHERE user_id=?", (val, user_id))
     return val
 

@@ -24,13 +24,16 @@ S = 32  # Раздел 32: Инфо, справка и Mini App
 DEFAULT_WEBAPP_URL = os.getenv("WEBAPP_URL", "https://gaskimka-oss.github.io/MOXXI/").strip()
 
 
-def _get_webapp_kb(url: str | None = None) -> InlineKeyboardMarkup:
+def _get_webapp_kb(url: str | None = None, is_group: bool = False) -> InlineKeyboardMarkup:
     target_url = url or DEFAULT_WEBAPP_URL
     if not target_url.startswith("https://"):
         target_url = "https://gaskimka-oss.github.io/MOXXI/"
 
-    if "t.me/" in target_url:
-        top_btn = InlineKeyboardButton(text="📱 🎮 ОТКРЫТЬ КАТАЛОГ ИГР В WEB APP", url=target_url)
+    # В группах и беседах Telegram Bot API запрещает inline web_app кнопки (BUTTON_TYPE_INVALID).
+    # Для групп используем прямую ссылку на бота или WebApp url!
+    if is_group or "t.me/" in target_url:
+        link = target_url if "t.me/" in target_url else "https://t.me/moxxichat_bot?start=games"
+        top_btn = InlineKeyboardButton(text="📱 🎮 ОТКРЫТЬ КАТАЛОГ ИГР В WEB APP", url=link)
     else:
         top_btn = InlineKeyboardButton(text="📱 🎮 ОТКРЫТЬ КАТАЛОГ ИГР В WEB APP", web_app=WebAppInfo(url=target_url))
 

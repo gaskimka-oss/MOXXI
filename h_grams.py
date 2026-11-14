@@ -31,7 +31,7 @@ COINS = COIN
 COMET = COIN
 GRAM = COIN  # алиас для совместимости
 MIN_BET = 100
-MAX_BET = 50_000_000
+MAX_BET = 10**72  # Астрономический лимит ставок
 DAILY_COINS = 2_500
 DAILY_COMETS = DAILY_COINS
 DAILY_GRAMS = DAILY_COINS
@@ -1987,7 +1987,8 @@ async def cmd_games(message: Message, args: str = "", **kw):
     if not had_prefix and message.chat.type in {"group", "supergroup"} and (args or "").strip():
         return
     from h_webapp import _get_webapp_kb
-    await message.reply(GAMES_TEXT, reply_markup=_get_webapp_kb())
+    is_grp = getattr(message.chat, "type", "") in {"group", "supergroup"}
+    await message.reply(GAMES_TEXT, reply_markup=_get_webapp_kb(is_group=is_grp))
 
 
 # ═══════════════ МИНИ-ИГРЫ НА КОМЕТЫ ═══════════════

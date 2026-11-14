@@ -150,6 +150,9 @@ async def keyboard_middleware(handler, event, data: dict):
 
 async def user_middleware(handler, event, data: dict):
     """Регистрация пользователя/чата, глобальный бан, «тихий режим» чата."""
+    if isinstance(event, Message) and getattr(event, "message_thread_id", None):
+        event.is_topic_message = True
+
     user = getattr(event, "from_user", None)
     if user and not user.is_bot and user.id != 777000:
         row = await db.get_user(user.id)
@@ -327,22 +330,34 @@ from aiogram.methods import (TelegramMethod, SendMessage, SendPhoto,
 
 
 class TopicClosedRetryMiddleware(BaseRequestMiddleware):
-    """Перехватывает ошибки закрытых/удалённых тем в форумах (TOPIC_CLOSED)."""
+    """Перехватывает ошибки закрытых/удалённых тем в форумах и сбои reply_parameters."""
     async def __call__(self, make_request, bot: Bot, method: TelegramMethod):
         try:
             return await make_request(bot, method)
         except TelegramBadRequest as e:
             err = str(e).lower()
+            cid = getattr(method, "chat_id", None)
+            tid = getattr(method, "message_thread_id", None)
+
+            # 1. Если ошибка исключительно из-за того, что исходное сообщение для ответа удалено:
+            # Очищаем reply_parameters и отправляем в ЭТУ ЖЕ ТЕМУ (tid), никуда не перемещая!
+            if "reply message not found" in err or "replied message not found" in err:
+                setattr(method, "reply_parameters", None)
+                try:
+                    return await make_request(bot, method)
+                except Exception as e_no_reply:
+                    log.debug("Повторная отправка без reply_parameters в тему #%s: %s", tid, e_no_reply)
+
+            # 2. Ошибки закрытой или удалённой темы
             if any(p in err for p in (
                 "topic_closed", "topic is closed", "message thread is closed",
                 "thread is closed", "topic_deleted", "topic deleted",
-                "message thread not found", "message thread has expired",
-                "reply message not found", "replied message not found"
+                "message thread not found", "message thread has expired"
             )):
-                cid = getattr(method, "chat_id", None)
-                tid = getattr(method, "message_thread_id", None)
+                # Сбрасываем reply_parameters перед попыткой переоткрытия
+                setattr(method, "reply_parameters", None)
 
-                # 1. Если тема закрыта, пробуем временно открыть её через API бота-администратора и отправить сообщение
+                # Пробуем временно открыть её через API бота-администратора и отправить сообщение
                 if tid and tid > 1 and cid:
                     try:
                         await bot.reopen_forum_topic(chat_id=cid, message_thread_id=tid)
@@ -355,11 +370,8 @@ class TopicClosedRetryMiddleware(BaseRequestMiddleware):
                     except Exception as e_reopen:
                         log.debug("Не удалось переоткрыть тему #%s в чате %s: %s", tid, cid, e_reopen)
 
-                # 2. Если переоткрыть нельзя (или это General / удалённая тема) — перенаправляем в тему общения (sms_topic) или корень чата
+                # Если переоткрыть нельзя (или это General / удалённая тема) — перенаправляем в тему общения (sms_topic) или корень чата
                 log.warning("Тема #%s в чате %s закрыта/недоступна — перенаправляю ответ", tid, cid)
-
-                # Сбрасываем reply_parameters, т.к. ответ на сообщение в закрытой теме отклоняется сервером Telegram
-                setattr(method, "reply_parameters", None)
 
                 sms_tid = None
                 try:
@@ -373,7 +385,7 @@ class TopicClosedRetryMiddleware(BaseRequestMiddleware):
                 else:
                     setattr(method, "message_thread_id", None)
 
-                # Бесшовный чистый редирект без навязчивых предупреждений о закрытой теме
+                # Бесшовный чистый редирект
                 try:
                     return await make_request(bot, method)
                 except Exception as e2:

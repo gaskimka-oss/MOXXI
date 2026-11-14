@@ -51,8 +51,11 @@ def level_of(xp: int) -> tuple[int, str, int, int]:
     return idx + 1, title, cur_need, nxt
 
 
+MAX_MONEY = 9_223_372_036_854_775_807  # Максимальное 64-битное число (9.22 квинтиллиона)
+
+
 def parse_amount(text: str, balance: int, minimum: int = 1) -> Optional[int]:
-    """Понимает: 100, 1k, 2.5кк, 10%, все/всё/all, половина/half, 35 663 🪙, 35,663."""
+    """Понимает: 100, 1k, 2.5кк, 10%, все/всё/all, половина/half, 35 663 🪙, 35,663, астрономические числа."""
     if not text:
         return None
     t = str(text).strip().lower()
@@ -60,7 +63,7 @@ def parse_amount(text: str, balance: int, minimum: int = 1) -> Optional[int]:
     # Очищаем от значков валют и пробелов для ключевых слов
     clean_kw = re.sub(r"[🪙💰\$\s]|монет[а-я]*|коин[а-я]*|грамм[а-я]*", "", t)
     if clean_kw in {"все", "всё", "all", "va", "макс", "max"}:
-        return balance if balance >= minimum else None
+        return min(balance, MAX_MONEY) if balance >= minimum else None
     if clean_kw in {"половина", "half", "пол"}:
         return balance // 2
 
@@ -73,25 +76,40 @@ def parse_amount(text: str, balance: int, minimum: int = 1) -> Optional[int]:
         pct = float(m.group(1).replace(",", "."))
         return int(balance * min(pct, 100) / 100)
 
+    # Проверка на прямое целое число (включая астрономические суммы 999999999999999999999...)
+    if t.isdigit():
+        res = min(int(t), MAX_MONEY)
+        return res if res >= minimum else None
+
     # Проверка на разделители тысяч запятыми или точками (например 35,663 или 1,000,000) без суффиксов
     if re.fullmatch(r"\d{1,3}(?:,\d{3})+", t):
         t = t.replace(",", "")
     elif re.fullmatch(r"\d{1,3}(?:\.\d{3})+", t):
         t = t.replace(".", "")
 
+    if t.isdigit():
+        res = min(int(t), MAX_MONEY)
+        return res if res >= minimum else None
+
     m = re.fullmatch(r"(\d+(?:[.,]\d+)?)(k|к|kk|кк|m|м|kkk|ккк|b|б)?", t)
     if not m:
         return None
-    val = float(m.group(1).replace(",", "."))
     suf = m.group(2) or ""
+    if not suf:
+        try:
+            res = min(int(m.group(1)), MAX_MONEY)
+            return res if res >= minimum else None
+        except Exception:
+            pass
+    val = float(m.group(1).replace(",", "."))
     mult = {"": 1, "k": 1e3, "к": 1e3, "kk": 1e6, "кк": 1e6, "m": 1e6, "м": 1e6,
             "kkk": 1e9, "ккк": 1e9, "b": 1e9, "б": 1e9}[suf]
-    res = int(val * mult)
+    res = min(int(val * mult), MAX_MONEY)
     return res if res >= minimum else None
 
 
-def parse_money(text: str, balance: int = 100_000_000_000, minimum: int = 1) -> Optional[int]:
-    """Универсальный парсер денежных сумм (1кк, 500к, все, числа)."""
+def parse_money(text: str, balance: int = MAX_MONEY, minimum: int = 1) -> Optional[int]:
+    """Универсальный парсер денежных сумм (1кк, 500к, все, астрономические числа)."""
     return parse_amount(text, balance, minimum)
 
 

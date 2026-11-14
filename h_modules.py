@@ -230,7 +230,7 @@ async def rep_info(message: Message, bot: Bot, **kw):
     await message.reply(text)
 
 
-@router.message(Cmd("реп", "+реп", "+rep", "плюс реп", "плюсреп", "спасибо", "сяб", "благодарю", "респект", "+",
+@router.message(Cmd("реп", "+реп", "+rep", "плюс реп", "плюсреп", "спасибо", "сяб", "благодарю", "респект", "похвалить",
                     section=S_REP, usage="+реп {@юзер/реплай}", desc="⭐️ Повысить репутацию участнику"))
 async def rep_plus(message: Message, bot: Bot, args: str = "", **kw):
     from core_resolve import real_reply
@@ -261,8 +261,17 @@ async def rep_plus(message: Message, bot: Bot, args: str = "", **kw):
     
     # Небольшая награда за дружелюбие
     await db.add_balance(uid, 50)
-    await db.add_xp(message.chat.id, uid, 15)
+    await db.add_xp(uid, 15)
     await db.add_balance(from_uid, 20)
+
+    try:
+        now = int(time.time())
+        await db.execute(
+            "INSERT INTO user_reputation_logs (from_id, to_id, delta, reason, chat_id, ts) VALUES (?, ?, 1, ?, ?, ?)",
+            (from_uid, uid, "Благодарность", message.chat.id, now)
+        )
+    except Exception:
+        pass
 
     target_user = await db.get_user(uid)
     new_rep = target_user.get("rep", 0)
@@ -278,13 +287,13 @@ async def rep_plus(message: Message, bot: Bot, args: str = "", **kw):
     )
 
 
-@router.message(Cmd("-реп", "-rep", "минус реп", "минусреп", "дизреспект", "-", section=S_REP,
+@router.message(Cmd("-реп", "-rep", "минус реп", "минусреп", "дизреспект", section=S_REP,
                     usage="-реп {@юзер/реплай}", desc="📉 Понизить репутацию участнику"))
 async def rep_minus(message: Message, bot: Bot, args: str = "", **kw):
     from core_resolve import real_reply
-    uid, name, _ = await resolve_target(message, args, bot)
+    uid, name, rest = await resolve_target(message, args, bot)
     if not uid:
-        return await message.reply("Укажите пользователя или ответьте на его сообщение.")
+        return await message.reply("Укажите пользователя или ответьте на его сообщение: <code>-реп {@юзер}</code>")
 
     from_uid = message.from_user.id
     if uid == from_uid:
@@ -299,6 +308,15 @@ async def rep_minus(message: Message, bot: Bot, args: str = "", **kw):
 
     await _inc_daily_rep_count(from_uid)
     await db.execute("UPDATE users SET rep = rep - 1 WHERE user_id=?", (uid,))
+    try:
+        now = int(time.time())
+        reason = (rest or "Дизреспект").strip()[:64]
+        await db.execute(
+            "INSERT INTO user_reputation_logs (from_id, to_id, delta, reason, chat_id, ts) VALUES (?, ?, -1, ?, ?, ?)",
+            (from_uid, uid, reason, message.chat.id, now)
+        )
+    except Exception:
+        pass
     target_user = await db.get_user(uid)
     new_rep = target_user.get("rep", 0)
     title = _rep_title(new_rep)
