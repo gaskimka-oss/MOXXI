@@ -327,7 +327,7 @@ async def cmd_spawn_boss(message: Message, bot: Bot, **kw):
 
 @router.message(Cmd("ударить босса", "атака босса", "бить босса", "атаковать босса",
                     "выстрел в босса", "удар по боссу", "удар босс", "удар босса",
-                    "босс удар", "атаковать", "ударить", "атака", "выстрел", "бить",
+                    "босс удар", "босс атака",
                     section=S, rank=0, usage="ударить босса", desc="⚔️ Нанести удар по активному боссу"))
 async def cmd_attack_boss(message: Message, bot: Bot, **kw):
     if message.chat.type == "private":
@@ -335,29 +335,12 @@ async def cmd_attack_boss(message: Message, bot: Bot, **kw):
 
     raw_text = (message.text or message.caption or "").strip()
     raw_low = raw_text.lower()
-
-    # 1. Если сообщение — это реплай на человека (не бота) или содержит @юзер без слова «босс» — это РП-действие (ударить игрока)!
-    replied = getattr(message, "reply_to_message", None)
-    has_human_reply = bool(replied and replied.from_user and not getattr(replied.from_user, "is_bot", False))
-    has_user_mention = bool("@" in raw_text)
-
-    if (has_human_reply or has_user_mention) and "босс" not in raw_low:
-        from h_rp import _do_action
-        cmd_text = raw_low.split()[0] if raw_low else "ударить"
-        rp_action = "бить" if cmd_text == "бить" else "ударить"
-        args_rest = raw_text[len(cmd_text):].strip()
-        return await _do_action(message, bot, args_rest, rp_action, **kw)
-
     cid = message.chat.id
 
-    # 2. Проверяем наличие активного босса
+    # 1. Проверяем наличие активного босса
     row = await db.fetchone("SELECT * FROM chat_boss WHERE chat_id=? AND active=1", (cid,))
     if not row or row["current_hp"] <= 0:
-        # Если в чате нет активного босса, отвечаем ТОЛЬКО если игрок явно написал слово «босс» («ударить босса»)
-        if "босс" in raw_low:
-            return await message.reply("🐉 Сейчас в чате нет активного босса. Ждите следующего рейда!")
-        # Иначе (простые слова «ударить», «бить», «атака», «выстрел») просто молчим, чтобы не спамить в диалогах!
-        return
+        return await message.reply("🐉 Сейчас в чате нет активного босса. Ждите следующего рейда!")
 
     btopic = await get_boss_topic(cid)
     here = _topic_id(message)

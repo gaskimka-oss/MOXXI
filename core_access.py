@@ -114,11 +114,18 @@ async def check(message, bot, key: str, base_rank: int,
     )
 
 
+try:
+    from h_rp import ACTIONS as _RP_ACTIONS, ALIASES as _RP_ALIASES
+    _RP_KEYS = set(_RP_ACTIONS.keys()) | set(_RP_ALIASES.keys()) | {"рп", "рп команды", "действия", "рп статистика", "статистика рп"}
+except Exception:
+    _RP_KEYS = set()
+
 ALLOWED_WITHOUT_FORM = {
     "описание", "+описание", "шаблон", "анкета", "инфа", "команды", "ид",
     "мой ранг", "правила", "меню", "найти", "справка",
     "никлист", "описаниелист", "ник", "+ник", "-ник", "статус", "бот",
-}
+    "пол", "мой пол", "сменить пол", "выбрать пол", "дизайн",
+} | _RP_KEYS
 
 
 async def form_gate(message, bot) -> bool:

@@ -1769,40 +1769,117 @@ async def cb_view_staff(cq: CallbackQuery, bot: Bot):
     await cq.answer()
 
 
-# ---------------- Текстовые команды смены пола и иерархий ----------------
+# ---------------- Интерактивный выбор пола (кнопками) ----------------
 
-@router.message(Cmd("я девушка", "я девочка", "я тян", "пол девушка", "мой пол девушка",
-                    section=34, group_only=False,
-                    desc="Установить свой пол: Девушка (Лидерша, Заместительница, Админша, Модераторша)"))
-async def cmd_set_gender_female(message: Message, **kw):
-    uid = message.from_user.id if message.from_user else 0
-    await core_hierarchies.set_user_gender(uid, "female")
-    await message.reply(
-        "💖 <b>Ваш пол успешно установлен: 🙋‍♀️ Девушка!</b>\n\n"
-        "✨ Теперь ваши ранги в списках администрации, командах и профиле будут отображаться в женском роде:\n"
-        "• 👑 <b>Лидерша чата</b> / <b>Лидерша Клана</b> (10 ранг)\n"
-        "• 🔱 <b>Заместительница (Замка)</b> / <b>Советница</b> (9 ранг)\n"
-        "• 🛡️ <b>Старшая админша</b> (6 ранг)\n"
-        "• ⚔️ <b>Модераторша</b> / <b>Валькирия</b> (4–5 ранг)\n"
-        "• 🍃 <b>Стажёрка</b> / <b>Рекрутка</b> (1 ранг)\n\n"
-        "🔍 Проверьте командой: <code>мой ранг</code> или <code>дизайн</code>"
+def _make_gender_selection_kb(current_gender: str, user_id: int) -> InlineKeyboardMarkup:
+    f_mark = " 💖 (Выбрано)" if current_gender == "female" else ""
+    m_mark = " ⚡ (Выбрано)" if current_gender == "male" else ""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=f"🙋‍♀️ Девушка{f_mark}", callback_data=f"set_user_gender:female:{user_id}"),
+            InlineKeyboardButton(text=f"🙋‍♂️ Парень{m_mark}", callback_data=f"set_user_gender:male:{user_id}")
+        ]
+    ])
+
+
+@router.message(Cmd("пол", "мой пол", "сменить пол", "выбрать пол",
+                    section=34, group_only=False, usage="пол [@юзер]",
+                    desc="👤 Интерактивный выбор пола и титулов (кнопками)"))
+async def cmd_gender_buttons(message: Message, bot: Bot, args: str = "", **kw):
+    target_id = message.from_user.id if message.from_user else 0
+    target_name = message.from_user.first_name if message.from_user else "Пользователь"
+
+    # Если админ указал @юзер или реплай — проверяем права
+    from core_resolve import real_reply
+    if args or real_reply(message) is not None:
+        from core_ranks import require
+        if await require(message, bot, 3):
+            uid, name, _ = await resolve_target(message, args, bot)
+            if uid:
+                target_id = uid
+                target_name = name or str(uid)
+
+    cur_gender = await core_hierarchies.get_user_gender(target_id)
+    if cur_gender == "female":
+        cur_str = "🙋‍♀️ <b>Девушка</b> (женские титулы: Лидерша, Заместительница, Советница, Валькирия)"
+    elif cur_gender == "male":
+        cur_str = "🙋‍♂️ <b>Парень</b> (мужские титулы: Владелец, Заместитель, Маршал, Центурион)"
+    else:
+        cur_str = "⚪️ <b>Не указан</b> (по умолчанию мужские титулы)"
+
+    is_self = (target_id == (message.from_user.id if message.from_user else 0))
+    who_str = "Ваш текущий пол" if is_self else f"Текущий пол {mention_id(target_id, target_name)}"
+
+    text = (
+        "👤 <b>ВЫБОР ПОЛА И ОТОБРАЖЕНИЯ ТИТУЛОВ</b>\n\n"
+        f"• {who_str}: {cur_str}\n\n"
+        "👇 <b>Нажмите кнопку ниже, чтобы переключить пол:</b>\n"
+        "• <b>Девушка</b> — включает женские титулы во всех списках и командах (Лидерша, Заместительница, Админша, Модераторша);\n"
+        "• <b>Парень</b> — возвращает стандартные мужские титулы (Владелец, Заместитель, Администратор, Модератор)."
     )
 
+    kb = _make_gender_selection_kb(cur_gender, target_id)
+    await message.reply(text, reply_markup=kb, disable_web_page_preview=True)
 
-@router.message(Cmd("я парень", "я мальчик", "я кун", "пол парень", "мой пол парень",
-                    section=34, group_only=False,
-                    desc="Установить свой пол: Парень (Владелец, Заместитель, Администратор, Модератор)"))
-async def cmd_set_gender_male(message: Message, **kw):
-    uid = message.from_user.id if message.from_user else 0
-    await core_hierarchies.set_user_gender(uid, "male")
-    await message.reply(
-        "⚡ <b>Ваш пол успешно установлен: 🙋‍♂️ Парень!</b>\n\n"
-        "В списках администрации и профиле ваши ранги будут отображаться в мужском роде:\n"
-        "• 👑 <b>Владелец чата</b> / <b>Глава Клана</b> (10 ранг)\n"
-        "• 🔱 <b>Заместитель</b> / <b>Зам. Главы</b> (9 ранг)\n"
-        "• ⚔️ <b>Модератор</b> / <b>Центурион</b> (4–5 ранг)\n\n"
-        "🔍 Проверьте командой: <code>мой ранг</code> или <code>дизайн</code>"
-    )
+
+@router.callback_query(F.data.startswith("set_user_gender:"))
+async def cb_set_user_gender(cq: CallbackQuery, bot: Bot):
+    parts = cq.data.split(":")
+    if len(parts) < 3:
+        return await cq.answer("⚠️ Ошибка параметров", show_alert=True)
+    new_gender = parts[1]
+    try:
+        target_id = int(parts[2])
+    except ValueError:
+        target_id = cq.from_user.id
+
+    from config import is_bot_owner
+    caller_id = cq.from_user.id
+    if caller_id != target_id and not is_bot_owner(caller_id):
+        # Проверяем, может ли кликнувший менять пол другому (нужен ранг 3+)
+        from core_ranks import get_rank
+        chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
+        r = await get_rank(chat_id, caller_id) if chat_id else 0
+        if r < 3:
+            return await cq.answer("⛔️ Вы можете менять пол только себе! Либо обратитесь к администрации.", show_alert=True)
+
+    await core_hierarchies.set_user_gender(target_id, new_gender)
+
+    if new_gender == "female":
+        alert_txt = (
+            "💖 Пол установлен: 🙋‍♀️ ДЕВУШКА!\n\n"
+            "✨ Включены женские титулы:\n"
+            "• Лидерша чата / Лидерша Клана\n"
+            "• Заместительница (Замка) / Советница\n"
+            "• Старшая админша / Модераторша / Валькирия"
+        )
+    else:
+        alert_txt = (
+            "⚡ Пол установлен: 🙋‍♂️ ПАРЕНЬ!\n\n"
+            "Включены стандартные титулы:\n"
+            "• Владелец чата / Глава Клана\n"
+            "• Заместитель / Зам. Главы\n"
+            "• Администратор / Модератор"
+        )
+
+    # Обновляем клавиатуру и текст в сообщении
+    try:
+        new_kb = _make_gender_selection_kb(new_gender, target_id)
+        if cq.message:
+            cur_str = "🙋‍♀️ <b>Девушка</b> (женские титулы)" if new_gender == "female" else "🙋‍♂️ <b>Парень</b> (мужские титулы)"
+            who_str = "Ваш текущий пол" if target_id == caller_id else "Текущий пол участника"
+            updated_text = (
+                "👤 <b>ВЫБОР ПОЛА И ОТОБРАЖЕНИЯ ТИТУЛОВ</b>\n\n"
+                f"• {who_str}: {cur_str}\n\n"
+                "👇 <b>Нажмите кнопку ниже, чтобы переключить пол:</b>\n"
+                "• <b>Девушка</b> — включает женские титулы во всех списках и командах (Лидерша, Заместительница, Админша, Модераторша);\n"
+                "• <b>Парень</b> — возвращает стандартные мужские титулы (Владелец, Заместитель, Администратор, Модератор)."
+            )
+            await cq.message.edit_text(updated_text, reply_markup=new_kb, disable_web_page_preview=True)
+    except Exception:
+        pass
+
+    await cq.answer(alert_txt, show_alert=True)
 
 
 @router.message(Cmd("тип чата", "тип группы", "стиль группы", "иерархия чата",
