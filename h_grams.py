@@ -543,11 +543,7 @@ async def casino_enabled(chat_id: int) -> bool:
 
 
 async def topic_ok(message: Message) -> bool:
-    """Проверяет тему для игр, казино, заработка, ограблений и монет.
-
-    ПОЛЬЗОВАТЕЛЬСКОЕ ПРАВИЛО: во всех темах группы работают ВСЕ команды!
-    Игры, казино, баланс, ставки и операции разрешены в любой теме беседы без ограничений.
-    """
+    """Проверяет тему для игр, казино, заработка, ограблений и баланса."""
     if message.chat.type == "private":
         return True
 
@@ -563,6 +559,19 @@ async def topic_ok(message: Message) -> bool:
             disable_web_page_preview=True
         )
         return False
+
+    ft = await get_gram_topic(message.chat.id)
+    if ft and ft > 0:
+        tid = _tid(message)
+        if tid != ft:
+            link = _tlink(message.chat.id, ft)
+            u_mention = mention(message.from_user) if message.from_user else "Игрок"
+            await message.reply(
+                f"🎰 {u_mention}, <b>чтобы начать игру или посмотреть свой баланс, перейдите в тему:</b>\n"
+                f"👉 {link}",
+                disable_web_page_preview=True
+            )
+            return False
 
     return True
 

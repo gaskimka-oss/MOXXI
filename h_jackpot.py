@@ -43,6 +43,10 @@ async def cmd_jackpot_show(message: Message, bot: Bot, **kw):
     if message.chat.type == "private":
         return await message.reply("🎰 Джекпот накапливается и разыгрывается в беседах!")
 
+    from h_grams import topic_ok
+    if not await topic_ok(message):
+        return
+
     jp = await db.get_chat_jackpot(cid)
     pool = jp.get("pool", 5000)
 

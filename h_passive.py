@@ -597,13 +597,32 @@ async def activity(message: Message, bot: Bot):
                                            needs_form, parse_form,
                                            topic_id, topic_link)
             if await needs_form(message.chat.id, uid):
+                form_topic = await get_form_topic(message.chat.id)
+                here = topic_id(message)
+                in_form_topic = (not form_topic) or (here == form_topic)
+
                 lines = _split_lines(text_raw)
                 hits = sum(1 for l in lines if LINE_RE.match(l.strip()))
-                if (hits >= 2 or looks_like_form(text_raw)
-                        or (hits >= 1 and await is_topping_up(
-                            uid, parse_form(text_raw)))):
-                    await _save_form(message, text_raw)
-                    return
+                is_form = (hits >= 2 or looks_like_form(text_raw)
+                           or (hits >= 1 and await is_topping_up(uid, parse_form(text_raw))))
+
+                if is_form:
+                    if in_form_topic:
+                        await _save_form(message, text_raw)
+                        return
+                    else:
+                        link = topic_link(message.chat.id, form_topic)
+                        try:
+                            sent = await message.reply(
+                                f"📝 {mention(message.from_user)}, отправьте анкету <b>в тему описаний</b>:\n"
+                                f"👉 {link}",
+                                disable_web_page_preview=True
+                            )
+                            from h_userinfo import _autodel
+                            _autodel(sent, 20)
+                        except Exception:
+                            pass
+                        return
 
                 try:
                     await message.delete()
@@ -612,11 +631,18 @@ async def activity(message: Message, bot: Bot):
 
                 if not await db.cooldown_left(uid, "form_warn", 10):
                     await db.set_cooldown(uid, "form_warn")
-                    note = (f"📝 {mention(message.from_user)}, чтобы общаться в чате, "
-                            f"сначала заполните описание.\n\n"
-                            f"Скопируйте, заполните и отправьте прямо сюда:\n\n"
-                            f"<code>{TEMPLATE}</code>")
-                    target_thread = topic_id(message) or None
+                    if in_form_topic:
+                        note = (f"📝 {mention(message.from_user)}, чтобы общаться в чате, "
+                                f"сначала заполните описание.\n\n"
+                                f"Скопируйте, заполните и отправьте прямо сюда:\n\n"
+                                f"<code>{TEMPLATE}</code>")
+                    else:
+                        link = topic_link(message.chat.id, form_topic)
+                        note = (f"⚠️ {mention(message.from_user)}, у вас ещё нет описания!\n"
+                                f"Сообщения без описания удаляются.\n\n"
+                                f"👉 <b>Перейдите в тему описания и создайте его:</b>\n{link}\n\n"
+                                f"📌 Образец: <code>шаблон</code>, сохранить: <code>+описание</code>")
+                    target_thread = here or None
                     try:
                         warn = await message.bot.send_message(
                             message.chat.id, note,

@@ -855,7 +855,18 @@ async def cmd_edit_description(message: Message, bot: Bot, args: str = "", **kw)
                     "заполнить описание", section=S, usage="+описание [текст анкеты]",
                     desc="Добавить или изменить своё описание"))
 async def cmd_add_description(message: Message, bot: Bot, args: str = "", **kw):
-    """«+описание» — добавить своё описание в любой теме чата."""
+    """«+описание» — добавить своё описание (в теме описания, если она привязана)."""
+    if message.chat.type != "private":
+        ft = await get_form_topic(message.chat.id)
+        current_tid = topic_id(message)
+        if ft and ft > 0 and current_tid != ft:
+            link = topic_link(message.chat.id, ft)
+            return await message.reply(
+                f"📝 {mention(message.from_user)}, чтобы создать или изменить описание, перейдите в тему:\n"
+                f"👉 <b>Тема описания:</b> {link}",
+                disable_web_page_preview=True
+            )
+
     a = (args or "").strip()
     rep = real_reply(message)
     if not a and rep and (rep.text or rep.caption):
@@ -872,14 +883,22 @@ async def cmd_add_description(message: Message, bot: Bot, args: str = "", **kw):
 async def cmd_template(message: Message, bot: Bot, **kw):
     """Шаблон анкеты — отправляется прямо по месту вызова в любой теме группы."""
     u_mention = mention(message.from_user) if message.from_user else "Участник"
+    link_info = ""
+    if message.chat.type != "private":
+        ft = await get_form_topic(message.chat.id)
+        current_tid = topic_id(message)
+        if ft and ft > 0 and current_tid != ft:
+            link = topic_link(message.chat.id, ft)
+            link_info = f"\n\n👉 <b>Заполнить описание можно в теме:</b> {link}"
+
     template_body = (
         f"📝 <b>Заполните описание</b> (запрос от {u_mention})\n\n"
         "Нажмите на форму — она скопируется. Впишите свои данные "
-        "после двоеточий и отправьте сюда:\n\n"
+        "после двоеточий и отправьте в тему описаний:\n\n"
         f"<code>{TEMPLATE}</code>\n\n"
         "Оформлять можно как угодно — хоть с эмодзи, бот поймёт.\n"
         "Достаточно заполнить хотя бы 2 строки. "
-        "Заполняется <b>один раз</b>."
+        f"Заполняется <b>один раз</b>.{link_info}"
     )
     sent = await message.reply(template_body, disable_web_page_preview=True)
     _autodel(sent, 300)
@@ -1170,6 +1189,17 @@ async def cmd_nick_set(message: Message, bot: Bot, args: str = "", **kw):
     cid = message.chat.id
     nick = (args or "").strip()
 
+    if message.chat.type != "private":
+        ft = await get_form_topic(cid)
+        current_tid = topic_id(message)
+        if ft and ft > 0 and current_tid != ft:
+            link = topic_link(cid, ft)
+            return await message.reply(
+                f"🏷 {mention(message.from_user)}, чтобы установить или изменить ник, перейдите в тему:\n"
+                f"👉 <b>Тема описания:</b> {link}",
+                disable_web_page_preview=True
+            )
+
     if not nick:
         cur = await get_nick(uid, cid)
         return await message.reply(
@@ -1200,6 +1230,17 @@ async def cmd_nick_off(message: Message, bot: Bot, args: str = "", **kw):
     uid = message.from_user.id
     cid = message.chat.id
     a = (args or "").strip()
+
+    if message.chat.type != "private":
+        ft = await get_form_topic(cid)
+        current_tid = topic_id(message)
+        if ft and ft > 0 and current_tid != ft:
+            link = topic_link(cid, ft)
+            return await message.reply(
+                f"🏷 {mention(message.from_user)}, чтобы убрать ник, перейдите в тему:\n"
+                f"👉 <b>Тема описания:</b> {link}",
+                disable_web_page_preview=True
+            )
 
     # админ может снять ник другому
     if a or real_reply(message):

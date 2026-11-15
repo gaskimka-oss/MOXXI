@@ -189,6 +189,31 @@ async def access_middleware(handler, event, data: dict):
                 except Exception:
                     pass
             return
+
+        # Изоляция темы описаний: разрешены только анкеты, ники, бот и модерация
+        if getattr(event, "chat", None) and event.chat.type in ("group", "supergroup"):
+            from h_userinfo import get_form_topic, topic_id
+            form_top = await get_form_topic(event.chat.id)
+            if form_top and form_top > 0 and topic_id(event) == form_top:
+                ALLOWED_IN_FORM_TOPIC = {
+                    "описание", "+описание", "шаблон", "анкета", "мое описание", "моё описание",
+                    "ник", "+ник", "-ник", "поставить ник", "снять ник",
+                    "бот", "мокси", "статус", "bot", "status",
+                    "бан", "кик", "мут", "варн", "пред", "разбан", "размут", "снять пред",
+                    "чек", "амнистия", "ограничить"
+                }
+                if key not in ALLOWED_IN_FORM_TOPIC:
+                    try:
+                        sent = await event.reply(
+                            "📝 В теме описаний разрешены только анкеты, ники и модерация.\n"
+                            "Для остальных команд перейдите в темы общения!"
+                        )
+                        from h_userinfo import _autodel
+                        _autodel(sent, 20)
+                    except Exception:
+                        pass
+                    return
+
         # незаполнившим анкету доступны только базовые команды
         if key not in ALLOWED_WITHOUT_FORM:
             bot = data.get("bot")
