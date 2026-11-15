@@ -1837,6 +1837,12 @@ async def execute(sql: str, params: Iterable[Any] = ()) -> aiosqlite.Cursor:
     return cur
 
 
+async def executemany(sql: str, seq_of_params: Iterable[Iterable[Any]]) -> aiosqlite.Cursor:
+    cur = await conn().executemany(sql, seq_of_params)
+    await conn().commit()
+    return cur
+
+
 async def fetchone(sql: str, params: Iterable[Any] = ()) -> Optional[aiosqlite.Row]:
     async with conn().execute(sql, tuple(params)) as cur:
         return await cur.fetchone()

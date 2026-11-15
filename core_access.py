@@ -161,6 +161,11 @@ async def access_middleware(handler, event, data: dict):
         import core_throttle as throttle
         uid = event.from_user.id if event.from_user else 0
         if uid and not throttle.check(uid):
+            try:
+                import core_telemetry as telemetry
+                await telemetry.log_command_blocked(event, key, "antiflood", "Слишком много команд подряд (троттлинг)")
+            except Exception:
+                pass
             if throttle.should_warn(uid):
                 try:
                     await event.reply("⏳ Слишком много команд подряд. "
@@ -172,6 +177,11 @@ async def access_middleware(handler, event, data: dict):
         verdict = await check(event, bot, key, int(data.get("cmd_rank") or 0),
                               bool(data.get("had_prefix", True)))
         if verdict is not None:
+            try:
+                import core_telemetry as telemetry
+                await telemetry.log_command_blocked(event, key, "perm_denied", verdict or "Недостаточно прав (ранг/ДК)")
+            except Exception:
+                pass
             if verdict:
                 try:
                     await event.reply(verdict)
@@ -186,6 +196,11 @@ async def access_middleware(handler, event, data: dict):
             except Exception:
                 gate_ok = True
             if not gate_ok:
+                try:
+                    import core_telemetry as telemetry
+                    await telemetry.log_command_blocked(event, key, "form_gate", "Участник не заполнил описание/анкету")
+                except Exception:
+                    pass
                 from h_userinfo import (get_form_topic, topic_id,
                                                topic_link)
                 ft = await get_form_topic(event.chat.id)
@@ -214,4 +229,24 @@ async def access_middleware(handler, event, data: dict):
                 await db.track_daily_activity(event.from_user.id, action="cmd", is_group=(event.chat.type != "private"))
             except Exception:
                 pass
+
+        # Выполнение команды с замером времени и полным логированием
+        t0 = time.monotonic()
+        try:
+            res = await handler(event, data)
+            dur_ms = int((time.monotonic() - t0) * 1000)
+            try:
+                import core_telemetry as telemetry
+                await telemetry.log_command_success(event, key, dur_ms)
+            except Exception:
+                pass
+            return res
+        except Exception as e:
+            dur_ms = int((time.monotonic() - t0) * 1000)
+            try:
+                import core_telemetry as telemetry
+                await telemetry.log_command_error(event, key, e, dur_ms)
+            except Exception:
+                pass
+            raise
     return await handler(event, data)

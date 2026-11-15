@@ -573,6 +573,11 @@ async def topic_ok(message: Message) -> bool:
     # 1. Если тема для игр ещё НЕ привязана в форуме:
     if not ft:
         try:
+            import core_telemetry as telemetry
+            await telemetry.log_command_blocked(message, "казино", "topic_missing", "Тема казино ещё не привязана администрацией")
+        except Exception:
+            pass
+        try:
             sent = await message.reply(
                 "⚠️ <b>Тема для казино и игр ещё не сделана / не привязана администрацией чата!</b>\n\n"
                 "📌 Чтобы настроить, администратор может написать в нужной теме:\n"
@@ -591,6 +596,11 @@ async def topic_ok(message: Message) -> bool:
         return True
 
     # 3. Игрок написал команду вне темы казино (например, в общем чате):
+    try:
+        import core_telemetry as telemetry
+        await telemetry.log_command_blocked(message, "казино", "topic_mismatch", "Игры/казино вне темы казино (в общем чате)")
+    except Exception:
+        pass
     chat_id = message.chat.id
     from core_ranks import effective_rank
     is_admin = False

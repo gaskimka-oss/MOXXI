@@ -880,6 +880,11 @@ async def cmd_add_description(message: Message, bot: Bot, args: str = "", **kw):
         ft = await get_form_topic(message.chat.id)
         current_tid = topic_id(message)
         if ft and ft > 0 and current_tid != ft:
+            try:
+                import core_telemetry as telemetry
+                await telemetry.log_command_blocked(message, "+описание", "topic_mismatch", "Создание описания вне темы описания")
+            except Exception:
+                pass
             link = topic_link(message.chat.id, ft)
             sent = await message.reply(
                 f"📝 {mention(message.from_user)}, создавать описание можно <b>только в теме описания</b>!\n\n"

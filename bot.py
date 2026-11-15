@@ -94,6 +94,8 @@ import h_vip_plus as vip_plus
 import h_moxxi_3_0 as moxxi_3_0
 import h_moxxi_apex as moxxi_apex
 import h_staff_hq as staff_hq
+import core_telemetry as telemetry
+import h_diagnostics as diagnostics
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s")
@@ -409,6 +411,27 @@ class TopicClosedRetryMiddleware(BaseRequestMiddleware):
                     return await make_request(bot, method)
                 except Exception as e_final:
                     log.error("Не удалось отправить сообщение в ветку #%s чата %s: %s", tid, cid, e_final)
+                    try:
+                        import core_telemetry as telemetry
+                        telemetry._enqueue_event({
+                            "ts": int(time.time()),
+                            "dt": telemetry._get_dt_str(),
+                            "event_type": "telegram_error",
+                            "status": "error",
+                            "chat_id": cid or 0,
+                            "chat_title": f"Чат {cid}",
+                            "thread_id": tid,
+                            "user_id": 0,
+                            "username": "",
+                            "user_name": "Система",
+                            "command_key": "send_message",
+                            "full_text": getattr(method, "text", "") or getattr(method, "caption", "") or "",
+                            "reason": f"TopicClosed/Dead: {str(e_final)[:200]}",
+                            "stack_trace": "",
+                            "execution_ms": 0,
+                        })
+                    except Exception:
+                        pass
                     return None
             raise
 
@@ -447,6 +470,7 @@ async def main() -> None:
 
     await db.init()
     await staff_hq.init_staff_tables()
+    await telemetry.init_telemetry()
     try:
         await seed.apply()
     except Exception as e:
@@ -462,6 +486,14 @@ async def main() -> None:
         log.warning("merge auto-apply: %s", e_merge)
 
     dp = Dispatcher()
+
+    @dp.error()
+    async def global_error_handler(event: ErrorEvent):
+        try:
+            await telemetry.log_unhandled_error(event)
+        except Exception as e_err:
+            log.error("Telemetry error handler: %s", e_err)
+
     dp.message.outer_middleware(keyboard_middleware)
     dp.message.middleware(user_middleware)
     dp.callback_query.middleware(user_middleware)
@@ -480,7 +512,7 @@ async def main() -> None:
         automod.router, nightmode.router, boss.router, items.router,
         duels.router, clan_wars.router, fishing_craft.router, achievements.router,
         quests.router, social_fun.router, grams.router, nav.router,
-        adminpanel.router, owner_panel.router, start.router, update_2_2.router, currency_exchange.router, vip_plus.router, moxxi_3_0.router,
+        adminpanel.router, owner_panel.router, diagnostics.router, start.router, update_2_2.router, currency_exchange.router, vip_plus.router, moxxi_3_0.router,
         staff_hq.router,
     )
     for r in command_routers:
@@ -489,6 +521,7 @@ async def main() -> None:
     dp.include_router(nav.router)
     dp.include_router(adminpanel.router)
     dp.include_router(owner_panel.router)
+    dp.include_router(diagnostics.router)
     dp.include_router(staff_hq.router)
     # До passive: отслеживает выходы/кики и связывает две группы клана.
     dp.include_router(clan_sync.router)
@@ -588,6 +621,7 @@ async def main() -> None:
     asyncio.create_task(community_support.community_support_auto_broadcast_loop(bot))
     asyncio.create_task(staff_hq.staff_afk_watchdog_loop(bot))
     asyncio.create_task(owner_panel.scheduled_announcements_worker(bot))
+    asyncio.create_task(telemetry.telemetry_worker(bot))
     await health.start()          # порт для healthcheck хостинга
 
     loop = asyncio.get_running_loop()
@@ -624,6 +658,10 @@ async def main() -> None:
                 await asyncio.sleep(5)
     finally:
         log.info("Закрываю соединения…")
+        try:
+            await telemetry._flush_batch()
+        except Exception:
+            pass
         try:
             await asyncio.wait_for(backup.save(bot, "🔻 копия перед остановкой"), 25)
         except Exception as e:
