@@ -595,6 +595,11 @@ async def cmd_delete_and_blacklist_chat(message: Message, bot: Bot, args: str = 
     else:
         return await message.reply("Формат: <code>удалить группу [chat_id] [причина]</code>")
 
+    # Жёсткая защита ключевых чатов сообщества и клана от случайного удаления
+    PROTECTED_CHATS = {-1003934033202, -1004368868650, -1004493630732, -1004477905190, -1004373090684, -1004292137436, -1003887038986, -1003558962892}
+    if target_chat_id in PROTECTED_CHATS:
+        return await message.reply("🛡️ <b>Этот чат является официальным клановым/сообщественным чатом MOXXI и защищён от удаления!</b>")
+
     # Заносим в черный список
     await db.blacklist_chat(target_chat_id, reason=reason, banned_by=message.from_user.id)
 
