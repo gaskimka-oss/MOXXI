@@ -161,7 +161,7 @@ async def user_middleware(handler, event, data: dict):
     user = getattr(event, "from_user", None)
     if user and not user.is_bot and user.id != 777000:
         row = await db.get_user(user.id)
-        if row["banned"]:
+        if row and row["banned"]:
             return
         await db.touch_user(user.id, user.username, user.first_name)
     chat = getattr(event, "chat", None)

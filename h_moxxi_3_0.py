@@ -1901,7 +1901,8 @@ async def cmd_send_gift(message: Message, bot: Bot, args: str = "", **kw):
     target_arg = parts[1] if len(parts) > 1 else ""
     user_msg = parts[2] if len(parts) > 2 else "От всего сердца!"
 
-    target_uid = await resolve_target(message, bot, target_arg)
+    t_uid, _, _ = await resolve_target(message, target_arg, bot)
+    target_uid = t_uid
     if not target_uid:
         return await message.reply("❌ Укажите получателя подарка: ответным сообщением или @юзернеймом!")
 
@@ -1938,7 +1939,8 @@ async def cmd_send_gift(message: Message, bot: Bot, args: str = "", **kw):
                     section=S_GAMES, rank=0,
                     desc="🎁 Посмотреть витрину подарков в профиле пользователя"))
 async def cmd_view_gifts(message: Message, bot: Bot, args: str = "", **kw):
-    target_uid = await resolve_target(message, bot, args) or message.from_user.id
+    t_uid, _, _ = await resolve_target(message, args, bot)
+    target_uid = t_uid or message.from_user.id
     rows = await db.fetchall("SELECT * FROM moxxi_gifts WHERE to_id=? ORDER BY ts DESC LIMIT 10", (target_uid,))
     
     tgt_user = await db.get_user(target_uid)

@@ -1,6 +1,7 @@
 """Раздел 1: команды модерации — ранги 1–7, состав, созыв, импорт списка."""
 from __future__ import annotations
 
+import asyncio
 import html
 import re
 import time
@@ -2146,7 +2147,7 @@ async def cmd_set_crest(message: Message, bot: Bot, args: str = "", **kw):
     if not arg:
         cfg = await core_hierarchies.get_chat_design(message.chat.id)
         cur_c = cfg.get("crest", "👑")
-        available = " ".join(core_hierarchies.AVAILABLE_CRESTS)
+        available = " ".join(emoji for emoji, _ in core_hierarchies.AVAILABLE_CRESTS)
         return await message.reply(
             f"⚜️ <b>ГЕРБ БЕСЕДЫ</b>\n\n"
             f"Текущий герб: <b>{cur_c}</b>\n\n"

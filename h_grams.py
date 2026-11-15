@@ -1437,6 +1437,7 @@ class ChatAuction:
 
 
 _active_auctions: dict[int, ChatAuction] = {}
+_auction_votes: dict[int, dict[int, str]] = {}
 
 
 def _render_auction_card(auc: ChatAuction) -> tuple[str, InlineKeyboardMarkup]:
@@ -1859,6 +1860,37 @@ async def cb_auction_refresh(call: CallbackQuery):
     except Exception:
         pass
     await call.answer("Статус обновлён")
+
+
+def _render_auction_vote_kb(cid: int) -> InlineKeyboardMarkup:
+    votes = _auction_votes.get(cid, {})
+    c_cnt = sum(1 for t in votes.values() if t == "cheap")
+    m_cnt = sum(1 for t in votes.values() if t == "mythic")
+    l_cnt = sum(1 for t in votes.values() if t == "legendary")
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"🟢 Доступные (1-6) [{c_cnt}]", callback_data=f"auc_vote:{cid}:cheap")],
+        [InlineKeyboardButton(text=f"🟣 Мифические (7-14) [{m_cnt}]", callback_data=f"auc_vote:{cid}:mythic")],
+        [InlineKeyboardButton(text=f"🟡 Легендарные (15-20) [{l_cnt}]", callback_data=f"auc_vote:{cid}:legendary")],
+        [InlineKeyboardButton(text="🔄 Обновить голоса", callback_data=f"auc_vote_rf:{cid}")]
+    ])
+
+
+def _render_auction_voting_view(cid: int) -> tuple[str, InlineKeyboardMarkup]:
+    votes = _auction_votes.get(cid, {})
+    c_cnt = sum(1 for t in votes.values() if t == "cheap")
+    m_cnt = sum(1 for t in votes.values() if t == "mythic")
+    l_cnt = sum(1 for t in votes.values() if t == "legendary")
+    total = len(votes)
+    text = (
+        "🗳 <b>ГОЛОСОВАНИЕ: КАТЕГОРИЯ СЛЕДУЮЩЕГО АУКЦИОНА</b>\n\n"
+        "Выберите, бизнесы какой категории должны выставиться на следующий аукцион:\n\n"
+        f"🟢 <b>Доступные (1-6 уровень):</b> {c_cnt} голосов\n"
+        f"🟣 <b>Мифические (7-14 уровень):</b> {m_cnt} голосов\n"
+        f"🟡 <b>Легендарные (15-20 уровень):</b> {l_cnt} голосов\n\n"
+        f"👥 Всего проголосовало: <b>{total}</b> чел.\n"
+        "💡 <i>Нажмите кнопку ниже или напишите:</i> <code>аукцион голос [1|2|3]</code>"
+    )
+    return text, _render_auction_vote_kb(cid)
 
 
 @router.callback_query(F.data.startswith("auc_vote:"))

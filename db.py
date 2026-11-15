@@ -2083,9 +2083,34 @@ async def set_comets(user_id: int, amount: int) -> int:
     return await set_balance(user_id, amount)
 
 
-async def add_xp(user_id: int, amount: int) -> None:
+async def add_money(user_id: int, amount: int, action: str = "", meta: str = "") -> int:
+    return await add_balance(user_id, amount, action, meta)
+
+
+async def add_rep(user_id: int, amount: int) -> int:
+    await get_user(user_id)
+    await execute("UPDATE users SET rep = MAX(0, rep + ?) WHERE user_id=?", (amount, user_id))
+    row = await fetchone("SELECT rep FROM users WHERE user_id=?", (user_id,))
+    return int(row["rep"] or 0) if row else 0
+
+
+async def add_xp(*args) -> None:
+    """Поддерживает как add_xp(user_id, amount), так и add_xp(chat_id, user_id, amount)."""
+    if len(args) == 2:
+        user_id, amount = args
+        chat_id = None
+    elif len(args) >= 3:
+        chat_id, user_id, amount = args[0], args[1], args[2]
+    else:
+        return
     await execute("UPDATE users SET xp = xp + ?, messages = messages + 1 WHERE user_id=?",
                   (amount, user_id))
+    if chat_id:
+        try:
+            await execute("UPDATE chat_stats SET xp = xp + ? WHERE chat_id=? AND user_id=?",
+                          (amount, chat_id, user_id))
+        except Exception:
+            pass
 
 
 # --- Кулдауны -------------------------------------------------------------

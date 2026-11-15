@@ -925,7 +925,9 @@ async def pre_checkout(q: PreCheckoutQuery, bot: Bot):
 
 @router.message(F.successful_payment)
 async def on_paid(message: Message, bot: Bot):
-    sp = message.successful_payment
+    sp = getattr(message, "successful_payment", None)
+    if not sp:
+        return
     raw_key = (sp.invoice_payload or "").split(":")[-1]
     pack = STARS_PACKS.get(raw_key)
     uid = message.from_user.id

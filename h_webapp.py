@@ -78,6 +78,8 @@ async def cmd_open_webapp(message: Message, bot: Bot, **kw):
 @router.message(F.web_app_data)
 async def on_webapp_data_received(message: Message, bot: Bot):
     """Обрабатывает команды и действия, отправленные из WebApp."""
+    if not getattr(message, "web_app_data", None) or not getattr(message.web_app_data, "data", None):
+        return
     raw_data = message.web_app_data.data.strip()
     if not raw_data:
         return

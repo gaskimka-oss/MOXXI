@@ -709,16 +709,17 @@ COMPLIMENTS_BANK = [
 
 @router.message(Cmd("комплимент", "похвалить", section=S_SOCIAL,
                     usage="комплимент [@юзер]", desc="Сделать душевный и красивый комплимент"))
-async def cmd_compliment(message: Message, bot: Bot, **kw):
-    target = await resolve_target(message, bot)
-    if not target:
+async def cmd_compliment(message: Message, bot: Bot, args: str = "", **kw):
+    uid, name, _ = await resolve_target(message, args, bot)
+    if uid:
+        t_link = mention_id(uid, name)
+    else:
         r = real_reply(message)
         if r and r.from_user:
-            target = r.from_user
+            t_link = mention(r.from_user)
         else:
-            target = message.from_user
+            t_link = mention(message.from_user) if message.from_user else "Тебе"
 
-    t_link = mention(target)
     comp = random.choice(COMPLIMENTS_BANK)
 
     text = (
@@ -733,12 +734,15 @@ async def cmd_compliment(message: Message, bot: Bot, **kw):
 
 @router.message(Cmd("признание", "секрет", "тайна", section=S_SOCIAL,
                     usage="признание [@юзер] [текст]", desc="Отправить анонимное послание в чат"))
-async def cmd_secret_confession(message: Message, bot: Bot, **kw):
-    target = await resolve_target(message, bot)
-    if not target:
+async def cmd_secret_confession(message: Message, bot: Bot, args: str = "", **kw):
+    uid, name, rest = await resolve_target(message, args, bot)
+    target = None
+    if uid:
+        target = mention_id(uid, name)
+    else:
         r = real_reply(message)
         if r and r.from_user:
-            target = r.from_user
+            target = mention(r.from_user)
 
     # Извлекаем текст признания
     raw = message.text or ""
