@@ -599,12 +599,9 @@ async def activity(message: Message, bot: Bot):
             if await needs_form(message.chat.id, uid):
                 from h_chatset import get_effective_chat_mode
                 cmode = await get_effective_chat_mode(message.chat.id, getattr(message.chat, "is_forum", False))
-                if cmode == "single":
-                    pass
-                else:
-                    form_topic = await get_form_topic(message.chat.id)
-                    here = topic_id(message)
-                    in_form_topic = (not form_topic) or (here == form_topic)
+                form_topic = await get_form_topic(message.chat.id) if cmode != "single" else 0
+                here = topic_id(message) if cmode != "single" else None
+                in_form_topic = (not form_topic) or (here == form_topic)
 
                 # анкету принимаем только в назначенной теме
                 lines = _split_lines(text_raw)
