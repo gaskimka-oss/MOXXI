@@ -52,13 +52,20 @@ def ping_grade(ms: float) -> tuple[str, str]:
 
 
 async def measure_ping(bot: Bot) -> float:
-    """Пинг до Telegram API в миллисекундах."""
+    """Пинг до Telegram API в миллисекундах (с прогревом сокета)."""
     t0 = time.perf_counter()
     try:
         await asyncio.wait_for(bot.get_me(), timeout=2.5)
+        ms = (time.perf_counter() - t0) * 1000
+        # Если первый замер попал на холодный TLS handshake (>200 мс),
+        # делаем моментальный контрольный замер по уже прогретому keep-alive сокету
+        if ms > 200:
+            t1 = time.perf_counter()
+            await asyncio.wait_for(bot.get_me(), timeout=1.5)
+            ms = (time.perf_counter() - t1) * 1000
+        return ms
     except Exception:
         return -1.0
-    return (time.perf_counter() - t0) * 1000
 
 
 async def bot_status_text(bot: Bot, message: Message | None = None) -> str:
