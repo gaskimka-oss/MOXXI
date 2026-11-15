@@ -547,11 +547,6 @@ async def topic_ok(message: Message) -> bool:
     if message.chat.type == "private":
         return True
 
-    from config import is_bot_owner
-    uid = message.from_user.id if message.from_user else 0
-    if uid and is_bot_owner(uid):
-        return True
-
     if not await casino_enabled(message.chat.id):
         await message.reply(
             "🎰 <b>Казино и игры отключены в этом чате администрацией.</b>\n"
@@ -565,7 +560,7 @@ async def topic_ok(message: Message) -> bool:
         tid = _tid(message)
         if tid != ft:
             link = _tlink(message.chat.id, ft)
-            u_mention = mention(message.from_user) if message.from_user else "Игрок"
+            u_mention = mention(message.from_user) if message.from_user else "-"
             await message.reply(
                 f"🎰 {u_mention}, <b>чтобы начать игру или посмотреть свой баланс, перейдите в тему:</b>\n"
                 f"👉 {link}",
@@ -1668,9 +1663,7 @@ async def cmd_business_auction(message: Message, bot: Bot, args: str = "", **kw)
     if not in_group:
         return await message.reply("🏛 Бизнес-аукционы проводятся в беседах между игроками!")
 
-    if not await casino_enabled(message.chat.id):
-        if had_prefix or (args or "").strip():
-            return await message.reply("🎰 Казино и аукционы отключены в этом чате. Включить: <code>+казино</code>")
+    if not await topic_ok(message):
         return
 
     parts = (args or "").strip().split()
@@ -1750,7 +1743,7 @@ async def cmd_auction_bid(message: Message, bot: Bot, args: str = "", **kw):
     if not in_group:
         return await message.reply("Ставки на аукционе принимаются только в группе!")
 
-    if not await casino_enabled(message.chat.id):
+    if not await topic_ok(message):
         return
 
     auc = _active_auctions.get(message.chat.id)

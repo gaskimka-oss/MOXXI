@@ -413,32 +413,8 @@ class TopicClosedRetryMiddleware(BaseRequestMiddleware):
                 try:
                     return await make_request(bot, method)
                 except Exception as e_final:
-                    log.warning("Тема #%s в чате %s недоступна для прямой отправки (%s). Ищем резервную тему...", tid, cid, e_final)
-
-                # В) НАДЁЖНАЯ ДОСТАВКА (FALLBACK):
-                # Если тема закрыта/удалена и бот не может писать напрямую, доставляем в открытую тему группы
-                if cid and cid < 0:
-                    try:
-                        from h_chatset import get_sms_topic
-                        from h_grams import get_gram_topic
-                        sms_t = await get_sms_topic(cid)
-                        gram_t = await get_gram_topic(cid)
-                        candidates = []
-                        if sms_t and sms_t != tid:
-                            candidates.append(sms_t)
-                        if gram_t and gram_t != tid and gram_t not in candidates:
-                            candidates.append(gram_t)
-                        if tid is not None:
-                            candidates.append(None)
-
-                        for fb_tid in candidates:
-                            setattr(method, "message_thread_id", fb_tid)
-                            try:
-                                return await make_request(bot, method)
-                            except Exception:
-                                continue
-                    except Exception as e_fb:
-                        log.error("Сбой fallback-отправки в чат %s: %s", cid, e_fb)
+                    log.warning("Тема #%s в чате %s закрыта и не может быть переоткрыта ботом (требуется право 'Управление темами'): %s", tid, cid, e_final)
+                    return None
 
                 try:
                     import core_telemetry as telemetry
