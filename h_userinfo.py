@@ -16,7 +16,7 @@ import db
 from core_ranks import effective_rank, get_rank, rank_name
 from core_registry import Cmd, stars
 from core_resolve import real_reply, resolve_target
-from utils import mention_id
+from utils import mention, mention_id
 
 try:
     from config import MAIN_CHAT
