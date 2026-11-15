@@ -337,8 +337,11 @@ from aiogram.methods import (TelegramMethod, SendMessage, SendPhoto,
 class TopicClosedRetryMiddleware(BaseRequestMiddleware):
     """Перехватывает ошибки закрытых/удалённых тем в форумах и сбои reply_parameters.
     
-    Гарантия: ответ на команду ВСЕГДА отправляется в ту же тему, где была вызвана команда
-    (включая General / Суд), и НИКОГДА не перенаправляется самовольно в чужую тему (sms_topic)!
+    Гарантия: ответ на команду ВСЕГДА доставляется участникам.
+    1. Сначала пробует переоткрыть тему, если у бота есть права на управление темами.
+    2. Если тема закрыта администрацией или удалена, и переоткрыть нельзя:
+       автоматически доставляет ответ в активную тему общения чата (sms_topic / грамм-топик / открытые темы)
+       гарантируя, что ни одна команда не пропадёт молча.
     """
     async def __call__(self, make_request, bot: Bot, method: TelegramMethod):
         try:
@@ -410,29 +413,55 @@ class TopicClosedRetryMiddleware(BaseRequestMiddleware):
                 try:
                     return await make_request(bot, method)
                 except Exception as e_final:
-                    log.error("Не удалось отправить сообщение в ветку #%s чата %s: %s", tid, cid, e_final)
+                    log.warning("Тема #%s в чате %s недоступна для прямой отправки (%s). Ищем резервную тему...", tid, cid, e_final)
+
+                # В) НАДЁЖНАЯ ДОСТАВКА (FALLBACK):
+                # Если тема закрыта/удалена и бот не может писать напрямую, доставляем в открытую тему группы
+                if cid and cid < 0:
                     try:
-                        import core_telemetry as telemetry
-                        telemetry._enqueue_event({
-                            "ts": int(time.time()),
-                            "dt": telemetry._get_dt_str(),
-                            "event_type": "telegram_error",
-                            "status": "error",
-                            "chat_id": cid or 0,
-                            "chat_title": f"Чат {cid}",
-                            "thread_id": tid,
-                            "user_id": 0,
-                            "username": "",
-                            "user_name": "Система",
-                            "command_key": "send_message",
-                            "full_text": getattr(method, "text", "") or getattr(method, "caption", "") or "",
-                            "reason": f"TopicClosed/Dead: {str(e_final)[:200]}",
-                            "stack_trace": "",
-                            "execution_ms": 0,
-                        })
-                    except Exception:
-                        pass
-                    return None
+                        from h_chatset import get_sms_topic
+                        from h_grams import get_gram_topic
+                        sms_t = await get_sms_topic(cid)
+                        gram_t = await get_gram_topic(cid)
+                        candidates = []
+                        if sms_t and sms_t != tid:
+                            candidates.append(sms_t)
+                        if gram_t and gram_t != tid and gram_t not in candidates:
+                            candidates.append(gram_t)
+                        if tid is not None:
+                            candidates.append(None)
+
+                        for fb_tid in candidates:
+                            setattr(method, "message_thread_id", fb_tid)
+                            try:
+                                return await make_request(bot, method)
+                            except Exception:
+                                continue
+                    except Exception as e_fb:
+                        log.error("Сбой fallback-отправки в чат %s: %s", cid, e_fb)
+
+                try:
+                    import core_telemetry as telemetry
+                    telemetry._enqueue_event({
+                        "ts": int(time.time()),
+                        "dt": telemetry._get_dt_str(),
+                        "event_type": "telegram_error",
+                        "status": "error",
+                        "chat_id": cid or 0,
+                        "chat_title": f"Чат {cid}",
+                        "thread_id": tid,
+                        "user_id": 0,
+                        "username": "",
+                        "user_name": "Система",
+                        "command_key": "send_message",
+                        "full_text": getattr(method, "text", "") or getattr(method, "caption", "") or "",
+                        "reason": f"TopicClosed/Dead: {str(e)[:200]}",
+                        "stack_trace": "",
+                        "execution_ms": 0,
+                    })
+                except Exception:
+                    pass
+                return None
             raise
 
 

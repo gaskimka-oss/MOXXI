@@ -597,18 +597,9 @@ async def activity(message: Message, bot: Bot):
                                            needs_form, parse_form,
                                            topic_id, topic_link)
             if await needs_form(message.chat.id, uid):
-                from h_chatset import get_effective_chat_mode
-                cmode = await get_effective_chat_mode(message.chat.id, getattr(message.chat, "is_forum", False))
-                form_topic = await get_form_topic(message.chat.id) if cmode != "single" else 0
-                here = topic_id(message) if cmode != "single" else None
-                in_form_topic = (not form_topic) or (here == form_topic)
-
-                # анкету принимаем только в назначенной теме
                 lines = _split_lines(text_raw)
                 hits = sum(1 for l in lines if LINE_RE.match(l.strip()))
-                # в теме описаний принимаем свободный рассказ и дозаполнение
-                if in_form_topic and (
-                        hits >= 2 or looks_like_form(text_raw)
+                if (hits >= 2 or looks_like_form(text_raw)
                         or (hits >= 1 and await is_topping_up(
                             uid, parse_form(text_raw)))):
                     await _save_form(message, text_raw)
@@ -621,19 +612,11 @@ async def activity(message: Message, bot: Bot):
 
                 if not await db.cooldown_left(uid, "form_warn", 10):
                     await db.set_cooldown(uid, "form_warn")
-                    if in_form_topic:
-                        note = (f"📝 {mention(message.from_user)}, чтобы общаться в чате, "
-                                f"сначала заполните описание.\n\n"
-                                f"Скопируйте, заполните и отправьте сюда:\n\n"
-                                f"<code>{TEMPLATE}</code>")
-                        target_thread = here or None
-                    else:
-                        link = topic_link(message.chat.id, form_topic)
-                        note = (f"⚠️ {mention(message.from_user)}, у вас ещё нет описания!\n"
-                                f"Сообщения без описания удаляются.\n\n"
-                                f"👉 <b>Перейдите в тему описания и создайте его:</b>\n{link}\n\n"
-                                f"📌 Образец: <code>шаблон</code>, сохранить: <code>+описание</code>")
-                        target_thread = here or None
+                    note = (f"📝 {mention(message.from_user)}, чтобы общаться в чате, "
+                            f"сначала заполните описание.\n\n"
+                            f"Скопируйте, заполните и отправьте прямо сюда:\n\n"
+                            f"<code>{TEMPLATE}</code>")
+                    target_thread = topic_id(message) or None
                     try:
                         warn = await message.bot.send_message(
                             message.chat.id, note,
@@ -649,32 +632,6 @@ async def activity(message: Message, bot: Bot):
                         except Exception:
                             pass
                 return
-            else:
-                # Описание уже заполнено: закрываем тему описаний для обычных участников (ранг < 3)
-                form_topic = await get_form_topic(message.chat.id)
-                if form_topic and topic_id(message) == form_topic:
-                    from core_ranks import effective_rank
-                    staff_r = await effective_rank(message, bot)
-                    if staff_r < 3:
-                        try:
-                            await message.delete()
-                        except Exception:
-                            pass
-                        if not await db.cooldown_left(uid, "form_done_lock", 60):
-                            await db.set_cooldown(uid, "form_done_lock")
-                            note = (f"🔒 {mention(message.from_user)}, ваше описание уже принято и сохранено!\n\n"
-                                    f"Тема описаний закрыта для общения.\n"
-                                    f"Вы можете свободно общаться в остальных темах беседы!")
-                            try:
-                                warn = await message.bot.send_message(
-                                    message.chat.id, note,
-                                    message_thread_id=form_topic,
-                                    disable_web_page_preview=True)
-                                import asyncio as _a
-                                _a.create_task(_del_later(warn, 60))
-                            except Exception:
-                                pass
-                        return
     await db.add_xp(uid, XP_PER_MESSAGE)
     # Фиксация суточной активности и прогресса квестов игрока
     try:

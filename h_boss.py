@@ -233,17 +233,6 @@ async def cmd_boss_info(message: Message, bot: Bot, **kw):
         return await message.reply("🐉 Рейдовые боссы доступны только в беседах!")
 
     cid = message.chat.id
-    btopic = await get_boss_topic(cid)
-    here = _topic_id(message)
-
-    # Если тема привязана, а пользователь пишет вне темы — направляем туда
-    if btopic and here != btopic:
-        return await message.reply(
-            f"🐉 <b>Рейды боссов проходят в специальной теме:</b>\n"
-            f"👉 {_topic_link(cid, btopic)}",
-            disable_web_page_preview=True
-        )
-
     row = await db.fetchone("SELECT * FROM chat_boss WHERE chat_id=? AND active=1", (cid,))
     if not row or row["current_hp"] <= 0:
         spawns = await _get_daily_spawns(cid)
@@ -341,17 +330,6 @@ async def cmd_attack_boss(message: Message, bot: Bot, **kw):
     row = await db.fetchone("SELECT * FROM chat_boss WHERE chat_id=? AND active=1", (cid,))
     if not row or row["current_hp"] <= 0:
         return await message.reply("🐉 Сейчас в чате нет активного босса. Ждите следующего рейда!")
-
-    btopic = await get_boss_topic(cid)
-    here = _topic_id(message)
-
-    # Изоляция темы: если тема боссов назначена, а игрок бьет в другой теме
-    if btopic and here != btopic and here > 0:
-        return await message.reply(
-            f"🐉 <b>Битва с боссом проходит в спец-теме:</b>\n"
-            f"👉 {_topic_link(cid, btopic)}",
-            disable_web_page_preview=True
-        )
 
     uid = message.from_user.id
     user_name = message.from_user.first_name or "Боец"

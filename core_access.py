@@ -202,14 +202,7 @@ async def access_middleware(handler, event, data: dict):
                     await telemetry.log_command_blocked(event, key, "form_gate", "Участник не заполнил описание/анкету")
                 except Exception:
                     pass
-                from h_userinfo import (get_form_topic, topic_id,
-                                               topic_link)
-                ft = await get_form_topic(event.chat.id)
-                if ft and topic_id(event) != ft:
-                    msg = ("📝 Сначала заполните описание в теме:\n"
-                           + topic_link(event.chat.id, ft))
-                else:
-                    msg = "📝 Сначала заполните описание — команда <code>шаблон</code>"
+                msg = "📝 Сначала заполните описание — напишите команду <code>шаблон</code> прямо здесь!"
                 try:
                     await event.reply(msg, disable_web_page_preview=True)
                 except Exception:

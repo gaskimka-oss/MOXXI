@@ -994,7 +994,7 @@ async def get_effective_chat_mode(chat_id: int, is_forum: bool = False) -> str:
     """Возвращает режим чата: 'single' (одиночная), 'topics' (по темам), 'all' (все команды везде)."""
     mode = await db.get_setting(chat_id, "chat_mode", "auto")
     if mode == "auto":
-        return "topics" if is_forum else "single"
+        return "all" if is_forum else "single"
     return mode
 
 

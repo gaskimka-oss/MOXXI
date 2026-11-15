@@ -584,26 +584,6 @@ async def cmd_show_global_desc(message: Message, bot: Bot, **kw):
 async def cmd_description(message: Message, bot: Bot, args: str = "", **kw):
     a = (args or "").strip()
 
-    # Пока человек не заполнил анкету, команда «описание» работает
-    # ТОЛЬКО в теме описаний. Заполнил — пользуется где угодно.
-    if message.chat.type != "private" and message.from_user:
-        ft = await get_form_topic(message.chat.id)
-        if ft and topic_id(message) != ft:
-            if await needs_form(message.chat.id, message.from_user.id):
-                from core_ranks import effective_rank
-                if await effective_rank(message, bot) < 1:
-                    try:
-                        await message.delete()
-                    except Exception:
-                        pass
-                    warn = await message.answer(
-                        f"📝 {mention_id(message.from_user.id, html.escape(message.from_user.first_name or ''))}, "
-                        f"сначала заполните описание в теме:\n"
-                        f"{topic_link(message.chat.id, ft)}",
-                        disable_web_page_preview=True)
-                    _autodel(warn, 60)
-                    return
-
     # «описание» + текст анкеты -> сохраняем
     if a and ("☆" in a or ":" in a) and len(a.splitlines()) >= 1 and LINE_RE.match(
             a.splitlines()[0].strip() or "x"):
@@ -875,29 +855,7 @@ async def cmd_edit_description(message: Message, bot: Bot, args: str = "", **kw)
                     "заполнить описание", section=S, usage="+описание [текст анкеты]",
                     desc="Добавить или изменить своё описание"))
 async def cmd_add_description(message: Message, bot: Bot, args: str = "", **kw):
-    """«+описание» — добавить своё описание (только в теме описания, если она привязана)."""
-    if message.chat.type != "private":
-        ft = await get_form_topic(message.chat.id)
-        current_tid = topic_id(message)
-        if ft and ft > 0 and current_tid != ft:
-            try:
-                import core_telemetry as telemetry
-                await telemetry.log_command_blocked(message, "+описание", "topic_mismatch", "Создание описания вне темы описания")
-            except Exception:
-                pass
-            link = topic_link(message.chat.id, ft)
-            sent = await message.reply(
-                f"📝 {mention(message.from_user)}, создавать описание можно <b>только в теме описания</b>!\n\n"
-                f"👉 <b>Перейдите в тему описания:</b> {link}",
-                disable_web_page_preview=True
-            )
-            _autodel(sent, 20)
-            try:
-                await message.delete()
-            except Exception:
-                pass
-            return
-
+    """«+описание» — добавить своё описание в любой теме чата."""
     a = (args or "").strip()
     rep = real_reply(message)
     if not a and rep and (rep.text or rep.caption):
@@ -912,7 +870,7 @@ async def cmd_add_description(message: Message, bot: Bot, args: str = "", **kw):
 @router.message(Cmd("шаблон", "+шаблон", "+ шаблон", "шаблон описания", "заполнить описание", "как заполнить описание", "анкета шаблон", "форма описания", section=S,
                     usage="шаблон", desc="Шаблон анкеты и как её заполнить"))
 async def cmd_template(message: Message, bot: Bot, **kw):
-    """Шаблон анкеты — отправляется в тему описаний (если настроена) или по месту вызова."""
+    """Шаблон анкеты — отправляется прямо по месту вызова в любой теме группы."""
     u_mention = mention(message.from_user) if message.from_user else "Участник"
     template_body = (
         f"📝 <b>Заполните описание</b> (запрос от {u_mention})\n\n"
@@ -923,35 +881,6 @@ async def cmd_template(message: Message, bot: Bot, **kw):
         "Достаточно заполнить хотя бы 2 строки. "
         "Заполняется <b>один раз</b>."
     )
-
-    if message.chat.type != "private":
-        ft = await get_form_topic(message.chat.id)
-        current_tid = topic_id(message)
-        # Если задана отдельная тема описаний и вызов произошел вне её
-        if ft and ft > 0 and current_tid != ft:
-            try:
-                # 1. Отправляем форму прямо в тему описаний
-                sent_topic = await bot.send_message(
-                    message.chat.id,
-                    template_body,
-                    message_thread_id=ft,
-                    disable_web_page_preview=True
-                )
-                _autodel(sent_topic, 600)
-            except Exception:
-                pass
-
-            # 2. В текущей ветке даём прямую ссылку на тему описаний
-            link = topic_link(message.chat.id, ft)
-            sent = await message.reply(
-                f"📝 {u_mention}, <b>шаблон анкеты отправлен в тему описаний:</b>\n"
-                f"👉 {link}\n\n"
-                f"<i>Перейдите в тему описаний, скопируйте форму и отправьте её туда!</i>",
-                disable_web_page_preview=True
-            )
-            _autodel(sent, 60)
-            return
-
     sent = await message.reply(template_body, disable_web_page_preview=True)
     _autodel(sent, 300)
 

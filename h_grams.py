@@ -543,7 +543,11 @@ async def casino_enabled(chat_id: int) -> bool:
 
 
 async def topic_ok(message: Message) -> bool:
-    """Проверяет тему для игр, казино, заработка, ограблений и монет."""
+    """Проверяет тему для игр, казино, заработка, ограблений и монет.
+
+    ПОЛЬЗОВАТЕЛЬСКОЕ ПРАВИЛО: во всех темах группы работают ВСЕ команды!
+    Игры, казино, баланс, ставки и операции разрешены в любой теме беседы без ограничений.
+    """
     if message.chat.type == "private":
         return True
 
@@ -551,9 +555,6 @@ async def topic_ok(message: Message) -> bool:
     uid = message.from_user.id if message.from_user else 0
     if uid and is_bot_owner(uid):
         return True
-
-    from h_chatset import get_effective_chat_mode
-    mode = await get_effective_chat_mode(message.chat.id, getattr(message.chat, "is_forum", False))
 
     if not await casino_enabled(message.chat.id):
         await message.reply(
@@ -563,74 +564,7 @@ async def topic_ok(message: Message) -> bool:
         )
         return False
 
-    is_forum = getattr(message.chat, "is_forum", False)
-    if not is_forum or mode == "single":
-        return True
-
-    tid = _tid(message)
-    ft = await get_gram_topic(message.chat.id)
-
-    # 1. Если тема для игр ещё НЕ привязана в форуме:
-    if not ft:
-        try:
-            import core_telemetry as telemetry
-            await telemetry.log_command_blocked(message, "казино", "topic_missing", "Тема казино ещё не привязана администрацией")
-        except Exception:
-            pass
-        try:
-            sent = await message.reply(
-                "⚠️ <b>Тема для казино и игр ещё не сделана / не привязана администрацией чата!</b>\n\n"
-                "📌 Чтобы настроить, администратор может написать в нужной теме:\n"
-                "<code>+тема казик</code> или <code>тема казик [ссылка|номер]</code>",
-                disable_web_page_preview=True
-            )
-            from h_passive import _del_later
-            import asyncio as _a
-            _a.create_task(_del_later(sent, 20))
-        except Exception:
-            pass
-        return False
-
-    # 2. Игрок в привязанной игровой теме — полный доступ!
-    if tid == ft:
-        return True
-
-    # 3. Игрок написал команду вне темы казино (например, в общем чате):
-    try:
-        import core_telemetry as telemetry
-        await telemetry.log_command_blocked(message, "казино", "topic_mismatch", "Игры/казино вне темы казино (в общем чате)")
-    except Exception:
-        pass
-    chat_id = message.chat.id
-    from core_ranks import effective_rank
-    is_admin = False
-    try:
-        r = await effective_rank(message, message.bot)
-        is_admin = (r >= 3)
-    except Exception:
-        pass
-
-    kb = None
-    if is_admin and tid:
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🎰 Сделать эту тему игровой", callback_data=f"set_gram_topic:{tid}")],
-            [InlineKeyboardButton(text="🌐 Разрешить игры во всех темах", callback_data="set_gram_topic:0")]
-        ])
-
-    text = (
-        f"❌ {mention(message.from_user)}, здесь нельзя играть и совершать операции с балансом!\n\n"
-        f"🎰 <b>Игры, казино, работа, ограбления и баланс</b> — только в теме казино:\n"
-        f"👉 {_tlink(chat_id, ft)}\n\n"
-        f"💡 <i>Администратор может привязать казино сюда:</i> <code>+тема казик</code>"
-    )
-    try:
-        sent = await message.reply(text, reply_markup=kb, disable_web_page_preview=True)
-        from h_passive import _del_later
-        import asyncio as _a
-        _a.create_task(_del_later(sent, 15))
-    except Exception:
-        pass
-    return False
+    return True
 
 
 @router.message(Cmd("+казино", "+казик", "+игры", "вкл казино", "вкл казик", "вкл игры",
