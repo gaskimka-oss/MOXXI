@@ -151,7 +151,10 @@ async def keyboard_middleware(handler, event, data: dict):
 async def user_middleware(handler, event, data: dict):
     """Регистрация пользователя/чата, глобальный бан, «тихий режим» чата."""
     if isinstance(event, Message) and getattr(event, "message_thread_id", None):
-        event.is_topic_message = True
+        try:
+            object.__setattr__(event, "is_topic_message", True)
+        except Exception:
+            pass
 
     user = getattr(event, "from_user", None)
     if user and not user.is_bot and user.id != 777000:
