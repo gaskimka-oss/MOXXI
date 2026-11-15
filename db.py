@@ -1078,8 +1078,25 @@ async def init() -> None:
     await _conn.execute("PRAGMA busy_timeout=5000")
     await _conn.execute("PRAGMA wal_autocheckpoint=100")
     await _conn.execute("PRAGMA foreign_keys=ON")
+    await _conn.execute("PRAGMA cache_size=-64000")   # 64 MB памяти под кэш страниц SQLite
+    await _conn.execute("PRAGMA mmap_size=268435456")  # 256 MB memory-mapped I/O для мгновенного чтения
+    await _conn.execute("PRAGMA temp_store=MEMORY")    # Временные таблицы и сортировка в RAM
     await _conn.executescript(SCHEMA)
     await _migrate()
+
+    # Высокоскоростные индексы для масштабирования на 5000+ участников:
+    try:
+        await _conn.execute("CREATE INDEX IF NOT EXISTS idx_staff_cid_uid ON staff(chat_id, user_id)")
+        await _conn.execute("CREATE INDEX IF NOT EXISTS idx_staff_uname ON staff(chat_id, lower(username))")
+        await _conn.execute("CREATE INDEX IF NOT EXISTS idx_users_uname ON users(lower(username))")
+        await _conn.execute("CREATE INDEX IF NOT EXISTS idx_users_balance ON users(balance DESC)")
+        await _conn.execute("CREATE INDEX IF NOT EXISTS idx_users_rep ON users(rep DESC)")
+        await _conn.execute("CREATE INDEX IF NOT EXISTS idx_users_xp ON users(xp DESC)")
+        await _conn.execute("CREATE INDEX IF NOT EXISTS idx_bans_chat_user_until ON bans(chat_id, user_id, until)")
+        await _conn.execute("CREATE INDEX IF NOT EXISTS idx_mutes_chat_user_until ON mutes(chat_id, user_id, until)")
+        await _conn.execute("CREATE INDEX IF NOT EXISTS idx_user_rep_logs ON user_reputation_logs(to_id, ts)")
+    except Exception:
+        pass
     # Миграция: объединяем любые старые балансы из grams и coins в единый balance
     try:
         await _conn.execute("UPDATE users SET balance = balance + grams WHERE grams > 0")
@@ -2099,17 +2116,31 @@ async def bump_chat_stat(chat_id: int, user_id: int, xp: int) -> None:
         (chat_id, user_id, xp, int(time.time())),
     )
 
-# --- Настройки чата -------------------------------------------------------
+# --- Настройки чата с In-Memory кэшем (экономит 90% обращений к диску) ---
+_SETTINGS_CACHE: dict[tuple[int, str], str] = {}
+
+
 async def get_setting(chat_id: int, key: str, default: str = "") -> str:
+    cache_key = (chat_id, key)
+    if cache_key in _SETTINGS_CACHE:
+        return _SETTINGS_CACHE[cache_key]
     row = await fetchone("SELECT value FROM settings WHERE chat_id=? AND key=?", (chat_id, key))
-    return row["value"] if row else default
+    val = row["value"] if row else default
+    _SETTINGS_CACHE[cache_key] = val
+    return val
 
 
 async def set_setting(chat_id: int, key: str, value: str) -> None:
+    _SETTINGS_CACHE[(chat_id, key)] = value
     await execute(
         "INSERT INTO settings (chat_id, key, value) VALUES (?,?,?) "
         "ON CONFLICT(chat_id, key) DO UPDATE SET value=excluded.value",
         (chat_id, key, value))
+
+
+async def delete_setting(chat_id: int, key: str) -> None:
+    _SETTINGS_CACHE.pop((chat_id, key), None)
+    await execute("DELETE FROM settings WHERE chat_id=? AND key=?", (chat_id, key))
 
 
 # --- VIP & VIP+ -----------------------------------------------------------

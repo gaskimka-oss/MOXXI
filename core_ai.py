@@ -9,11 +9,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import html
 import json
 import logging
 import os
 import re
+import time
 import urllib.request
 import urllib.error
 
@@ -95,10 +97,97 @@ def provider() -> str:
     return f"Пользовательский ИИ{count_tag}"
 
 
+# ── LRU / TTL Кэширование и Защита от перегрузок (Circuit Breaker) ─────────
+_AI_CACHE: dict[str, tuple[float, str]] = {}
+CACHE_TTL = 600.0  # 10 минут
+MAX_CACHE_SIZE = 2000
+_QUOTA_BLOCKED_UNTIL: float = 0.0
+
+
+def is_quota_blocked() -> bool:
+    """Проверяет, заблокированы ли исходящие вызовы из-за 429/quota."""
+    return time.time() < _QUOTA_BLOCKED_UNTIL
+
+
+def trigger_quota_block(seconds: float = 45.0) -> None:
+    """Включает предохранитель (circuit breaker) на указанное количество секунд."""
+    global _QUOTA_BLOCKED_UNTIL
+    _QUOTA_BLOCKED_UNTIL = max(_QUOTA_BLOCKED_UNTIL, time.time() + seconds)
+    log.warning("ИИ временно исчерпал квоту (429/rate-limit). Запросы приостановлены на %.0f сек.", seconds)
+
+
+def _get_cache(key: str) -> str | None:
+    now = time.time()
+    if key in _AI_CACHE:
+        ts, val = _AI_CACHE[key]
+        if now - ts < CACHE_TTL:
+            return val
+        del _AI_CACHE[key]
+    return None
+
+
+def _set_cache(key: str, val: str) -> None:
+    now = time.time()
+    if len(_AI_CACHE) >= MAX_CACHE_SIZE:
+        items = sorted(_AI_CACHE.items(), key=lambda x: x[1][0])
+        for k, _ in items[:400]:
+            _AI_CACHE.pop(k, None)
+    _AI_CACHE[key] = (now, val)
+
+
+def _smart_local_text_fallback(prompt: str) -> str:
+    """Умный локальный ответ, когда внешний ИИ перегружен или недоступен."""
+    p_low = (prompt or "").strip().lower()
+    if any(w in p_low for w in ("команд", "помощ", "хелп", "help", "меню", "что умеешь", "функци")):
+        return (
+            "📖 <b>Справочник MOXXI:</b>\n"
+            "Все функции разбиты по удобным разделам!\n"
+            "• Напиши <b>команды</b> — чтобы открыть интерактивное меню;\n"
+            "• Напиши <b>профиль</b> — чтобы открыть свой статус и карточку;\n"
+            "• Напиши <b>игры</b> — для быстрого перехода в казино."
+        )
+    if any(w in p_low for w in ("игр", "казино", "рулетк", "слот", "кост", "ставк", "кубик", "баран")):
+        return (
+            "🎰 <b>Игровая зона MOXXI:</b>\n"
+            "Доступные игры:\n"
+            "• <code>казино [ставка]</code> или <code>слоты [ставка]</code>\n"
+            "• <code>кости [ставка]</code>\n"
+            "• <code>рулетка [цвет/число] [ставка]</code>\n"
+            "• <code>монетка [орел/решка] [ставка]</code>\n"
+            "Заходи в тему казино или пиши команду <b>игры</b>!"
+        )
+    if any(w in p_low for w in ("баланс", "деньг", "монет", "грамми", "банк", "куш")):
+        return (
+            "🪙 <b>Финансы и Баланс:</b>\n"
+            "• Проверить баланс: <code>баланс</code> или <code>б</code>\n"
+            "• Перевести монеты: <code>дать [юзер] [сумма]</code>\n"
+            "• Заработать можно на работах, в играх, дуэлях и ежедневных бонусах!"
+        )
+    if any(w in p_low for w in ("клан", "тима", "гильди", "создать клан")):
+        return (
+            "⚔️ <b>Клановая система:</b>\n"
+            "• Посмотреть свой клан: <code>мой клан</code> или <code>клан</code>\n"
+            "• Топ кланов: <code>топ кланов</code>\n"
+            "• Создать клан: <code>создать клан [название]</code>"
+        )
+    if any(w in p_low for w in ("привет", "здравствуй", "ку", "хай", "салам", "добрый день", "вечер")):
+        return (
+            "Привет! ✨ Я — бот MOXXI. Всегда готова помочь с общением, играми и модерацией в чате!\n"
+            "Напиши <b>команды</b>, чтобы посмотреть полный список возможностей."
+        )
+    return (
+        "🤖 Я сейчас обрабатываю большой поток запросов в чате. "
+        "Попробуй задать вопрос чуть позже или напиши <b>команды</b>, чтобы воспользоваться меню бота! ✨"
+    )
+
+
 # ── Вызовы API (Gemini Native + OpenAI Compatible) ──────────────────────────
 
 def _call_gemini_sync(key: str, system: str, user: str, max_tokens: int, temperature: float = 0.0, json_mode: bool = False) -> str | None:
     """Синхронный запрос к Google Gemini REST API с перебором моделей при ошибках."""
+    if is_quota_blocked():
+        return None
+
     effective_max_tokens = max(max_tokens, 800)
     gen_config: dict = {
         "temperature": temperature,
@@ -129,6 +218,8 @@ def _call_gemini_sync(key: str, system: str, user: str, max_tokens: int, tempera
     headers = {"Content-Type": "application/json"}
 
     for m in GEMINI_MODELS:
+        if is_quota_blocked():
+            return None
         endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={key}"
         req = urllib.request.Request(endpoint, data=body, headers=headers)
         try:
@@ -172,7 +263,10 @@ def _call_gemini_sync(key: str, system: str, user: str, max_tokens: int, tempera
             if e.code in (401, 403):
                 # Ключ невалиден или отозван — не перебираем другие модели на этом ключе
                 return None
-            if e.code in (404, 429, 503):
+            if e.code == 429:
+                trigger_quota_block(45.0)
+                break
+            if e.code in (404, 503):
                 continue
             log.warning("Gemini model %s HTTP %s: %s", m, e.code, str(e)[:120])
         except Exception as e:
@@ -184,6 +278,9 @@ def _call_gemini_sync(key: str, system: str, user: str, max_tokens: int, tempera
 
 def _call_openai_sync(key: str, system: str, user: str, max_tokens: int, temperature: float = 0.0, json_mode: bool = False) -> str | None:
     """Синхронный запрос к OpenAI-совместимому API."""
+    if is_quota_blocked():
+        return None
+
     messages = []
     if system:
         messages.append({"role": "system", "content": system})
@@ -203,21 +300,38 @@ def _call_openai_sync(key: str, system: str, user: str, max_tokens: int, tempera
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"}
     )
-    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-        res_data = json.load(resp)
-        choices = res_data.get("choices") or []
-        if not choices:
-            return None
-        return str(choices[0].get("message", {}).get("content", "")).strip()
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+            res_data = json.load(resp)
+            choices = res_data.get("choices") or []
+            if not choices:
+                return None
+            return str(choices[0].get("message", {}).get("content", "")).strip()
+    except urllib.error.HTTPError as e:
+        if e.code == 429:
+            trigger_quota_block(45.0)
+        return None
+    except Exception:
+        return None
 
 
 def _ask_raw(system: str, user: str, max_tokens: int = 250, temperature: float = 0.0, json_mode: bool = False) -> str | None:
-    """Выполняет запрос с быстрой ротацией ключей при ошибках (до 3 попыток)."""
+    """Выполняет запрос с быстрой ротацией ключей, LRU/TTL кэшем и защитой от 429."""
     if not KEYS:
+        return None
+
+    cache_key = hashlib.sha256(f"{system}|{user}|{json_mode}".encode("utf-8")).hexdigest()
+    cached = _get_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    if is_quota_blocked():
         return None
 
     max_tries = min(len(KEYS), 3)
     for _ in range(max_tries):
+        if is_quota_blocked():
+            break
         current_key = get_next_key()
         try:
             if _is_gemini_key(current_key) or "googleapis.com" in URL:
@@ -226,8 +340,12 @@ def _ask_raw(system: str, user: str, max_tokens: int = 250, temperature: float =
                 text = _call_openai_sync(current_key, system, user, max_tokens, temperature, json_mode)
 
             if text:
+                _set_cache(cache_key, text)
                 return text
         except urllib.error.HTTPError as e:
+            if e.code == 429:
+                trigger_quota_block(45.0)
+                break
             log.warning("ИИ HTTP ошибка (%s): %s", e.code, str(e)[:160])
         except Exception as e:
             log.warning("ИИ ошибка вызова: %s", str(e)[:160])
@@ -262,21 +380,35 @@ def _ask_json(system: str, user: str, max_tokens: int = 250) -> dict | None:
 
 
 async def ask(system: str, user: str, max_tokens: int = 250) -> dict | None:
-    """Асинхронный JSON-запрос к ИИ."""
+    """Асинхронный JSON-запрос к ИИ с таймаутом."""
     try:
-        return await asyncio.to_thread(_ask_json, system, user, max_tokens)
+        return await asyncio.wait_for(
+            asyncio.to_thread(_ask_json, system, user, max_tokens),
+            timeout=TIMEOUT + 2
+        )
+    except asyncio.TimeoutError:
+        log.warning("ask JSON timeout (превышено %s сек)", TIMEOUT + 2)
+        return None
     except Exception as e:
         log.warning("ask json error: %s", e)
         return None
 
 
 async def ask_text(prompt: str, system: str = "", max_tokens: int = 800) -> str | None:
-    """Асинхронный текстовый ответ на произвольный вопрос."""
+    """Асинхронный текстовый ответ на произвольный вопрос с таймаутом, кэшем и умным фолбэком."""
     try:
-        return await asyncio.to_thread(_ask_raw, system, prompt, max_tokens, 0.3)
+        res = await asyncio.wait_for(
+            asyncio.to_thread(_ask_raw, system, prompt, max_tokens, 0.3),
+            timeout=TIMEOUT + 2
+        )
+        if res:
+            return res
+    except asyncio.TimeoutError:
+        log.warning("ask_text timeout (превышено %s сек)", TIMEOUT + 2)
     except Exception as e:
         log.warning("ask_text error: %s", e)
-        return None
+
+    return _smart_local_text_fallback(prompt)
 
 
 # ══════════════════ ПРАВИЛА СООБЩЕСТВА ══════════════════
