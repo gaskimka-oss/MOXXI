@@ -294,23 +294,36 @@ async def on_new_members(message: Message, bot: Bot):
                                 topic_link)
         if await needs_form(message.chat.id, u.id):
             ft = await get_form_topic(message.chat.id)
-            # Шаблон шлём ТОЛЬКО в тему описаний. В общий чат — короткую
-            # ссылку, чтобы не засорять его простынёй из анкеты.
             try:
                 if ft:
+                    link = topic_link(message.chat.id, ft)
+                    # Оповещение новичка в основном чате
+                    welcome_desc = await message.answer(
+                        f"👋 {mention(u)}, добро пожаловать в чат!\n\n"
+                        f"📝 <b>Чтобы общаться, сначала создайте своё описание в теме:</b>\n"
+                        f"👉 {link}\n\n"
+                        f"📌 Посмотреть образец: напишите <code>шаблон</code>, а затем отправьте своё описание через <code>+описание</code>.",
+                        disable_web_page_preview=True
+                    )
+                    import asyncio as _a
+                    _a.create_task(_del_later(welcome_desc, 180))
+
+                    # Сам шаблон анкеты отправляем в тему описаний
                     hello = await message.bot.send_message(
                         message.chat.id,
                         f"📝 {mention(u)}, добро пожаловать!\n\n"
-                        f"Чтобы писать в чат, заполните описание:\n"
-                        f"<code>{TEMPLATE}</code>",
+                        f"Скопируйте форму ниже, заполните данные и отправьте в эту тему:\n\n"
+                        f"<code>{TEMPLATE}</code>\n\n"
+                        f"<i>После этого вы сможете общаться во всех темах чата! ✨</i>",
                         message_thread_id=ft,
                         disable_web_page_preview=True)
-                    import asyncio as _a
                     _a.create_task(_del_later(hello, 600))
                 else:
                     hello = await message.answer(
                         f"📝 {mention(u)}, заполните описание, чтобы писать "
-                        f"в чат.\n\n<code>{TEMPLATE}</code>",
+                        f"в чат.\n\n"
+                        f"Посмотреть образец: <code>шаблон</code>, сохранить: <code>+описание</code>\n\n"
+                        f"<code>{TEMPLATE}</code>",
                         disable_web_page_preview=True)
                     import asyncio as _a
                     _a.create_task(_del_later(hello, 300))
@@ -609,19 +622,20 @@ async def activity(message: Message, bot: Bot):
                 except Exception:
                     pass
 
-                if not await db.cooldown_left(uid, "form_warn", 60):
+                if not await db.cooldown_left(uid, "form_warn", 10):
                     await db.set_cooldown(uid, "form_warn")
                     if in_form_topic:
-                        note = (f"📝 {mention(message.from_user)}, чтобы писать в чате, "
+                        note = (f"📝 {mention(message.from_user)}, чтобы общаться в чате, "
                                 f"сначала заполните описание.\n\n"
                                 f"Скопируйте, заполните и отправьте сюда:\n\n"
                                 f"<code>{TEMPLATE}</code>")
                         target_thread = here or None
                     else:
                         link = topic_link(message.chat.id, form_topic)
-                        note = (f"📝 {mention(message.from_user)}, вам пока нельзя "
-                                f"писать здесь.\n\n"
-                                f"✍️ <b>Сначала заполните описание:</b>\n{link}")
+                        note = (f"⚠️ {mention(message.from_user)}, у вас ещё нет описания!\n"
+                                f"Сообщения без описания удаляются.\n\n"
+                                f"👉 <b>Перейдите в тему описания и создайте его:</b>\n{link}\n\n"
+                                f"📌 Образец: <code>шаблон</code>, сохранить: <code>+описание</code>")
                         target_thread = here or None
                     try:
                         warn = await message.bot.send_message(
@@ -629,10 +643,12 @@ async def activity(message: Message, bot: Bot):
                             message_thread_id=target_thread,
                             disable_web_page_preview=True)
                         import asyncio as _a
-                        _a.create_task(_del_later(warn, 90))
+                        _a.create_task(_del_later(warn, 7))
                     except Exception:
                         try:
-                            await message.answer(note, disable_web_page_preview=True)
+                            warn2 = await message.answer(note, disable_web_page_preview=True)
+                            import asyncio as _a
+                            _a.create_task(_del_later(warn2, 7))
                         except Exception:
                             pass
                 return

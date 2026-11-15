@@ -875,7 +875,24 @@ async def cmd_edit_description(message: Message, bot: Bot, args: str = "", **kw)
                     "заполнить описание", section=S, usage="+описание [текст анкеты]",
                     desc="Добавить или изменить своё описание"))
 async def cmd_add_description(message: Message, bot: Bot, args: str = "", **kw):
-    """«+описание» — добавить своё описание."""
+    """«+описание» — добавить своё описание (только в теме описания, если она привязана)."""
+    if message.chat.type != "private":
+        ft = await get_form_topic(message.chat.id)
+        current_tid = topic_id(message)
+        if ft and ft > 0 and current_tid != ft:
+            link = topic_link(message.chat.id, ft)
+            sent = await message.reply(
+                f"📝 {mention(message.from_user)}, создавать описание можно <b>только в теме описания</b>!\n\n"
+                f"👉 <b>Перейдите в тему описания:</b> {link}",
+                disable_web_page_preview=True
+            )
+            _autodel(sent, 20)
+            try:
+                await message.delete()
+            except Exception:
+                pass
+            return
+
     a = (args or "").strip()
     rep = real_reply(message)
     if not a and rep and (rep.text or rep.caption):
@@ -1122,8 +1139,16 @@ async def form_done(uid: int, chat_id: int = 0) -> bool:
     return False
 
 async def needs_form(chat_id: int, uid: int) -> bool:
-    """Требуется ли этому участнику заполнить анкету в данном чате."""
-    if await db.get_setting(chat_id, "form_required", "0") != "1":
+    """Требуется ли этому участнику заполнить анкету в данном чате.
+    
+    Работает, если:
+    1) Привязана отдельная тема описаний (form_topic > 0), ЛИБО
+    2) Администрацией включена принудительная анкета (form_required == 1).
+    Если тема не привязана и настройка выключена — проверка не блокирует участников.
+    """
+    ft = await get_form_topic(chat_id)
+    req = await db.get_setting(chat_id, "form_required", "0") == "1"
+    if not (ft > 0 or req):
         return False
     return not await form_done(uid, chat_id)
 
@@ -1152,8 +1177,9 @@ async def cmd_form_topic(message: Message, bot: Bot, args: str = "", **kw):
 
     if a.lower() in {"сброс", "убрать", "выкл", "off"}:
         await db.set_setting(message.chat.id, "form_topic", "0")
+        await db.set_setting(message.chat.id, "form_required", "0")
         return await message.reply("✅ Привязка к теме снята.\n"
-                                   "Новички смогут заполнять описание в любой теме.")
+                                   "Новички смогут общаться в любой теме.")
 
     tid = 0
     m = re.search(r"t\.me/c/\d+/(\d+)", a)

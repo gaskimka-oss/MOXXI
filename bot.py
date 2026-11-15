@@ -330,7 +330,11 @@ from aiogram.methods import (TelegramMethod, SendMessage, SendPhoto,
 
 
 class TopicClosedRetryMiddleware(BaseRequestMiddleware):
-    """Перехватывает ошибки закрытых/удалённых тем в форумах и сбои reply_parameters."""
+    """Перехватывает ошибки закрытых/удалённых тем в форумах и сбои reply_parameters.
+    
+    Гарантия: ответ на команду ВСЕГДА отправляется в ту же тему, где была вызвана команда
+    (включая General / Суд), и НИКОГДА не перенаправляется самовольно в чужую тему (sms_topic)!
+    """
     async def __call__(self, make_request, bot: Bot, method: TelegramMethod):
         try:
             return await make_request(bot, method)
@@ -339,14 +343,20 @@ class TopicClosedRetryMiddleware(BaseRequestMiddleware):
             cid = getattr(method, "chat_id", None)
             tid = getattr(method, "message_thread_id", None)
 
-            # 1. Если ошибка исключительно из-за того, что исходное сообщение для ответа удалено:
+            # 1. Если ошибка исключительно из-за того, что исходное сообщение для ответа удалено или отклонено:
             # Очищаем reply_parameters и отправляем в ЭТУ ЖЕ ТЕМУ (tid), никуда не перемещая!
-            if "reply message not found" in err or "replied message not found" in err:
+            if any(p in err for p in (
+                "reply message not found", "replied message not found",
+                "message to be replied not found", "reply_parameters"
+            )):
                 setattr(method, "reply_parameters", None)
                 try:
                     return await make_request(bot, method)
+                except TelegramBadRequest as e2:
+                    err = str(e2).lower()
                 except Exception as e_no_reply:
                     log.debug("Повторная отправка без reply_parameters в тему #%s: %s", tid, e_no_reply)
+                    raise
 
             # 2. Ошибки закрытой или удалённой темы
             if any(p in err for p in (
@@ -357,8 +367,29 @@ class TopicClosedRetryMiddleware(BaseRequestMiddleware):
                 # Сбрасываем reply_parameters перед попыткой переоткрытия
                 setattr(method, "reply_parameters", None)
 
-                # Пробуем временно открыть её через API бота-администратора и отправить сообщение
-                if tid and tid > 1 and cid:
+                # А) Если это General / Суд (tid is None или tid <= 1):
+                if (tid is None or tid <= 1) and cid:
+                    try:
+                        await bot.reopen_general_forum_topic(chat_id=cid)
+                        res = await make_request(bot, method)
+                        try:
+                            await bot.close_general_forum_topic(chat_id=cid)
+                        except Exception:
+                            pass
+                        return res
+                    except Exception as e_gen:
+                        log.debug("Не удалось переоткрыть General в чате %s: %s", cid, e_gen)
+
+                    # Пробуем альтернативное представление ветки General (1 <-> None)
+                    alt_tid = 1 if tid is None else None
+                    setattr(method, "message_thread_id", alt_tid)
+                    try:
+                        return await make_request(bot, method)
+                    except Exception:
+                        setattr(method, "message_thread_id", tid)
+
+                # Б) Обычная ветка форума (tid > 1)
+                elif tid and tid > 1 and cid:
                     try:
                         await bot.reopen_forum_topic(chat_id=cid, message_thread_id=tid)
                         res = await make_request(bot, method)
@@ -370,32 +401,12 @@ class TopicClosedRetryMiddleware(BaseRequestMiddleware):
                     except Exception as e_reopen:
                         log.debug("Не удалось переоткрыть тему #%s в чате %s: %s", tid, cid, e_reopen)
 
-                # Если переоткрыть нельзя (или это General / удалённая тема) — перенаправляем в тему общения (sms_topic) или корень чата
-                log.warning("Тема #%s в чате %s закрыта/недоступна — перенаправляю ответ", tid, cid)
-
-                sms_tid = None
-                try:
-                    from h_chatset import get_sms_topic
-                    sms_tid = await get_sms_topic(cid)
-                except Exception:
-                    pass
-
-                if sms_tid and sms_tid != tid:
-                    setattr(method, "message_thread_id", sms_tid)
-                else:
-                    setattr(method, "message_thread_id", None)
-
-                # Бесшовный чистый редирект
+                # Повторная попытка строго в этой же теме без reply_parameters
                 try:
                     return await make_request(bot, method)
-                except Exception as e2:
-                    log.debug("Повторная отправка в sms_topic не удалась (%s), пробую без thread_id", e2)
-                    setattr(method, "message_thread_id", None)
-                    try:
-                        return await make_request(bot, method)
-                    except Exception as e3:
-                        log.error("Критическая ошибка отправки в чат %s: %s", cid, e3)
-                        return None
+                except Exception as e_final:
+                    log.error("Не удалось отправить сообщение в ветку #%s чата %s: %s", tid, cid, e_final)
+                    return None
             raise
 
 

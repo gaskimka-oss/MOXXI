@@ -563,22 +563,34 @@ async def topic_ok(message: Message) -> bool:
         )
         return False
 
-    # В одиночной группе или в режиме 'all' — разрешаем играть везде
-    if mode in ("single", "all"):
+    is_forum = getattr(message.chat, "is_forum", False)
+    if not is_forum or mode == "single":
         return True
 
     tid = _tid(message)
     ft = await get_gram_topic(message.chat.id)
 
-    # Если тема для игр не привязана (0) — игры разрешены во всех темах!
+    # 1. Если тема для игр ещё НЕ привязана в форуме:
     if not ft:
-        return True
+        try:
+            sent = await message.reply(
+                "⚠️ <b>Тема для казино и игр ещё не сделана / не привязана администрацией чата!</b>\n\n"
+                "📌 Чтобы настроить, администратор может написать в нужной теме:\n"
+                "<code>+тема казик</code> или <code>тема казик [ссылка|номер]</code>",
+                disable_web_page_preview=True
+            )
+            from h_passive import _del_later
+            import asyncio as _a
+            _a.create_task(_del_later(sent, 20))
+        except Exception:
+            pass
+        return False
 
-    # Игрок в привязанной игровой теме — полный доступ!
+    # 2. Игрок в привязанной игровой теме — полный доступ!
     if tid == ft:
         return True
 
-    # Игрок в другой теме:
+    # 3. Игрок написал команду вне темы казино (например, в общем чате):
     chat_id = message.chat.id
     from core_ranks import effective_rank
     is_admin = False
@@ -596,13 +608,16 @@ async def topic_ok(message: Message) -> bool:
         ])
 
     text = (
-        f"❌ {mention(message.from_user)}, здесь нельзя играть и совершать операции с валютой!\n\n"
-        f"🎰 <b>Игры, казино, работа, ограбления и монеты</b> — только в этой теме:\n"
-        f"{_tlink(chat_id, ft)}\n\n"
-        f"💡 <i>Администратор может перенести казино сюда:</i> <code>тема казик</code> <i>или разрешить везде:</i> <code>игры везде</code>"
+        f"❌ {mention(message.from_user)}, здесь нельзя играть и совершать операции с балансом!\n\n"
+        f"🎰 <b>Игры, казино, работа, ограбления и баланс</b> — только в теме казино:\n"
+        f"👉 {_tlink(chat_id, ft)}\n\n"
+        f"💡 <i>Администратор может привязать казино сюда:</i> <code>+тема казик</code>"
     )
     try:
-        await message.reply(text, reply_markup=kb, disable_web_page_preview=True)
+        sent = await message.reply(text, reply_markup=kb, disable_web_page_preview=True)
+        from h_passive import _del_later
+        import asyncio as _a
+        _a.create_task(_del_later(sent, 15))
     except Exception:
         pass
     return False
