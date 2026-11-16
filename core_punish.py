@@ -19,7 +19,7 @@ KIND_NAMES = {"mute": "мут", "ban": "бан", "warn": "варн", "kick": "к
 KIND_EMOJI = {"mute": "🔇", "ban": "🔨", "warn": "⚠️", "kick": "👢"}
 
 NEEDS_TIME = {"mute"}
-MIN_REASON_LEN = 2
+MIN_REASON_LEN = 1
 
 
 def explain_error(e: Exception, action: str = "выполнить действие") -> str:

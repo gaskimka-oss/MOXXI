@@ -50,6 +50,45 @@ async def test():
     assert "варн @username [причина]" in usage_hint("warn")
     assert "кик @username [причина]" in usage_hint("kick")
 
+    # 5. Test reply to left_chat_member service message
+    from unittest.mock import MagicMock
+    from core_resolve import real_reply, resolve_target
+    from core_punish import check_reason
+
+    mock_msg = MagicMock()
+    mock_rep = MagicMock()
+    mock_left_user = MagicMock(id=555444, first_name="LeaverUser", username="leaver")
+    mock_rep.left_chat_member = mock_left_user
+    mock_rep.new_chat_members = None
+    mock_rep.forum_topic_created = None
+    mock_rep.forum_topic_edited = None
+    mock_rep.forum_topic_closed = None
+    mock_rep.forum_topic_reopened = None
+    mock_rep.general_forum_topic_hidden = None
+    mock_rep.general_forum_topic_unhidden = None
+    mock_rep.pinned_message = None
+    mock_rep.group_chat_created = None
+    mock_rep.supergroup_chat_created = None
+    mock_rep.message_id = 999
+    mock_msg.reply_to_message = mock_rep
+    mock_msg.entities = []
+
+    res_rep = real_reply(mock_msg)
+    assert res_rep is not None, "real_reply should not be None for left_chat_member"
+
+    mock_bot = MagicMock()
+    uid, name, rest = await resolve_target(mock_msg, "лив", mock_bot)
+    assert uid == 555444, f"Expected uid 555444, got {uid}"
+    assert name == "LeaverUser", f"Expected name LeaverUser, got {name}"
+    assert rest == "лив", f"Expected rest 'лив', got {rest}"
+
+    # 6. Single digit reason check (e.g. 1 or 1.1)
+    mock_chat_msg = MagicMock()
+    mock_chat_msg.chat.id = chat_id
+    mock_chat_msg.reply = MagicMock()
+    assert await check_reason(mock_chat_msg, "warn", "1"), "Reason '1' should be accepted"
+    assert await check_reason(mock_chat_msg, "ban", "лив"), "Reason 'лив' should be accepted"
+
     await db.close()
     print("All unit tests passed successfully!")
 

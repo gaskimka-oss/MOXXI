@@ -497,12 +497,12 @@ async def cmd_ban_left(message: Message, bot: Bot, **kw):
     )
 
 
-@router.message(Cmd("кик", "кикнуть", "выгнать", "kick", section=S_BAN, rank=6,
-                    usage="кик {ссылка} {причина}", desc="Исключить из чата (ранг 6+)"))
+@router.message(Cmd("кик", "кикнуть", "выгнать", "kick", section=S_BAN, rank=2,
+                    usage="кик {ссылка} {причина}", desc="Исключить из чата (ранг 2+)"))
 async def cmd_kick(message: Message, bot: Bot, args: str = "", **kw):
     had_prefix = kw.get("had_prefix", False)
     in_group = message.chat.type in {"group", "supergroup"}
-    if not await require(message, bot, 6):
+    if not await require(message, bot, 2):
         return
     uid, name, rest = await resolve_target(message, args, bot)
     if not uid:

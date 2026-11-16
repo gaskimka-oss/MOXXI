@@ -32,8 +32,6 @@ def real_reply(message: Message):
             or getattr(r, "general_forum_topic_hidden", None) is not None
             or getattr(r, "general_forum_topic_unhidden", None) is not None
             or getattr(r, "pinned_message", None) is not None
-            or getattr(r, "new_chat_members", None)
-            or getattr(r, "left_chat_member", None)
             or getattr(r, "group_chat_created", None)
             or getattr(r, "supergroup_chat_created", None)):
         return None
@@ -46,6 +44,13 @@ def real_reply(message: Message):
         return None
     if getattr(r, "is_topic_message", False) and getattr(r, "message_id", None) == (tid or 1):
         return None
+
+    # Сервисные события входа/выхода участника поддерживаем для команд бана/кика по ответу
+    if getattr(r, "left_chat_member", None) is not None:
+        return r
+    if getattr(r, "new_chat_members", None):
+        return r
+
     if not r.from_user:
         return None
     # Системные аккаунты Telegram (777000 - Telegram Service, 1087968824 - GroupAnonymousBot)
@@ -137,8 +142,18 @@ async def resolve_target(message: Message, args: str, bot: Bot) -> tuple[Optiona
         # 3) ничего явного нет — тогда смотрим на ответ
         rep = real_reply(message)
         if rep is not None:
+            # Если ответили на сервисное сообщение о выходе участника
+            left_u = getattr(rep, "left_chat_member", None)
+            if left_u:
+                return left_u.id, left_u.first_name or getattr(left_u, "username", None) or str(left_u.id), rest.strip()
+            # Если ответили на сервисное сообщение о входе участника
+            new_users = getattr(rep, "new_chat_members", None)
+            if new_users and len(new_users) > 0:
+                first_new = new_users[0]
+                return first_new.id, first_new.first_name or getattr(first_new, "username", None) or str(first_new.id), rest.strip()
             u = rep.from_user
-            return u.id, u.first_name, rest.strip()
+            if u:
+                return u.id, u.first_name or getattr(u, "username", None) or str(u.id), rest.strip()
 
     if m:
         uname = m.group(1)
