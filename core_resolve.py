@@ -232,17 +232,25 @@ def parse_period(text: str) -> tuple[int, str]:
         return diff, rest
 
     m = PERIOD_RE.search(text)
-    if not m:
-        return 0, text.strip()
-    num = int(m.group(1))
-    unit = m.group(2).lower()
-    secs = 0
-    for k in sorted(UNITS, key=len, reverse=True):
-        if unit.startswith(k):
-            secs = num * UNITS[k]
-            break
-    rest = (text[:m.start()] + text[m.end():]).strip()
-    return secs, rest
+    if m:
+        num = int(m.group(1))
+        unit = m.group(2).lower()
+        secs = 0
+        for k in sorted(UNITS, key=len, reverse=True):
+            if unit.startswith(k):
+                secs = num * UNITS[k]
+                break
+        rest = (text[:m.start()] + text[m.end():]).strip()
+        return secs, rest
+
+    # Если первое слово — просто число (например: «10 спам» или «1 1»)
+    parts = text.strip().split(maxsplit=1)
+    if parts and parts[0].isdigit():
+        val = int(parts[0])
+        if 0 < val <= 43200:
+            return val * 60, parts[1] if len(parts) > 1 else ""
+
+    return 0, text.strip()
 
 
 def human_period(seconds: int) -> str:

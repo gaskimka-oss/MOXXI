@@ -95,38 +95,10 @@ def usage_hint(kind: str) -> str:
 
 async def validate_chat_rules(chat_id: int, reason: str) -> tuple[bool, str]:
     """
-    Проверяет причину наказания по установленным в чате правилам.
-    Если правила не заданы — пропускает.
-    Если заданы — проверяет наличие пункта (1.1, 1.2, п.1) или ключевых слов.
+    Проверяет причину наказания.
+    Любая указанная администратором причина принимается без отклонений.
     """
-    rules_text = await db.get_setting(chat_id, "rules_text", "")
-    if not rules_text or not rules_text.strip():
-        return True, ""
-
-    r_clean = reason.strip().lower()
-    rules_low = rules_text.lower()
-
-    # 1. Проверка номера пункта (1.1, 1.2, 1, 2.3, п.1 и т.д.)
-    rule_num_match = re.findall(r"\b\d+(?:\.\d+)?\b", r_clean)
-    for num in rule_num_match:
-        if num in rules_low:
-            return True, ""
-
-    # 2. Проверка совпадения слов из причины в тексте правил
-    words = [w for w in re.split(r"[^\w]+", r_clean) if len(w) >= 3]
-    for w in words:
-        # Ищем корень слова или полное вхождение
-        stem = w[:4] if len(w) >= 5 else w
-        if stem in rules_low:
-            return True, ""
-
-    # Если причина совсем не соответствует правилам
-    return False, (
-        f"❌ <b>Наказание отклонено: такой причины нет в правилах чата!</b>\n\n"
-        f"Вы указали: «<i>{html.escape(reason)}</i>»\n"
-        f"Пожалуйста, укажите пункт из правил (например: <code>1.1</code>, <code>1.2</code>) или причину из текста правил (например: <i>оскорбление</i>, <i>спам</i>).\n\n"
-        f"📖 <i>Посмотреть правила чата: <code>правила</code></i>"
-    )
+    return True, ""
 
 
 async def check_reason(message: Message, kind: str, reason: str,

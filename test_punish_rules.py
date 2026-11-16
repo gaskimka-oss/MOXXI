@@ -34,13 +34,15 @@ async def test():
     ok, err = await validate_chat_rules(chat_id, "реклама")
     assert ok, f"Expected 'реклама' to be valid, got err: {err}"
 
-    # 3. Test invalid reason
-    ok, err = await validate_chat_rules(chat_id, "123")
-    assert not ok, "Expected '123' to be rejected!"
-    assert "Наказание отклонено" in err, f"Expected rejection message, got {err}"
+    # 3. Test arbitrary custom reasons (should now be accepted without rejection)
+    ok, err = await validate_chat_rules(chat_id, "гс нецензурного характера")
+    assert ok, f"Expected custom reason to be valid, got err: {err}"
 
-    ok, err = await validate_chat_rules(chat_id, "просто так")
-    assert not ok, "Expected 'просто так' to be rejected!"
+    ok, err = await validate_chat_rules(chat_id, "лив")
+    assert ok, f"Expected 'лив' to be valid, got err: {err}"
+
+    ok, err = await validate_chat_rules(chat_id, "18+ гс")
+    assert ok, f"Expected '18+ гс' to be valid, got err: {err}"
 
     # 4. Hints check
     assert "бан @username [причина]" in usage_hint("ban")

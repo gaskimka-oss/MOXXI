@@ -212,10 +212,12 @@ async def cmd_mute(message: Message, bot: Bot, args: str = "", **kw):
     secs, reason = parse_period(rest)
     reason, forever = strip_forever(reason)
     if forever:
-        secs = 0
+        secs = 31536000
     reason = reason.strip()
-    if not secs or not reason:
+    if not reason:
         return await message.reply(usage_hint("mute"))
+    if not secs:
+        secs = 3600  # по умолчанию 1 час, если срок не указан явно (например, «мут @user 18+ гс»)
     if not await check_reason(message, "mute", reason, secs):
         return
 
