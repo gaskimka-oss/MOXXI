@@ -762,16 +762,85 @@ async def cmd_set_rules_topic(message: Message, bot: Bot, args: str = "", **kw):
 @router.message(Cmd("тема", "темы", section=S_TOPIC, rank=1, usage="тема",
                     desc="Что настроено в этой теме"))
 async def topic(message: Message, bot: Bot, args: str = "", **kw):
-    """Показывает назначение ИМЕННО той темы, где написана команда.
+    """Показывает назначение темы, статус прав бота и подсказки быстрых команд.
 
-    Раньше здесь была общая заметка на весь чат, из-за чего в теме
-    описаний могло показываться «граммы». Теперь бот смотрит,
-    что реально привязано к текущей теме.
+    Поддерживает быстрые подкоманды:
+    - «тема казик» / «тема казино»
+    - «тема описание» / «тема анкета»
+    - «тема смс» / «тема общение»
+    - «тема правила»
+    - «тема боссы»
     """
     if not await require(message, bot, 1):
         return
 
     here = int(getattr(message, "message_thread_id", None) or 0)
+    a_lower = (args or "").strip().lower()
+    first_word = a_lower.split()[0] if a_lower else ""
+
+    # 1. Быстрые перенаправления на команды привязки тем:
+    if first_word in {"казик", "казино", "игры", "монеты", "коины", "грамм", "граммы", "комет", "кометы"}:
+        from h_grams import cmd_gram_topic
+        sub_args = a_lower[len(first_word):].strip()
+        return await cmd_gram_topic(message, bot, args=sub_args, **kw)
+
+    if first_word in {"описание", "описания", "анкета", "анкеты"}:
+        from h_userinfo import cmd_form_topic
+        sub_args = a_lower[len(first_word):].strip()
+        return await cmd_form_topic(message, bot, args=sub_args, **kw)
+
+    if first_word in {"смс", "общение", "чат", "анонс", "анонсы"}:
+        sub_args = a_lower[len(first_word):].strip()
+        return await cmd_set_sms_topic(message, bot, args=sub_args, **kw)
+
+    if first_word in {"правила", "правило", "правил"}:
+        sub_args = a_lower[len(first_word):].strip()
+        return await cmd_set_rules_topic(message, bot, args=sub_args, **kw)
+
+    if first_word in {"босс", "боссы", "рейд", "рейды"}:
+        from h_boss import cmd_set_boss_topic
+        sub_args = a_lower[len(first_word):].strip()
+        return await cmd_set_boss_topic(message, bot, args=sub_args, **kw)
+
+    if first_word in {"сброс", "сбросить", "очистить"}:
+        return await message.reply(
+            "🗑 <b>Сброс привязок тем беседы:</b>\n\n"
+            "• <code>игры везде</code> — разрешить казино во всех темах\n"
+            "• <code>тема описание сброс</code> — отключить тему анкет\n"
+            "• <code>тема смс сброс</code> — отключить тему СМС\n"
+            "• <code>тема правила сброс</code> — отключить тему правил\n"
+            "• <code>тема боссы сброс</code> — отключить тему боссов"
+        )
+
+    if args:
+        # Ручная подпись темы участниками
+        key = f"topic_note:{here}" if here else "topic"
+        await db.set_setting(message.chat.id, key, args)
+        return await message.reply(
+            f"🧵 Подпись для этой темы сохранена: <b>{html.escape(args)}</b>")
+
+    # 2. Проверка прав бота на управление темами (для закрытых тем форума)
+    can_manage = False
+    is_forum = bool(getattr(message.chat, "is_forum", False))
+    if is_forum:
+        try:
+            me = await bot.me()
+            m = await bot.get_chat_member(message.chat.id, me.id)
+            can_manage = getattr(m, "can_manage_topics", False)
+        except Exception:
+            pass
+
+    if can_manage:
+        manage_status = (
+            "🟢 <b>Управление темами:</b> Активно\n"
+            "<i>Бот имеет полный доступ и штатно отвечает даже в закрытых темах.</i>"
+        )
+    else:
+        manage_status = (
+            "🟡 <b>Управление темами:</b> Требуется настройка!\n"
+            "<i>Выдайте боту в настройках администраторов чата право <b>«Управление темами»</b> (Manage Topics), "
+            "чтобы он мог автоматически отвечать в закрытых темах.</i>"
+        )
 
     from h_userinfo import get_form_topic, topic_link
     from h_grams import get_gram_topic
@@ -780,59 +849,48 @@ async def topic(message: Message, bot: Bot, args: str = "", **kw):
     gram_t = await get_gram_topic(message.chat.id)
     sms_t = await get_sms_topic(message.chat.id)
     boss_t = await get_boss_topic(message.chat.id)
+    rules_t = await get_rules_topic(message.chat.id)
 
-    if args:
-        # старое поведение: подписать текущую тему вручную
-        key = f"topic_note:{here}" if here else "topic"
-        await db.set_setting(message.chat.id, key, args)
-        return await message.reply(
-            f"🧵 Подпись для этой темы: <b>{html.escape(args)}</b>")
+    current_role = "💬 Обычное общение"
+    if here:
+        if here == form_t:
+            current_role = "📝 Описания и анкеты новичков"
+        elif here == gram_t:
+            current_role = "🎰 Казино, монеты и мини-игры"
+        elif here == boss_t:
+            current_role = "🐉 Рейдовые боссы"
+        elif here == sms_t:
+            current_role = "💬 СМС, общение и анонсы"
+        elif here == rules_t:
+            current_role = "📜 Правила чата"
 
-    if here and here == form_t:
-        return await message.reply(
-            "📝 <b>Эта тема: описания</b>\n\n"
-            "Здесь новички заполняют анкету.\n"
-            "Всё, кроме анкет, удаляется.\n\n"
-            "Заполнить: <code>+описание</code> или <code>шаблон</code>")
+    note = await db.get_setting(message.chat.id, f"topic_note:{here}", "") if here else await db.get_setting(message.chat.id, "topic", "")
 
-    if here and here == gram_t:
-        return await message.reply(
-            "🌑 <b>Эта тема: монеты, бизнесы и игры</b>\n\n"
-            "Здесь работают команды монет и рынок.\n"
-            "Баланс: <code>б</code> · Игры: <code>игры</code>\n"
-            "Бизнесы: <code>бизнесы</code> · Бонус: <code>бонус</code>")
-
-    if here and here == boss_t:
-        return await message.reply(
-            "🐉 <b>Эта тема: рейдовые боссы</b>\n\n"
-            "Здесь проходят регулярные рейды и коллективные битвы с боссами!\n"
-            "Атака: <code>ударить</code> · Инфо: <code>босс</code>\n"
-            "Помощь: <code>хил</code> · Аптечка: <code>аптечка</code>")
-
-    if here and here == sms_t:
-        return await message.reply(
-            "💬 <b>Эта тема: СМС и основное общение</b>\n\n"
-            "Здесь проходит основная переписка участников, публикуются новости и анонсы обновлений.")
-
-    # прочие темы — показываем подпись и общую карту настроек
-    note = await db.get_setting(message.chat.id, f"topic_note:{here}", "")
-    if not note and not here:
-        note = await db.get_setting(message.chat.id, "topic", "")
-
-    lines = ["🧵 <b>Эта тема: обычное общение</b>"]
+    card = [
+        "🧵 <b>УПРАВЛЕНИЕ ТЕМАМИ ЧАТА</b>",
+        f"📍 <b>Текущая ветка:</b> {current_role}" + (f" (ID: <code>{here}</code>)" if here else " (Основной чат)"),
+    ]
     if note:
-        lines.append(f"Подпись: <b>{html.escape(note)}</b>")
-    lines.append("")
-    lines.append("<b>Настроенные темы чата:</b>")
-    lines.append(f"💬 СМС: "
-                 + (topic_link(message.chat.id, sms_t) if sms_t else "не задана (напишите <code>тема смс</code>)"))
-    lines.append(f"🐉 Боссы: "
-                 + (topic_link(message.chat.id, boss_t) if boss_t else "не задана (напишите <code>+тема босс</code>)"))
-    lines.append(f"📝 Описания: "
-                 + (topic_link(message.chat.id, form_t) if form_t else "не задана"))
-    lines.append(f"🌑 Монеты: "
-                 + (topic_link(message.chat.id, gram_t) if gram_t else "не задана"))
-    await message.reply("\n".join(lines), disable_web_page_preview=True)
+        card.append(f"🏷 <b>Подпись темы:</b> {html.escape(note)}")
+    card.append("")
+    card.append(manage_status)
+    card.append("")
+    card.append("📋 <b>Настроенные темы чата:</b>")
+    card.append(f"💬 <b>СМС и общение:</b> " + (topic_link(message.chat.id, sms_t) if sms_t else "<i>не задана</i>"))
+    card.append(f"🎰 <b>Казино и игры:</b> " + (topic_link(message.chat.id, gram_t) if gram_t else "<i>разрешено везде</i>"))
+    card.append(f"📝 <b>Анкеты новичков:</b> " + (topic_link(message.chat.id, form_t) if form_t else "<i>не задана</i>"))
+    card.append(f"🐉 <b>Рейдовые боссы:</b> " + (topic_link(message.chat.id, boss_t) if boss_t else "<i>не задана</i>"))
+    card.append(f"📜 <b>Правила беседы:</b> " + (topic_link(message.chat.id, rules_t) if rules_t else "<i>не задана</i>"))
+    card.append("")
+    card.append("💡 <b>Быстрые команды для настройки тем:</b>")
+    card.append("• <code>тема казик</code> — привязать тему для казино и игр")
+    card.append("• <code>тема описание</code> — привязать тему для анкет новичков")
+    card.append("• <code>тема смс</code> — привязать тему для общения и новостей")
+    card.append("• <code>тема правила</code> — привязать тему для правил чата")
+    card.append("• <code>тема боссы</code> — привязать тему для рейдовых боссов")
+    card.append("• <code>автонастройка</code> — автоматически создать и привязать все темы")
+
+    await message.reply("\n".join(card), disable_web_page_preview=True)
 
 
 # ================= 11. ГОЛОСОВАНИЯ =================

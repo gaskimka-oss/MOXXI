@@ -542,6 +542,14 @@ async def casino_enabled(chat_id: int) -> bool:
     return await db.get_setting(chat_id, "casino_enabled", "1") == "1"
 
 
+async def _autodel(msg: Message, delay: float = 20.0) -> None:
+    try:
+        await asyncio.sleep(delay)
+        await msg.delete()
+    except Exception:
+        pass
+
+
 async def topic_ok(message: Message) -> bool:
     """Проверяет тему для игр, казино, заработка, ограблений и баланса."""
     if message.chat.type == "private":
@@ -561,11 +569,12 @@ async def topic_ok(message: Message) -> bool:
         if tid != ft:
             link = _tlink(message.chat.id, ft)
             u_mention = mention(message.from_user) if message.from_user else "-"
-            await message.reply(
+            sent = await message.reply(
                 f"🎰 {u_mention}, <b>чтобы начать игру или посмотреть свой баланс, перейдите в тему:</b>\n"
                 f"👉 {link}",
                 disable_web_page_preview=True
             )
+            asyncio.create_task(_autodel(sent, 20.0))
             return False
 
     return True
@@ -718,27 +727,31 @@ async def cmd_balance(message: Message, bot: Bot, args: str = "", **kw):
         f"💡 <i>Команды:</i> <code>бизнесы</code> · <code>игры</code> · <code>скрыть мешок</code>"
     )
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="🏢 Мои бизнесы", callback_data="biz:menu"),
-        InlineKeyboardButton(text="💰 Собрать прибыль", callback_data="biz:collect")
-    ]])
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🎁 Забрать бонус", callback_data="gram:daily_claim"),
+            InlineKeyboardButton(text="💰 Собрать прибыль", callback_data="biz:collect")
+        ],
+        [
+            InlineKeyboardButton(text="🏢 Мои бизнесы", callback_data="biz:menu"),
+            InlineKeyboardButton(text="🎰 Игры и Казино", callback_data="games:menu")
+        ]
+    ])
     await message.reply(txt, reply_markup=kb)
 
 
-@router.message(Cmd("бонус", "бонус монет", "бонус коинов", "бонус грамм", "монеты бонус", "ежедневный бонус", "дейлик", "стрик", section=S,
-                    usage="бонус", desc=f"Ежедневный бонус с серией (до {DAILY_COINS * 4:,} монет)"))
-async def cmd_daily(message: Message, **kw):
-    if not await topic_ok(message):
-        return
-    uid = message.from_user.id
+async def _award_daily_bonus(uid: int) -> tuple[bool, str, int, float, int, int, int, bool]:
+    """Начисляет ежедневный бонус с учетом серий и VIP.
+
+    Возвращает: (success, cd_text, reward, mult, bal, streak, max_streak, is_broken)
+    """
     await _ensure_start(uid)
     vip_lvl, _, vip_active = await db.get_vip_info(uid)
     cd = 3600 if (vip_active and vip_lvl >= 2) else (7200 if (vip_active and vip_lvl >= 1) else 14400)
     left = await db.cooldown_left(uid, "gram_daily", cd)
     if left:
-        return await message.reply(f"⏳ Бонус уже получен.\nСледующий через <b>{hms(left)}</b>")
+        return False, hms(left), 0, 0.0, 0, 0, 0, False
 
-    # Инициализация таблицы серий если нет
     await db.execute(
         "CREATE TABLE IF NOT EXISTS daily_streaks ("
         "user_id INTEGER PRIMARY KEY, "
@@ -791,6 +804,18 @@ async def cmd_daily(message: Message, **kw):
     reward = int(DAILY_COINS * mult)
     bal = await db.add_balance(uid, reward, "daily_bonus")
     await db.set_cooldown(uid, "gram_daily")
+    return True, "", reward, mult, bal, streak, max_streak, is_broken
+
+
+@router.message(Cmd("бонус", "бонус монет", "бонус коинов", "бонус грамм", "монеты бонус", "ежедневный бонус", "дейлик", "стрик", section=S,
+                    usage="бонус", desc=f"Ежедневный бонус с серией (до {DAILY_COINS * 4:,} монет)"))
+async def cmd_daily(message: Message, **kw):
+    if not await topic_ok(message):
+        return
+    uid = message.from_user.id
+    success, cd_text, reward, mult, bal, streak, max_streak, is_broken = await _award_daily_bonus(uid)
+    if not success:
+        return await message.reply(f"⏳ Бонус уже получен.\nСледующий через <b>{cd_text}</b>")
 
     cycle_day = ((streak - 1) % 7) + 1
     p_bar = "🟩" * cycle_day + "⬜" * (7 - cycle_day)
@@ -808,6 +833,77 @@ async def cmd_daily(message: Message, **kw):
         f"🏆 Рекорд серии: <b>{max_streak} дн.</b>\n\n"
         f"<i>Заходите каждый день, чтобы множитель вырос до x4.0!</i>"
     )
+
+
+@router.callback_query(F.data == "gram:daily_claim")
+async def cb_gram_daily_claim(call: CallbackQuery):
+    uid = call.from_user.id
+    success, cd_text, reward, mult, bal, streak, max_streak, is_broken = await _award_daily_bonus(uid)
+    if not success:
+        return await call.answer(f"⏳ Бонус уже получен.\nСледующий через {cd_text}", show_alert=True)
+
+    await call.answer(
+        f"🎁 Ежедневный бонус получен!\n+{c(reward)} (x{mult:.1f})\nСерия: {streak} дн.\nБаланс: {c(bal)}",
+        show_alert=True
+    )
+
+    # Обновляем карточку баланса
+    try:
+        user_biz = await db.get_user_businesses(uid)
+        total_biz = sum(b["count"] for b in user_biz.values())
+        income_min = sum(user_biz[k]["count"] * BUSINESS_TYPES[k]["income_per_min"] for k in user_biz if k in BUSINESS_TYPES)
+        prof = await db.get_game_profile(uid)
+        lvl = prof["level"]
+        xp = prof["xp"]
+        next_xp = prof["next_xp"]
+        pct = prof["progress_pct"]
+        bar_len = 10
+        filled = int((pct / 100) * bar_len)
+        bar = "▰" * filled + "▱" * (bar_len - filled)
+        hide_left = await db.cooldown_left(uid, "bag_hidden", 5 * 3600)
+        bag_status = f"🛡 Защищён ({hms(hide_left)})" if hide_left else "🔓 Открыт для воров"
+        vip_lvl, _, vip_active = await db.get_vip_info(uid)
+        cd = 3600 if (vip_active and vip_lvl >= 2) else (7200 if (vip_active and vip_lvl >= 1) else 14400)
+        left_bonus = await db.cooldown_left(uid, "gram_daily", cd)
+        bonus_line = f"⏳ Бонус через: <b>{hms(left_bonus)}</b>" if left_bonus else "🎁 <b>Бонус готов!</b> Заберите <code>бонус</code>"
+
+        txt = (
+            f"💳 <b>ФИНАНСОВЫЙ ПРОФИЛЬ</b>\n"
+            f"👤 {mention_id(uid, call.from_user.first_name)}\n\n"
+            f"🌑 <b>Баланс:</b> <code>{c(bal)}</code>\n\n"
+            f"🎮 <b>Игровой уровень:</b> <b>{lvl} LVL</b> ({xp}/{next_xp} XP)\n"
+            f"📊 Прогресс: <code>[{bar}]</code> {pct}%\n"
+            f"🎲 Сыграно игр: <b>{prof['games_played']}</b> (побед: {prof['games_won']})\n\n"
+            f"🏢 <b>Предприятия:</b> <b>{total_biz} шт.</b>\n"
+            f"💵 Доход: <b>+{income_min:,} 🌑/мин</b>\n"
+            f"🔒 Мешок: <b>{bag_status}</b>\n\n"
+            f"{bonus_line}\n"
+            f"💡 <i>Команды:</i> <code>бизнесы</code> · <code>игры</code> · <code>скрыть мешок</code>"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🎁 Забрать бонус", callback_data="gram:daily_claim"),
+                InlineKeyboardButton(text="💰 Собрать прибыль", callback_data="biz:collect")
+            ],
+            [
+                InlineKeyboardButton(text="🏢 Мои бизнесы", callback_data="biz:menu"),
+                InlineKeyboardButton(text="🎰 Игры и Казино", callback_data="games:menu")
+            ]
+        ])
+        await call.message.edit_text(txt, reply_markup=kb)
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data == "games:menu")
+async def cb_games_menu(call: CallbackQuery):
+    from h_webapp import _get_webapp_kb
+    is_grp = getattr(call.message.chat, "type", "") in {"group", "supergroup"}
+    try:
+        await call.message.reply(GAMES_TEXT, reply_markup=_get_webapp_kb(is_group=is_grp))
+        await call.answer()
+    except Exception:
+        await call.answer("Откройте список игр командой: игры", show_alert=True)
 
 
 @router.message(Cmd("топ", "топ монет", "топ игроков", "топ коинов", "топ грамм", "топ граммов", "топ грами", "топ богатых", "топ баланс", section=S,

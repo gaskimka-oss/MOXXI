@@ -6,6 +6,8 @@ import logging
 import sys
 import time
 import os
+import html
+import contextvars
 
 os.environ["TZ"] = "Europe/Moscow"
 if hasattr(time, "tzset"):
@@ -102,6 +104,12 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("irisbot")
 
 
+current_actor_id: contextvars.ContextVar[int] = contextvars.ContextVar("current_actor_id", default=0)
+current_actor_name: contextvars.ContextVar[str] = contextvars.ContextVar("current_actor_name", default="")
+current_actor_username: contextvars.ContextVar[str] = contextvars.ContextVar("current_actor_username", default="")
+current_chat_title: contextvars.ContextVar[str] = contextvars.ContextVar("current_chat_title", default="")
+
+
 async def _delayed_delete_msg(msg: Message, delay: float = 2.0) -> None:
     try:
         await asyncio.sleep(delay)
@@ -159,6 +167,19 @@ async def user_middleware(handler, event, data: dict):
             pass
 
     user = getattr(event, "from_user", None)
+    if user:
+        try:
+            current_actor_id.set(user.id)
+            current_actor_name.set(user.first_name or "")
+            current_actor_username.set(user.username or "")
+        except Exception:
+            pass
+    chat = getattr(event, "chat", None)
+    if chat:
+        try:
+            current_chat_title.set(getattr(chat, "title", None) or "")
+        except Exception:
+            pass
     if user and not user.is_bot and user.id != 777000:
         row = await db.get_user(user.id)
         if row and row["banned"]:
@@ -414,6 +435,48 @@ class TopicClosedRetryMiddleware(BaseRequestMiddleware):
                     return await make_request(bot, method)
                 except Exception as e_final:
                     log.warning("Тема #%s в чате %s закрыта и не может быть переоткрыта ботом (требуется право 'Управление темами'): %s", tid, cid, e_final)
+
+                    # Уведомляем администратора о закрытой теме и необходимости прав «Управление темами»
+                    actor_id = current_actor_id.get()
+                    actor_name = current_actor_name.get()
+                    actor_username = current_actor_username.get()
+                    chat_title = current_chat_title.get() or (f"Чат {cid}" if cid else "Чате")
+                    method_text = getattr(method, "text", "") or getattr(method, "caption", "") or ""
+
+                    notice = (
+                        f"⚠️ <b>Бот не имеет доступа к данной теме!</b>\n\n"
+                        f"В группе «<b>{html.escape(chat_title)}</b>» эта ветка закрыта.\n"
+                        f"Чтобы бот мог штатно отвечать в закрытых темах (бан, кик, мут, варн и др.), "
+                        f"выдайте ему в настройках администратора чата право:\n"
+                        f"👉 <b>«Управление темами»</b> (Manage Topics).\n\n"
+                        f"<i>После выдачи этого права бот сможет автоматически отвечать прямо в закрытых темах!</i>"
+                    )
+
+                    sent_pm = False
+                    if actor_id:
+                        try:
+                            pm_msg = notice
+                            if method_text:
+                                pm_msg += f"\n\n📋 <b>Результат вашей команды:</b>\n{method_text}"
+                            await bot.send_message(chat_id=actor_id, text=pm_msg, parse_mode="HTML")
+                            sent_pm = True
+                        except Exception as e_pm:
+                            log.debug("Не удалось отправить уведомление о закрытой теме в ЛС %s: %s", actor_id, e_pm)
+
+                    # Если ЛС закрыт/заблокирован, отправляем в чат короткое автоудаляющееся напоминание через 20 сек
+                    if not sent_pm and cid:
+                        try:
+                            tag = f"@{actor_username}" if actor_username else (f'<a href="tg://user?id={actor_id}">{html.escape(actor_name)}</a>' if actor_id else "Администратор")
+                            chat_alert = (
+                                f"⚠️ {tag}, <b>бот не имеет доступа к данной теме!</b>\n"
+                                f"Тема закрыта. Чтобы бот мог отвечать здесь, выдайте ему в правах администратора: "
+                                f"<b>«Управление темами»</b> (Manage Topics)."
+                            )
+                            temp = await bot.send_message(chat_id=cid, text=chat_alert, parse_mode="HTML")
+                            asyncio.create_task(_delayed_delete_msg(temp, 20.0))
+                        except Exception as e_chat_alert:
+                            log.debug("Не удалось отправить уведомление в чат %s: %s", cid, e_chat_alert)
+
                     return None
 
                 try:
