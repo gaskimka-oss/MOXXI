@@ -2,6 +2,7 @@
 триггеры, доступ команд, сетка, темы, голосования, антиспам, инлайн, интеграция."""
 from __future__ import annotations
 
+import asyncio
 import html
 import time
 
@@ -604,8 +605,8 @@ async def get_sms_topic(chat_id: int) -> int:
 @router.message(Cmd("автонастройка", "автонастройка группы", "автонастройка чата", "автосетап", "автонастройка тем",
                     section=S_TOPIC, rank=4, usage="автонастройка",
                     desc="🪄 Автоматически создать и привязать темы: Общение, Правила, Боссы"))
-async def cmd_auto_setup_topics(message: Message, bot: Bot, **kw):
-    if not await require(message, bot, 4):
+async def cmd_auto_setup_topics(message: Message, bot: Bot, skip_require: bool = False, **kw):
+    if not skip_require and not await require(message, bot, 4):
         return
 
     cid = message.chat.id
@@ -848,8 +849,34 @@ async def topic(message: Message, bot: Bot, args: str = "", **kw):
         except Exception:
             pass
 
-    card_text, kb = await render_topics_card_and_kb(message.chat.id, here, can_manage=can_manage)
-    await message.reply(card_text, reply_markup=kb, disable_web_page_preview=True)
+    author_id = message.from_user.id if message.from_user else 0
+    card_text, kb = await render_topics_card_and_kb(message.chat.id, here, can_manage=can_manage, author_id=author_id)
+    sent = await message.reply(card_text, reply_markup=kb, disable_web_page_preview=True)
+    if sent and author_id:
+        _register_topic_menu_author(message.chat.id, sent.message_id, author_id)
+
+
+# Реестр открытых меню тем: (chat_id, message_id) -> author_user_id
+_topic_menu_authors: dict[tuple[int, int], int] = {}
+
+
+def _register_topic_menu_author(chat_id: int, message_id: int, author_id: int) -> None:
+    if len(_topic_menu_authors) > 2000:
+        keys = list(_topic_menu_authors.keys())[:500]
+        for k in keys:
+            _topic_menu_authors.pop(k, None)
+    _topic_menu_authors[(chat_id, message_id)] = author_id
+
+
+def _get_topic_menu_author(chat_id: int, message_id: int, message: Message | None = None) -> int:
+    if (chat_id, message_id) in _topic_menu_authors:
+        return _topic_menu_authors[(chat_id, message_id)]
+    if message and message.reply_to_message and message.reply_to_message.from_user:
+        if not message.reply_to_message.from_user.is_bot:
+            author = message.reply_to_message.from_user.id
+            _topic_menu_authors[(chat_id, message_id)] = author
+            return author
+    return 0
 
 
 TOPIC_CATEGORIES = {
@@ -904,7 +931,7 @@ async def _get_all_chat_topics(chat_id: int) -> dict[str, int]:
     }
 
 
-async def render_topics_card_and_kb(chat_id: int, here: int, can_manage: bool = False) -> tuple[str, InlineKeyboardMarkup]:
+async def render_topics_card_and_kb(chat_id: int, here: int, can_manage: bool = False, author_id: int = 0) -> tuple[str, InlineKeyboardMarkup]:
     from h_userinfo import topic_link
     topics = await _get_all_chat_topics(chat_id)
     gram_t = topics["gram"]
@@ -962,33 +989,33 @@ async def render_topics_card_and_kb(chat_id: int, here: int, can_manage: bool = 
 
     buttons = [
         [
-            InlineKeyboardButton(text="🎰 Казино", callback_data=f"topics:cat:gram:{here}"),
-            InlineKeyboardButton(text="📝 Анкеты", callback_data=f"topics:cat:form:{here}"),
+            InlineKeyboardButton(text="🎰 Казино", callback_data=f"topics:cat:gram:{here}:{author_id}"),
+            InlineKeyboardButton(text="📝 Анкеты", callback_data=f"topics:cat:form:{here}:{author_id}"),
         ],
         [
-            InlineKeyboardButton(text="💬 СМС", callback_data=f"topics:cat:sms:{here}"),
-            InlineKeyboardButton(text="🐉 Боссы", callback_data=f"topics:cat:boss:{here}"),
+            InlineKeyboardButton(text="💬 СМС", callback_data=f"topics:cat:sms:{here}:{author_id}"),
+            InlineKeyboardButton(text="🐉 Боссы", callback_data=f"topics:cat:boss:{here}:{author_id}"),
         ],
         [
-            InlineKeyboardButton(text="📜 Правила", callback_data=f"topics:cat:rules:{here}"),
+            InlineKeyboardButton(text="📜 Правила", callback_data=f"topics:cat:rules:{here}:{author_id}"),
         ],
     ]
 
     action_row = []
     if here:
-        action_row.append(InlineKeyboardButton(text=f"📍 Привязать ветку #{here}", callback_data=f"topics:here_menu:{here}"))
-    action_row.append(InlineKeyboardButton(text="🪄 Автонастройка", callback_data=f"topics:auto:{here}"))
+        action_row.append(InlineKeyboardButton(text=f"📍 Привязать ветку #{here}", callback_data=f"topics:here_menu:{here}:{author_id}"))
+    action_row.append(InlineKeyboardButton(text="🪄 Автонастройка", callback_data=f"topics:auto:{here}:{author_id}"))
     buttons.append(action_row)
 
     buttons.append([
-        InlineKeyboardButton(text="🔄 Обновить", callback_data=f"topics:refresh:{here}"),
-        InlineKeyboardButton(text="🗑 Сбросить всё", callback_data=f"topics:reset_all:{here}"),
+        InlineKeyboardButton(text="🔄 Обновить", callback_data=f"topics:refresh:{here}:{author_id}"),
+        InlineKeyboardButton(text="🗑 Сбросить всё", callback_data=f"topics:reset_all:{here}:{author_id}"),
     ])
 
     return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-async def _build_topic_category_card(chat_id: int, here: int, cat: str) -> tuple[str, InlineKeyboardMarkup]:
+async def _build_topic_category_card(chat_id: int, here: int, cat: str, author_id: int = 0) -> tuple[str, InlineKeyboardMarkup]:
     from h_userinfo import topic_link
     meta = TOPIC_CATEGORIES.get(cat, TOPIC_CATEGORIES["gram"])
     setting_key = meta["setting"]
@@ -1016,26 +1043,26 @@ async def _build_topic_category_card(chat_id: int, here: int, cat: str) -> tuple
 
     rows = []
     if here:
-        rows.append([InlineKeyboardButton(text=f"📍 Привязать к ветке #{here}", callback_data=f"topics:bind:{cat}:{here}")])
-    rows.append([InlineKeyboardButton(text="🌐 Разрешить во всех темах / Сбросить", callback_data=f"topics:unbind:{cat}:{here}")])
-    rows.append([InlineKeyboardButton(text="◀️ Назад в меню тем", callback_data=f"topics:main:{here}")])
+        rows.append([InlineKeyboardButton(text=f"📍 Привязать к ветке #{here}", callback_data=f"topics:bind:{cat}:{here}:{author_id}")])
+    rows.append([InlineKeyboardButton(text="🌐 Разрешить во всех темах / Сбросить", callback_data=f"topics:unbind:{cat}:{here}:{author_id}")])
+    rows.append([InlineKeyboardButton(text="◀️ Назад в меню тем", callback_data=f"topics:main:{here}:{author_id}")])
 
     return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _build_bind_here_card(chat_id: int, here: int) -> tuple[str, InlineKeyboardMarkup]:
+def _build_bind_here_card(chat_id: int, here: int, author_id: int = 0) -> tuple[str, InlineKeyboardMarkup]:
     lines = [
         f"📍 <b>БЫСТРАЯ ПРИВЯЗКА ВЕТКИ #{here}</b>",
         "✦ ══════════════════════════════ ✦",
         f"Выберите, какую системную зону вы хотите назначить на ветку <b>ID <code>{here}</code></b>:",
     ]
     rows = [
-        [InlineKeyboardButton(text="🎰 Казино и мини-игры", callback_data=f"topics:bind:gram:{here}")],
-        [InlineKeyboardButton(text="📝 Анкеты и описания", callback_data=f"topics:bind:form:{here}")],
-        [InlineKeyboardButton(text="💬 СМС, общение и анонсы", callback_data=f"topics:bind:sms:{here}")],
-        [InlineKeyboardButton(text="🐉 Рейдовые боссы", callback_data=f"topics:bind:boss:{here}")],
-        [InlineKeyboardButton(text="📜 Правила беседы", callback_data=f"topics:bind:rules:{here}")],
-        [InlineKeyboardButton(text="◀️ Назад в меню тем", callback_data=f"topics:main:{here}")],
+        [InlineKeyboardButton(text="🎰 Казино и мини-игры", callback_data=f"topics:bind:gram:{here}:{author_id}")],
+        [InlineKeyboardButton(text="📝 Анкеты и описания", callback_data=f"topics:bind:form:{here}:{author_id}")],
+        [InlineKeyboardButton(text="💬 СМС, общение и анонсы", callback_data=f"topics:bind:sms:{here}:{author_id}")],
+        [InlineKeyboardButton(text="🐉 Рейдовые боссы", callback_data=f"topics:bind:boss:{here}:{author_id}")],
+        [InlineKeyboardButton(text="📜 Правила беседы", callback_data=f"topics:bind:rules:{here}:{author_id}")],
+        [InlineKeyboardButton(text="◀️ Назад в меню тем", callback_data=f"topics:main:{here}:{author_id}")],
     ]
     return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -1046,6 +1073,7 @@ async def cb_topics_dispatcher(call: CallbackQuery, bot: Bot):
     from core_ranks import get_rank
     uid = call.from_user.id
     cid = call.message.chat.id
+    msg_id = call.message.message_id
 
     async def safe_answer(text: str = "", show_alert: bool = False):
         try:
@@ -1059,7 +1087,25 @@ async def cb_topics_dispatcher(call: CallbackQuery, bot: Bot):
         except Exception:
             pass
 
-    # Корректная проверка прав именно нажавшего пользователя (а не бота из call.message):
+    parts = call.data.split(":")
+    action = parts[1] if len(parts) > 1 else "main"
+
+    # 1. Извлекаем author_id (из callback_data, реестра или reply_to_message)
+    author_id = 0
+    if len(parts) >= 3 and parts[-1].isdigit() and len(parts[-1]) >= 5:
+        author_id = int(parts[-1])
+    if not author_id:
+        author_id = _get_topic_menu_author(cid, msg_id, call.message)
+
+    # 2. ЗАЩИТА: Только автор команды может нажимать на кнопки!
+    if author_id and uid != author_id and not is_bot_owner(uid):
+        return await safe_answer(
+            "🚫 Это меню настроек открыто другим пользователем!\n\n"
+            "Напишите команду «темы» самостоятельно, чтобы настроить ветки беседы.",
+            show_alert=True
+        )
+
+    # 3. Корректная проверка прав нажавшего пользователя:
     is_admin = is_bot_owner(uid)
     admin_rank = 10 if is_admin else 0
     if not is_admin:
@@ -1082,9 +1128,6 @@ async def cb_topics_dispatcher(call: CallbackQuery, bot: Bot):
     if not is_admin:
         return await safe_answer("🔒 Настройка тем доступна только администраторам беседы!", show_alert=True)
 
-    parts = call.data.split(":")
-    action = parts[1] if len(parts) > 1 else "main"
-
     can_manage = False
     try:
         me = await bot.me()
@@ -1095,14 +1138,14 @@ async def cb_topics_dispatcher(call: CallbackQuery, bot: Bot):
 
     if action in {"main", "refresh"}:
         here = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
-        txt, kb = await render_topics_card_and_kb(cid, here, can_manage=can_manage)
+        txt, kb = await render_topics_card_and_kb(cid, here, can_manage=can_manage, author_id=author_id)
         await safe_edit(txt, reply_markup=kb)
         await safe_answer("🔄 Список тем обновлён")
 
     elif action == "cat":
         cat = parts[2] if len(parts) > 2 else "gram"
         here = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
-        txt, kb = await _build_topic_category_card(cid, here, cat)
+        txt, kb = await _build_topic_category_card(cid, here, cat, author_id=author_id)
         await safe_edit(txt, reply_markup=kb)
         await safe_answer()
 
@@ -1110,7 +1153,7 @@ async def cb_topics_dispatcher(call: CallbackQuery, bot: Bot):
         here = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
         if not here:
             return await safe_answer("⚠️ Вы находитесь в основном чате! Перейдите в нужную ветку форума.", show_alert=True)
-        txt, kb = _build_bind_here_card(cid, here)
+        txt, kb = _build_bind_here_card(cid, here, author_id=author_id)
         await safe_edit(txt, reply_markup=kb)
         await safe_answer()
 
@@ -1122,7 +1165,7 @@ async def cb_topics_dispatcher(call: CallbackQuery, bot: Bot):
             await db.set_setting(cid, meta["setting"], tid)
             await safe_answer(f"✅ Зона «{meta['title']}» привязана к ветке #{tid}!", show_alert=True)
         here = int(tid) if tid.isdigit() else 0
-        txt, kb = await render_topics_card_and_kb(cid, here, can_manage=can_manage)
+        txt, kb = await render_topics_card_and_kb(cid, here, can_manage=can_manage, author_id=author_id)
         await safe_edit(txt, reply_markup=kb)
 
     elif action == "unbind":
@@ -1132,7 +1175,7 @@ async def cb_topics_dispatcher(call: CallbackQuery, bot: Bot):
         if meta:
             await db.set_setting(cid, meta["setting"], "0")
             await safe_answer(f"🌐 Зона «{meta['title']}» сброшена!", show_alert=True)
-        txt, kb = await render_topics_card_and_kb(cid, here, can_manage=can_manage)
+        txt, kb = await render_topics_card_and_kb(cid, here, can_manage=can_manage, author_id=author_id)
         await safe_edit(txt, reply_markup=kb)
 
     elif action == "reset_all":
@@ -1140,7 +1183,7 @@ async def cb_topics_dispatcher(call: CallbackQuery, bot: Bot):
         for meta in TOPIC_CATEGORIES.values():
             await db.set_setting(cid, meta["setting"], "0")
         await safe_answer("🗑 Все привязки тем успешно сброшены!", show_alert=True)
-        txt, kb = await render_topics_card_and_kb(cid, here, can_manage=can_manage)
+        txt, kb = await render_topics_card_and_kb(cid, here, can_manage=can_manage, author_id=author_id)
         await safe_edit(txt, reply_markup=kb)
 
     elif action == "auto":
@@ -1148,7 +1191,7 @@ async def cb_topics_dispatcher(call: CallbackQuery, bot: Bot):
             return await safe_answer("🔒 Автонастройка доступна администраторам от 4 ранга!", show_alert=True)
         await safe_answer("🪄 Запуск автонастройки...")
         fake_msg = call.message
-        await cmd_auto_setup_topics(fake_msg, bot)
+        await cmd_auto_setup_topics(fake_msg, bot, skip_require=True)
 
 
 # ================= 11. ГОЛОСОВАНИЯ =================

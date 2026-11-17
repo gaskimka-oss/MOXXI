@@ -1502,6 +1502,55 @@ def _make_banner_menu_kb(has_banner: bool) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
 
+# Реестр открытых меню дизайна: (chat_id, message_id) -> author_user_id
+_design_menu_authors: dict[tuple[int, int], int] = {}
+
+
+def _register_design_menu_author(chat_id: int, message_id: int, author_id: int) -> None:
+    if len(_design_menu_authors) > 2000:
+        keys = list(_design_menu_authors.keys())[:500]
+        for k in keys:
+            _design_menu_authors.pop(k, None)
+    _design_menu_authors[(chat_id, message_id)] = author_id
+
+
+def _get_design_menu_author(chat_id: int, message_id: int, message: Message | None = None) -> int:
+    if (chat_id, message_id) in _design_menu_authors:
+        return _design_menu_authors[(chat_id, message_id)]
+    if message and message.reply_to_message and message.reply_to_message.from_user:
+        if not message.reply_to_message.from_user.is_bot:
+            author = message.reply_to_message.from_user.id
+            _design_menu_authors[(chat_id, message_id)] = author
+            return author
+    return 0
+
+
+async def _design_author_lock_middleware(handler, event: CallbackQuery, data: dict):
+    """Блокирует нажатие кнопок меню дизайна для всех пользователей, кроме автора вызова команды."""
+    if isinstance(event, CallbackQuery) and event.data and event.data.startswith("chat_theme:"):
+        cid = event.message.chat.id if event.message and event.message.chat else 0
+        mid = event.message.message_id if event.message else 0
+        uid = event.from_user.id if event.from_user else 0
+
+        from config import is_bot_owner
+        if not is_bot_owner(uid):
+            author_id = _get_design_menu_author(cid, mid, event.message)
+            if author_id and uid != author_id:
+                try:
+                    await event.answer(
+                        "🚫 Это меню дизайна открыто другим пользователем!\n\n"
+                        "Напишите команду «дизайн» самостоятельно, чтобы настроить тему оформления.",
+                        show_alert=True
+                    )
+                except Exception:
+                    pass
+                return
+    return await handler(event, data)
+
+
+router.callback_query.middleware(_design_author_lock_middleware)
+
+
 @router.message(Cmd("дизайн", "дизайн чата", "дизайн группы", "стиль оформления", "тема оформления",
                     "дизайн состава", "тема состава", "стиль состава", "стиль чата", "оформление состава", "оформление чата",
                     section=34, group_only=True,
@@ -1512,7 +1561,9 @@ async def cmd_chat_design(message: Message, bot: Bot, **kw):
     user_gender = await core_hierarchies.get_user_gender(uid)
 
     txt = _format_design_hub_text(cfg, user_gender)
-    await message.reply(txt, reply_markup=_make_design_hub_kb(cfg, user_gender=user_gender))
+    sent = await message.reply(txt, reply_markup=_make_design_hub_kb(cfg, user_gender=user_gender))
+    if sent and uid:
+        _register_design_menu_author(message.chat.id, sent.message_id, uid)
 
 
 @router.callback_query(F.data == "chat_theme:hub")
