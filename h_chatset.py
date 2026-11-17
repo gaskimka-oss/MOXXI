@@ -602,9 +602,56 @@ async def get_sms_topic(chat_id: int) -> int:
 
 
 
+async def prune_dead_topics(bot: Bot, chat_id: int):
+    """Проверяет зарегистрированные темы в Telegram. Если тема была удалена в Telegram,
+    автоматически удаляет её из chat_forum_topics и сбрасывает соответствующую привязку в 0."""
+    try:
+        from aiogram.exceptions import TelegramBadRequest
+        rows = await db.get_known_chat_topics(chat_id)
+        sys_keys = ["sms_topic", "rules_topic", "boss_topic", "gram_topic", "form_topic"]
+        settings_tids: dict[int, list[str]] = {}
+        for k in sys_keys:
+            val = await db.get_setting(chat_id, k, "0")
+            if val and str(val).isdigit() and int(val) > 0:
+                tid = int(val)
+                settings_tids.setdefault(tid, []).append(k)
+
+        all_tids = set(r["thread_id"] for r in rows) | set(settings_tids.keys())
+        if not all_tids:
+            return
+
+        name_by_tid = {r["thread_id"]: r["name"] for r in rows}
+
+        async def verify(tid: int):
+            try:
+                nm = name_by_tid.get(tid) or f"Тема #{tid}"
+                # edit_forum_topic бросает TOPIC_ID_INVALID / TOPIC_DELETED если ветка удалена
+                await bot.edit_forum_topic(chat_id=chat_id, message_thread_id=tid, name=nm)
+                return (tid, True)
+            except TelegramBadRequest as e:
+                err = (e.message or "").lower()
+                if "topic_id_invalid" in err or "topic_deleted" in err or "not found" in err:
+                    return (tid, False)
+                return (tid, True)
+            except Exception:
+                return (tid, True)
+
+        results = await asyncio.gather(*(verify(t) for t in all_tids), return_exceptions=True)
+        for res in results:
+            if isinstance(res, tuple):
+                tid, alive = res
+                if not alive:
+                    await db.execute("DELETE FROM chat_forum_topics WHERE chat_id=? AND thread_id=?", (chat_id, tid))
+                    if tid in settings_tids:
+                        for k in settings_tids[tid]:
+                            await db.set_setting(chat_id, k, "0")
+    except Exception:
+        pass
+
+
 @router.message(Cmd("автонастройка", "автонастройка группы", "автонастройка чата", "автосетап", "автонастройка тем",
                     section=S_TOPIC, rank=4, usage="автонастройка",
-                    desc="🪄 Автоматически создать и привязать темы: Общение, Правила, Боссы"))
+                    desc="🪄 Автоматически создать и привязать темы: Общение, Правила, Боссы, Казино"))
 async def cmd_auto_setup_topics(message: Message, bot: Bot, skip_require: bool = False, **kw):
     if not skip_require and not await require(message, bot, 4):
         return
@@ -635,7 +682,9 @@ async def cmd_auto_setup_topics(message: Message, bot: Bot, skip_require: bool =
     except Exception as e:
         return await message.reply(f"⚠️ Не удалось проверить права бота: {html.escape(str(e))}")
 
-    # 3. Защита от дубликатов: проверяем, какие темы уже созданы и привязаны
+    # 3. Синхронизируем и очищаем удаленные ветки
+    await prune_dead_topics(bot, cid)
+
     cur_sms = await get_sms_topic(cid)
     cur_rules = await get_rules_topic(cid)
     from h_boss import get_boss_topic
@@ -644,142 +693,124 @@ async def cmd_auto_setup_topics(message: Message, bot: Bot, skip_require: bool =
     cur_boss = await get_boss_topic(cid)
     cur_gram = await get_gram_topic(cid)
 
-    # Если абсолютно все 4 системные темы уже привязаны — не плодим дубликаты
-    if cur_sms > 0 and cur_rules > 0 and cur_boss > 0 and cur_gram > 0:
+    # Защита от дубликатов: если хотя бы одна системная тема уже привязана — блокируем автонастройку
+    bound_topics = []
+    if cur_sms > 0:
+        bound_topics.append(f"💬 <b>Общение:</b> {topic_link(cid, cur_sms)} [ID: <code>{cur_sms}</code>]")
+    if cur_gram > 0:
+        bound_topics.append(f"🎰 <b>Казино:</b> {topic_link(cid, cur_gram)} [ID: <code>{cur_gram}</code>]")
+    if cur_rules > 0:
+        bound_topics.append(f"📜 <b>Правила:</b> {topic_link(cid, cur_rules)} [ID: <code>{cur_rules}</code>]")
+    if cur_boss > 0:
+        bound_topics.append(f"🐉 <b>Боссы:</b> {topic_link(cid, cur_boss)} [ID: <code>{cur_boss}</code>]")
+
+    if bound_topics:
+        bound_list_str = "\n".join(f"• {b}" for b in bound_topics)
         return await message.reply(
-            "ℹ️ <b>Все системные темы этой группы уже созданы и привязаны!</b>\n"
-            "Повторное создание отменено, чтобы не создавать дубликатов веток в Telegram.\n\n"
-            "📋 <b>Текущие системные ветки:</b>\n"
-            f"┌ 💬 <b>Общение:</b> {topic_link(cid, cur_sms)} [ID: <code>{cur_sms}</code>]\n"
-            f"├ 🎰 <b>Казино:</b> {topic_link(cid, cur_gram)} [ID: <code>{cur_gram}</code>]\n"
-            f"├ 📜 <b>Правила:</b> {topic_link(cid, cur_rules)} [ID: <code>{cur_rules}</code>]\n"
-            f"└ 🐉 <b>Рейдовые Боссы:</b> {topic_link(cid, cur_boss)} [ID: <code>{cur_boss}</code>]\n\n"
-            "💡 <i>Если вы хотите изменить или сбросить какую-то тему, откройте меню:</i> <code>темы</code>",
+            "⚠️ <b>У вас уже привязаны темы в этой группе!</b>\n\n"
+            "📋 <b>Сейчас уже привязаны:</b>\n"
+            f"{bound_list_str}\n\n"
+            "🛡 <b>Защита от дубликатов:</b>\n"
+            "Пожалуйста, привяжите все остальные темы сами через меню <code>темы</code>, "
+            "так как при повторном автосетапе мы можем создать копии веток!\n\n"
+            "👉 <b>Что делать:</b>\n"
+            "1. Напишите <code>темы</code> и привяжите нужные зоны вручную в 1 клик.\n"
+            "2. Либо, если хотите настроить всё заново с нуля — сначала нажмите <b>«🗑 Сбросить всё»</b> "
+            "в меню тем (или напишите команду <code>сбросить темы</code>), после чего запустите <code>автонастройка</code>.",
             disable_web_page_preview=True
         )
 
-    status_msg = await message.reply("🪄 <b>Запуск автонастройки группы...</b>\nПроверяю существующие темы и создаю недостающие...")
+    status_msg = await message.reply("🪄 <b>Запуск автонастройки группы...</b>\nСоздаю системные темы и настраиваю привязки, пожалуйста, подождите...")
 
     try:
-        created_names = []
-        reused_names = []
+        # 1. Создаем тему "💬 Общение"
+        topic_chat = await bot.create_forum_topic(chat_id=cid, name="💬 Общение", icon_color=7322096)
+        sms_tid = topic_chat.message_thread_id
+        await db.set_setting(cid, "sms_topic", str(sms_tid))
+        await db.record_chat_topic(cid, sms_tid, "💬 Общение")
+        await asyncio.sleep(0.5)
+        await bot.send_message(
+            cid,
+            "💬 ✨ <b>ТЕМА «ОБЩЕНИЕ» УСПЕШНО НАСТРОЕНА!</b> ✨ 💬\n"
+            "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            "Здесь проходит основная переписка участников, анонсы и новости беседы.\n\n"
+            "👋 Приятного общения!",
+            message_thread_id=sms_tid
+        )
 
-        # 1. Тема "💬 Общение"
-        if cur_sms > 0:
-            sms_tid = cur_sms
-            reused_names.append(f"💬 <b>Общение:</b> {topic_link(cid, sms_tid)} (уже привязана)")
-        else:
-            topic_chat = await bot.create_forum_topic(chat_id=cid, name="💬 Общение", icon_color=7322096)
-            sms_tid = topic_chat.message_thread_id
-            await db.set_setting(cid, "sms_topic", str(sms_tid))
-            await db.record_chat_topic(cid, sms_tid, "💬 Общение")
-            await asyncio.sleep(0.5)
-            await bot.send_message(
-                cid,
-                "💬 ✨ <b>ТЕМА «ОБЩЕНИЕ» УСПЕШНО НАСТРОЕНА!</b> ✨ 💬\n"
-                "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-                "Здесь проходит основная переписка участников, анонсы и новости беседы.\n\n"
-                "👋 Приятного общения!",
-                message_thread_id=sms_tid
-            )
-            created_names.append(f"💬 <b>Общение:</b> {topic_link(cid, sms_tid)} (создана новая тема)")
+        # 2. Создаем тему "📜 Правила"
+        topic_rules = await bot.create_forum_topic(chat_id=cid, name="📜 Правила", icon_color=16766590)
+        rules_tid = topic_rules.message_thread_id
+        await db.set_setting(cid, "rules_topic", str(rules_tid))
+        await db.record_chat_topic(cid, rules_tid, "📜 Правила")
+        await asyncio.sleep(0.5)
+        await bot.send_message(
+            cid,
+            "📜 ✨ <b>ПРАВИЛА БЕСЕДЫ</b> ✨ 📜\n"
+            "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            "1. 🤝 <b>Уважение:</b> относитесь взаимоуважительно ко всем участникам.\n"
+            "2. 🚫 <b>Спам:</b> запрещены несогласованная реклама, флуд и спам-рассылки.\n"
+            "3. 🤬 <b>Токсичность:</b> запрещены оскорбления, травля и провокации.\n"
+            "4. 🐉 <b>Рейды:</b> битвы с боссами проводятся исключительно в теме «🐉 Рейдовые Боссы».\n"
+            "5. 🎰 <b>Игры:</b> казино и мини-игры доступны в теме «🎰 Казино».\n\n"
+            "👑 <i>Соблюдайте правила и приятного времяпрепровождения!</i>",
+            message_thread_id=rules_tid
+        )
 
-        # 2. Тема "📜 Правила"
-        if cur_rules > 0:
-            rules_tid = cur_rules
-            reused_names.append(f"📜 <b>Правила:</b> {topic_link(cid, rules_tid)} (уже привязана)")
-        else:
-            topic_rules = await bot.create_forum_topic(chat_id=cid, name="📜 Правила", icon_color=16766590)
-            rules_tid = topic_rules.message_thread_id
-            await db.set_setting(cid, "rules_topic", str(rules_tid))
-            await db.record_chat_topic(cid, rules_tid, "📜 Правила")
-            await asyncio.sleep(0.5)
-            await bot.send_message(
-                cid,
-                "📜 ✨ <b>ПРАВИЛА БЕСЕДЫ</b> ✨ 📜\n"
-                "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-                "1. 🤝 <b>Уважение:</b> относитесь взаимоуважительно ко всем участникам.\n"
-                "2. 🚫 <b>Спам:</b> запрещены несогласованная реклама, флуд и спам-рассылки.\n"
-                "3. 🤬 <b>Токсичность:</b> запрещены оскорбления, травля и провокации.\n"
-                "4. 🐉 <b>Рейды:</b> битвы с боссами проводятся исключительно в теме «🐉 Рейдовые Боссы».\n"
-                "5. 🎰 <b>Игры:</b> казино и мини-игры доступны в теме «🎰 Казино».\n\n"
-                "👑 <i>Соблюдайте правила и приятного времяпрепровождения!</i>",
-                message_thread_id=rules_tid
-            )
-            created_names.append(f"📜 <b>Правила:</b> {topic_link(cid, rules_tid)} (создана новая тема)")
+        # 3. Создаем тему "🐉 Рейдовые Боссы"
+        topic_boss = await bot.create_forum_topic(chat_id=cid, name="🐉 Рейдовые Боссы", icon_color=13338331)
+        boss_tid = topic_boss.message_thread_id
+        await db.set_setting(cid, "boss_topic", str(boss_tid))
+        await db.record_chat_topic(cid, boss_tid, "🐉 Рейдовые Боссы")
+        await asyncio.sleep(0.5)
+        await bot.send_message(
+            cid,
+            "🐉 ✨ <b>ТЕМА «РЕЙДОВЫЕ БОССЫ» ПРИВЯЗАНА!</b> ✨ 🐉\n"
+            "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            "⚔️ Все рейдовые боссы и битвы будут проходить строго в этой ветке!\n\n"
+            "⏰ <b>Расписание рейдов:</b> 08:00, 12:00, 16:00, 20:00 (МСК)\n"
+            "⚔️ <b>Атаки:</b> <code>ударить</code>, <code>выстрел</code>, <code>атака</code>\n"
+            "🚑 <b>Помощь союзникам:</b> <code>хил @юзер</code> или <code>возродить</code>\n"
+            "🛍 <b>Снаряжение:</b> <code>магазин</code> (мечи, бластеры, броня, аптечки)\n\n"
+            "🏆 <i>Готовьте оружие и побеждайте боссов!</i>",
+            message_thread_id=boss_tid
+        )
 
-        # 3. Тема "🐉 Рейдовые Боссы"
-        if cur_boss > 0:
-            boss_tid = cur_boss
-            reused_names.append(f"🐉 <b>Рейдовые Боссы:</b> {topic_link(cid, boss_tid)} (уже привязана)")
-        else:
-            topic_boss = await bot.create_forum_topic(chat_id=cid, name="🐉 Рейдовые Боссы", icon_color=13338331)
-            boss_tid = topic_boss.message_thread_id
-            await db.set_setting(cid, "boss_topic", str(boss_tid))
-            await db.record_chat_topic(cid, boss_tid, "🐉 Рейдовые Боссы")
-            await asyncio.sleep(0.5)
-            await bot.send_message(
-                cid,
-                "🐉 ✨ <b>ТЕМА «РЕЙДОВЫЕ БОССЫ» ПРИВЯЗАНА!</b> ✨ 🐉\n"
-                "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-                "⚔️ Все рейдовые боссы и битвы будут проходить строго в этой ветке!\n\n"
-                "⏰ <b>Расписание рейдов:</b> 08:00, 12:00, 16:00, 20:00 (МСК)\n"
-                "⚔️ <b>Атаки:</b> <code>ударить</code>, <code>выстрел</code>, <code>атака</code>\n"
-                "🚑 <b>Помощь союзникам:</b> <code>хил @юзер</code> или <code>возродить</code>\n"
-                "🛍 <b>Снаряжение:</b> <code>магазин</code> (мечи, бластеры, броня, аптечки)\n\n"
-                "🏆 <i>Готовьте оружие и побеждайте боссов!</i>",
-                message_thread_id=boss_tid
-            )
-            created_names.append(f"🐉 <b>Рейдовые Боссы:</b> {topic_link(cid, boss_tid)} (создана новая тема)")
+        # 4. Создаем тему "🎰 Казино"
+        topic_casino = await bot.create_forum_topic(chat_id=cid, name="🎰 Казино", icon_color=16766590)
+        gram_tid = topic_casino.message_thread_id
+        await db.set_setting(cid, "gram_topic", str(gram_tid))
+        await db.record_chat_topic(cid, gram_tid, "🎰 Казино")
+        await asyncio.sleep(0.5)
+        await bot.send_message(
+            cid,
+            "🎰 ✨ <b>ТЕМА «КАЗИНО И ИГРЫ» ПРИВЯЗАНА!</b> ✨ 🎰\n"
+            "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            "🎲 Все игры, рулетки, слоты и ставки теперь проходят строго в этой теме!\n\n"
+            "🎮 <b>Популярные мини-игры:</b>\n"
+            "• 🎰 <code>казик [ставка]</code> — крутить слоты\n"
+            "• 💣 <code>мины [ставка]</code> — опасное минное поле\n"
+            "• 🎡 <code>рулетка [ставка] [красное/черное/число]</code>\n"
+            "• 📈 <code>краш [ставка]</code> — динамический график умножения\n"
+            "• 🃏 <code>блэкджек [ставка]</code> — классическое 21 очко\n"
+            "• 🎲 <code>кости [ставка]</code> / <code>кубик</code>\n"
+            "• 💰 <code>баланс</code> — проверить баланс монет\n\n"
+            "👑 <i>Делайте ставки с умом и пусть удача улыбнется вам!</i>",
+            message_thread_id=gram_tid
+        )
 
-        # 4. Тема "🎰 Казино"
-        if cur_gram > 0:
-            gram_tid = cur_gram
-            reused_names.append(f"🎰 <b>Казино:</b> {topic_link(cid, gram_tid)} (уже привязана)")
-        else:
-            topic_casino = await bot.create_forum_topic(chat_id=cid, name="🎰 Казино", icon_color=16766590)
-            gram_tid = topic_casino.message_thread_id
-            await db.set_setting(cid, "gram_topic", str(gram_tid))
-            await db.record_chat_topic(cid, gram_tid, "🎰 Казино")
-            await asyncio.sleep(0.5)
-            await bot.send_message(
-                cid,
-                "🎰 ✨ <b>ТЕМА «КАЗИНО И ИГРЫ» ПРИВЯЗАНА!</b> ✨ 🎰\n"
-                "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-                "🎲 Все игры, рулетки, слоты и ставки теперь проходят строго в этой теме!\n\n"
-                "🎮 <b>Популярные мини-игры:</b>\n"
-                "• 🎰 <code>казик [ставка]</code> — крутить слоты\n"
-                "• 💣 <code>мины [ставка]</code> — опасное минное поле\n"
-                "• 🎡 <code>рулетка [ставка] [красное/черное/число]</code>\n"
-                "• 📈 <code>краш [ставка]</code> — динамический график умножения\n"
-                "• 🃏 <code>блэкджек [ставка]</code> — классическое 21 очко\n"
-                "• 🎲 <code>кости [ставка]</code> / <code>кубик</code>\n"
-                "• 💰 <code>баланс</code> — проверить баланс монет\n\n"
-                "👑 <i>Делайте ставки с умом и пусть удача улыбнется вам!</i>",
-                message_thread_id=gram_tid
-            )
-            created_names.append(f"🎰 <b>Казино:</b> {topic_link(cid, gram_tid)} (создана новая тема)")
-
-        summary_lines = [
-            "🎉 🌟 <b>АВТОНАСТРОЙКА ГРУППЫ УСПЕШНО ЗАВЕРШЕНА!</b> 🌟 🎉",
-            "✦ ══ • ⊰ 💖 🔮 💙 🩵 💚 💛 🟣 🧡 ❤️ 🤍 ⊱ • ══ ✦",
-            ""
-        ]
-        if created_names:
-            summary_lines.append("🆕 <b>Созданы и привязаны новые темы:</b>")
-            for c in created_names:
-                summary_lines.append(f"• {c}")
-            summary_lines.append("")
-        if reused_names:
-            summary_lines.append("📌 <b>Уже существовавшие темы сохранены:</b>")
-            for r in reused_names:
-                summary_lines.append(f"• {r}")
-            summary_lines.append("")
-        summary_lines.extend([
-            "✦ ══════════════════════════════ ✦",
+        summary = (
+            "🎉 🌟 <b>АВТОНАСТРОЙКА ГРУППЫ УСПЕШНО ЗАВЕРШЕНА!</b> 🌟 🎉\n"
+            "✦ ══ • ⊰ 💖 🔮 💙 🩵 💚 💛 🟣 🧡 ❤️ 🤍 ⊱ • ══ ✦\n\n"
+            "📋 <b>Созданы и привязаны официальные темы:</b>\n"
+            f"• 💬 <b>Общение:</b> {topic_link(cid, sms_tid)}\n"
+            f"• 🎰 <b>Казино:</b> {topic_link(cid, gram_tid)}\n"
+            f"• 📜 <b>Правила:</b> {topic_link(cid, rules_tid)}\n"
+            f"• 🐉 <b>Рейдовые Боссы:</b> {topic_link(cid, boss_tid)}\n\n"
+            "✦ ══════════════════════════════ ✦\n"
             "🚀 <b>Группа полностью настроена и готова к активному общению и битвам!</b>"
-        ])
-        await status_msg.edit_text("\n".join(summary_lines), disable_web_page_preview=True)
+        )
+        await status_msg.edit_text(summary, disable_web_page_preview=True)
 
     except Exception as e:
         await status_msg.edit_text(f"⚠️ Ошибка при создании тем: {html.escape(str(e))}")
@@ -834,6 +865,23 @@ async def cmd_delete_forum_topic(message: Message, bot: Bot, args: str = "", **k
                 pass
     except Exception as e:
         await message.reply(f"⚠️ Не удалось удалить тему #{tid}: {html.escape(str(e))}")
+
+
+@router.message(Cmd("сбросить темы", "сброс тем", "очистить темы", "сбросить темы чата",
+                    section=S_TOPIC, rank=4, usage="сбросить темы",
+                    desc="Сбросить все привязки тем и очистить сохраненный список веток"))
+async def cmd_reset_topics(message: Message, bot: Bot, **kw):
+    if not await require(message, bot, 4):
+        return
+    cid = message.chat.id
+    for meta in TOPIC_CATEGORIES.values():
+        await db.set_setting(cid, meta["setting"], "0")
+    await db.execute("DELETE FROM chat_forum_topics WHERE chat_id=?", (cid,))
+    await message.reply(
+        "🗑 <b>Все привязки тем и сохраненный список веток успешно сброшены!</b>\n\n"
+        "Теперь вы можете запустить <code>автонастройка</code> с чистого листа "
+        "или настроить темы через меню <code>темы</code>."
+    )
 
 
 
@@ -973,6 +1021,10 @@ async def topic(message: Message, bot: Bot, args: str = "", **kw):
             me = await bot.me()
             m = await bot.get_chat_member(message.chat.id, me.id)
             can_manage = getattr(m, "can_manage_topics", False)
+        except Exception:
+            pass
+        try:
+            await prune_dead_topics(bot, message.chat.id)
         except Exception:
             pass
 
@@ -1349,6 +1401,8 @@ async def cb_topics_dispatcher(call: CallbackQuery, bot: Bot):
 
     if action in {"main", "refresh"}:
         here = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+        if is_forum:
+            await prune_dead_topics(bot, cid)
         txt, kb = await render_topics_card_and_kb(cid, here, can_manage=can_manage, author_id=author_id)
         await safe_edit(txt, reply_markup=kb)
         await safe_answer("🔄 Список тем обновлён")
@@ -1356,6 +1410,8 @@ async def cb_topics_dispatcher(call: CallbackQuery, bot: Bot):
     elif action == "cat":
         cat = parts[2] if len(parts) > 2 else "gram"
         here = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
+        if is_forum:
+            await prune_dead_topics(bot, cid)
         txt, kb = await _build_topic_category_card(cid, here, cat, author_id=author_id)
         await safe_edit(txt, reply_markup=kb)
         await safe_answer()
@@ -1479,13 +1535,29 @@ async def cb_topics_dispatcher(call: CallbackQuery, bot: Bot):
         here = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
         for meta in TOPIC_CATEGORIES.values():
             await db.set_setting(cid, meta["setting"], "0")
-        await safe_answer("🗑 Все привязки тем успешно сброшены!", show_alert=True)
+        await db.execute("DELETE FROM chat_forum_topics WHERE chat_id=?", (cid,))
+        await safe_answer("🗑 Все привязки тем и список веток успешно сброшены!", show_alert=True)
         txt, kb = await render_topics_card_and_kb(cid, here, can_manage=can_manage, author_id=author_id)
         await safe_edit(txt, reply_markup=kb)
 
     elif action == "auto":
         if admin_rank < 4 and not is_bot_owner(uid):
             return await safe_answer("🔒 Автонастройка доступна администраторам от 4 ранга!", show_alert=True)
+        if is_forum:
+            await prune_dead_topics(bot, cid)
+        cur_sms = await get_sms_topic(cid)
+        cur_rules = await get_rules_topic(cid)
+        from h_boss import get_boss_topic
+        from h_grams import get_gram_topic
+        cur_boss = await get_boss_topic(cid)
+        cur_gram = await get_gram_topic(cid)
+        if cur_sms > 0 or cur_rules > 0 or cur_boss > 0 or cur_gram > 0:
+            return await safe_answer(
+                "⚠️ У вас уже привязаны темы в группе!\n\n"
+                "Пожалуйста, привяжите остальные темы вручную в меню тем, чтобы не создавать копии веток. "
+                "Или нажмите «Сбросить всё», если хотите настроить всё с нуля.",
+                show_alert=True
+            )
         await safe_answer("🪄 Запуск автонастройки...")
         fake_msg = call.message
         await cmd_auto_setup_topics(fake_msg, bot, skip_require=True)
