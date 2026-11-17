@@ -1147,13 +1147,19 @@ async def cmd_form_topic(message: Message, bot: Bot, args: str = "", **kw):
         cur = await get_form_topic(message.chat.id)
         cur_txt = (f"Сейчас: {topic_link(message.chat.id, cur)}" if cur
                    else "Сейчас: не задана")
+        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🌐 Разрешить во всех темах (сброс)", callback_data="topics:unbind:form:0")],
+            [InlineKeyboardButton(text="🧵 Все темы чата", callback_data="topics:main:0")]
+        ])
         return await message.reply(
-            f"📌 <b>Тема для описаний</b>\n\n{cur_txt}\n\n"
+            f"📌 <b>Тема для описаний и анкет</b>\n\n{cur_txt}\n\n"
             f"Установить — напишите команду <b>в нужной теме</b>:\n"
             f"<code>тема описания</code>\n\n"
             f"Или укажите ссылку:\n"
             f"<code>тема описания https://t.me/c/123456/789</code>\n\n"
             f"Снять: <code>тема описания сброс</code>",
+            reply_markup=kb,
             disable_web_page_preview=True)
 
     await db.set_setting(message.chat.id, "form_topic", str(tid))

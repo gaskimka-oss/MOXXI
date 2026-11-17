@@ -190,7 +190,7 @@ async def cmd_set_boss_topic(message: Message, bot: Bot, args: str = "", **kw):
 
     a = (args or "").strip().lower()
 
-    if a in {"выкл", "off", "откл", "удалить", "0", "disable"}:
+    if a in {"выкл", "off", "откл", "удалить", "0", "disable", "сброс", "убрать"}:
         await db.set_setting(cid, "boss_topic", "0")
         return await message.reply("🛑 <b>Привязка темы боссов отключена!</b>")
 
@@ -198,10 +198,16 @@ async def cmd_set_boss_topic(message: Message, bot: Bot, args: str = "", **kw):
     if not here:
         cur = await get_boss_topic(cid)
         cur_txt = f"\nТекущая тема: {_topic_link(cid, cur)}" if cur else "\nТекущая тема: <i>не привязана</i>"
+        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🌐 Разрешить во всех темах (сброс)", callback_data="topics:unbind:boss:0")],
+            [InlineKeyboardButton(text="🧵 Все темы чата", callback_data="topics:main:0")]
+        ])
         return await message.reply(
             f"⚠️ <b>Команду нужно писать внутри нужной темы (ветки)!</b>{cur_txt}\n\n"
             f"👉 Зайдите в созданную ветку (напр. «🐉 Рейдовые Боссы») и напишите: <code>+тема босс</code>\n"
             f"Отключить: <code>-тема босс</code>",
+            reply_markup=kb,
             disable_web_page_preview=True
         )
 

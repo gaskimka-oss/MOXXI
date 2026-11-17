@@ -717,6 +717,10 @@ async def cmd_set_sms_topic(message: Message, bot: Bot, args: str = "", **kw):
     if not await require(message, bot, 1):
         return
 
+    if (args or "").strip().lower() in {"сброс", "убрать", "выкл", "off", "0"}:
+        await db.set_setting(message.chat.id, "sms_topic", "0")
+        return await message.reply("🌐 <b>Привязка темы СМС сброшена!</b> Уведомления и анонсы будут отправляться в основной чат.")
+
     if not getattr(message.chat, "is_forum", False):
         return await message.reply(
             "⚠️ <b>Привязка тем доступна только в группах с включенными Темами (Форум)!</b>\n\n"
@@ -726,7 +730,12 @@ async def cmd_set_sms_topic(message: Message, bot: Bot, args: str = "", **kw):
 
     here = int(getattr(message, "message_thread_id", None) or 0)
     if not here:
-        return await message.reply("⚠️ Напишите эту команду внутри темы «СМС», чтобы привязать её.")
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🧵 Все темы чата", callback_data="topics:main:0")]])
+        return await message.reply(
+            "⚠️ <b>Напишите эту команду внутри темы «СМС», чтобы привязать её!</b>\n\n"
+            "Или откройте интерактивный центр тем кнопкой ниже:",
+            reply_markup=kb
+        )
     await db.set_setting(message.chat.id, "sms_topic", str(here))
     await message.reply(
         f"✅ <b>Тема «СМС» успешно установлена!</b>\n"
@@ -741,6 +750,10 @@ async def cmd_set_rules_topic(message: Message, bot: Bot, args: str = "", **kw):
     if not await require(message, bot, 1):
         return
 
+    if (args or "").strip().lower() in {"сброс", "убрать", "выкл", "off", "0"}:
+        await db.set_setting(message.chat.id, "rules_topic", "0")
+        return await message.reply("🌐 <b>Привязка темы правил сброшена!</b>")
+
     if not getattr(message.chat, "is_forum", False):
         return await message.reply(
             "⚠️ <b>Привязка тем доступна только в группах с включенными Темами (Форум)!</b>\n\n"
@@ -750,7 +763,12 @@ async def cmd_set_rules_topic(message: Message, bot: Bot, args: str = "", **kw):
 
     here = int(getattr(message, "message_thread_id", None) or 0)
     if not here:
-        return await message.reply("⚠️ Напишите эту команду внутри ветки форума «Правила», чтобы привязать её.")
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🧵 Все темы чата", callback_data="topics:main:0")]])
+        return await message.reply(
+            "⚠️ <b>Напишите эту команду внутри ветки форума «Правила», чтобы привязать её!</b>\n\n"
+            "Или откройте интерактивный центр тем кнопкой ниже:",
+            reply_markup=kb
+        )
     await db.set_setting(message.chat.id, "rules_topic", str(here))
     await message.reply(
         f"✅ <b>Тема «Правила» успешно установлена!</b>\n"
@@ -830,67 +848,292 @@ async def topic(message: Message, bot: Bot, args: str = "", **kw):
         except Exception:
             pass
 
-    if can_manage:
-        manage_status = (
-            "🟢 <b>Управление темами:</b> Активно\n"
-            "<i>Бот имеет полный доступ и штатно отвечает даже в закрытых темах.</i>"
-        )
-    else:
-        manage_status = (
-            "🟡 <b>Управление темами:</b> Требуется настройка!\n"
-            "<i>Выдайте боту в настройках администраторов чата право <b>«Управление темами»</b> (Manage Topics), "
-            "чтобы он мог автоматически отвечать в закрытых темах.</i>"
-        )
+    card_text, kb = await render_topics_card_and_kb(message.chat.id, here, can_manage=can_manage)
+    await message.reply(card_text, reply_markup=kb, disable_web_page_preview=True)
 
-    from h_userinfo import get_form_topic, topic_link
+
+TOPIC_CATEGORIES = {
+    "gram": {
+        "title": "🎰 Казино и мини-игры",
+        "emoji": "🎰",
+        "setting": "gram_topic",
+        "desc": "Слоты, рулетка, мины, краш, блэкджек и динамический рынок. Если привязана, бот перенаправляет игроков в эту тему.",
+        "default_state": "Разрешено во всех темах",
+    },
+    "form": {
+        "title": "📝 Анкеты и описания",
+        "emoji": "📝",
+        "setting": "form_topic",
+        "desc": "Заполнение и проверка анкет новичков чата. Если привязана, приветствие приглашает новичков заполнять анкету именно сюда.",
+        "default_state": "Не задана",
+    },
+    "sms": {
+        "title": "💬 СМС и анонсы",
+        "emoji": "💬",
+        "setting": "sms_topic",
+        "desc": "Уведомления, клановые анонсы, рассылки и новости чата отправляются в эту тему.",
+        "default_state": "Не задана (Основной чат)",
+    },
+    "boss": {
+        "title": "🐉 Рейдовые боссы",
+        "emoji": "🐉",
+        "setting": "boss_topic",
+        "desc": "Появление и рейдовые битвы с боссами беседы происходят в этой ветке.",
+        "default_state": "Не задана",
+    },
+    "rules": {
+        "title": "📜 Правила чата",
+        "emoji": "📜",
+        "setting": "rules_topic",
+        "desc": "Официальные правила беседы и кнопка быстрого перехода ведут в эту ветку.",
+        "default_state": "Не задана",
+    },
+}
+
+
+async def _get_all_chat_topics(chat_id: int) -> dict[str, int]:
+    from h_userinfo import get_form_topic
     from h_grams import get_gram_topic
     from h_boss import get_boss_topic
-    form_t = await get_form_topic(message.chat.id)
-    gram_t = await get_gram_topic(message.chat.id)
-    sms_t = await get_sms_topic(message.chat.id)
-    boss_t = await get_boss_topic(message.chat.id)
-    rules_t = await get_rules_topic(message.chat.id)
+    return {
+        "gram": await get_gram_topic(chat_id),
+        "form": await get_form_topic(chat_id),
+        "sms": await get_sms_topic(chat_id),
+        "boss": await get_boss_topic(chat_id),
+        "rules": await get_rules_topic(chat_id),
+    }
 
-    current_role = "💬 Обычное общение"
+
+async def render_topics_card_and_kb(chat_id: int, here: int, can_manage: bool = False) -> tuple[str, InlineKeyboardMarkup]:
+    from h_userinfo import topic_link
+    topics = await _get_all_chat_topics(chat_id)
+    gram_t = topics["gram"]
+    form_t = topics["form"]
+    sms_t = topics["sms"]
+    boss_t = topics["boss"]
+    rules_t = topics["rules"]
+
+    current_role = "💬 Обычное общение / General"
     if here:
         if here == form_t:
-            current_role = "📝 Описания и анкеты новичков"
+            current_role = "📝 Описания и анкеты"
         elif here == gram_t:
-            current_role = "🎰 Казино, монеты и мини-игры"
+            current_role = "🎰 Казино и мини-игры"
         elif here == boss_t:
             current_role = "🐉 Рейдовые боссы"
         elif here == sms_t:
             current_role = "💬 СМС, общение и анонсы"
         elif here == rules_t:
-            current_role = "📜 Правила чата"
+            current_role = "📜 Правила беседы"
 
-    note = await db.get_setting(message.chat.id, f"topic_note:{here}", "") if here else await db.get_setting(message.chat.id, "topic", "")
+    manage_status = (
+        "🟢 <b>Управление темами:</b> Активно (бот отвечает даже в закрытых ветках)"
+        if can_manage else
+        "🟡 <b>Управление темами:</b> Рекомендуется выдать боту право <b>«Управление темами»</b> (Manage Topics)"
+    )
 
-    card = [
-        "🧵 <b>УПРАВЛЕНИЕ ТЕМАМИ ЧАТА</b>",
+    def _fmt(val: int, is_gram: bool = False) -> str:
+        if val > 0:
+            return f"{topic_link(chat_id, val)} [ID: <code>{val}</code>]"
+        return "<i>разрешено везде</i>" if is_gram else "<i>не задана</i>"
+
+    note = await db.get_setting(chat_id, f"topic_note:{here}", "") if here else await db.get_setting(chat_id, "topic", "")
+
+    lines = [
+        "🧵 <b>ЦЕНТР УПРАВЛЕНИЯ ТЕМАМИ ЧАТА</b>",
+        "✦ ══════════════════════════════ ✦",
         f"📍 <b>Текущая ветка:</b> {current_role}" + (f" (ID: <code>{here}</code>)" if here else " (Основной чат)"),
     ]
     if note:
-        card.append(f"🏷 <b>Подпись темы:</b> {html.escape(note)}")
-    card.append("")
-    card.append(manage_status)
-    card.append("")
-    card.append("📋 <b>Настроенные темы чата:</b>")
-    card.append(f"💬 <b>СМС и общение:</b> " + (topic_link(message.chat.id, sms_t) if sms_t else "<i>не задана</i>"))
-    card.append(f"🎰 <b>Казино и игры:</b> " + (topic_link(message.chat.id, gram_t) if gram_t else "<i>разрешено везде</i>"))
-    card.append(f"📝 <b>Анкеты новичков:</b> " + (topic_link(message.chat.id, form_t) if form_t else "<i>не задана</i>"))
-    card.append(f"🐉 <b>Рейдовые боссы:</b> " + (topic_link(message.chat.id, boss_t) if boss_t else "<i>не задана</i>"))
-    card.append(f"📜 <b>Правила беседы:</b> " + (topic_link(message.chat.id, rules_t) if rules_t else "<i>не задана</i>"))
-    card.append("")
-    card.append("💡 <b>Быстрые команды для настройки тем:</b>")
-    card.append("• <code>тема казик</code> — привязать тему для казино и игр")
-    card.append("• <code>тема описание</code> — привязать тему для анкет новичков")
-    card.append("• <code>тема смс</code> — привязать тему для общения и новостей")
-    card.append("• <code>тема правила</code> — привязать тему для правил чата")
-    card.append("• <code>тема боссы</code> — привязать тему для рейдовых боссов")
-    card.append("• <code>автонастройка</code> — автоматически создать и привязать все темы")
+        lines.append(f"🏷 <b>Подпись ветки:</b> {html.escape(note)}")
+    lines.extend([
+        "",
+        manage_status,
+        "",
+        "📋 <b>Статус системных зон беседы:</b>",
+        f"🎰 <b>Казино и игры:</b> {_fmt(gram_t, True)}",
+        f"📝 <b>Анкеты новичков:</b> {_fmt(form_t)}",
+        f"💬 <b>СМС и общение:</b> {_fmt(sms_t)}",
+        f"🐉 <b>Рейдовые боссы:</b> {_fmt(boss_t)}",
+        f"📜 <b>Правила беседы:</b> {_fmt(rules_t)}",
+        "",
+        "👇 <i>Нажмите кнопку темы ниже для мгновенной привязки или сброса:</i>"
+    ])
 
-    await message.reply("\n".join(card), disable_web_page_preview=True)
+    buttons = [
+        [
+            InlineKeyboardButton(text="🎰 Казино", callback_data=f"topics:cat:gram:{here}"),
+            InlineKeyboardButton(text="📝 Анкеты", callback_data=f"topics:cat:form:{here}"),
+        ],
+        [
+            InlineKeyboardButton(text="💬 СМС", callback_data=f"topics:cat:sms:{here}"),
+            InlineKeyboardButton(text="🐉 Боссы", callback_data=f"topics:cat:boss:{here}"),
+        ],
+        [
+            InlineKeyboardButton(text="📜 Правила", callback_data=f"topics:cat:rules:{here}"),
+        ],
+    ]
+
+    action_row = []
+    if here:
+        action_row.append(InlineKeyboardButton(text=f"📍 Привязать ветку #{here}", callback_data=f"topics:here_menu:{here}"))
+    action_row.append(InlineKeyboardButton(text="🪄 Автонастройка", callback_data=f"topics:auto:{here}"))
+    buttons.append(action_row)
+
+    buttons.append([
+        InlineKeyboardButton(text="🔄 Обновить", callback_data=f"topics:refresh:{here}"),
+        InlineKeyboardButton(text="🗑 Сбросить всё", callback_data=f"topics:reset_all:{here}"),
+    ])
+
+    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+async def _build_topic_category_card(chat_id: int, here: int, cat: str) -> tuple[str, InlineKeyboardMarkup]:
+    from h_userinfo import topic_link
+    meta = TOPIC_CATEGORIES.get(cat, TOPIC_CATEGORIES["gram"])
+    setting_key = meta["setting"]
+    v = await db.get_setting(chat_id, setting_key, "0")
+    try:
+        cur_id = int(v)
+    except Exception:
+        cur_id = 0
+
+    if cur_id > 0:
+        cur_txt = f"📍 Привязана к: {topic_link(chat_id, cur_id)} (ID: <code>{cur_id}</code>)"
+    else:
+        cur_txt = f"🌐 {meta['default_state']}"
+
+    lines = [
+        f"{meta['emoji']} <b>НАСТРОЙКА ЗОНЫ: {meta['title']}</b>",
+        "✦ ══════════════════════════════ ✦",
+        f"ℹ️ {meta['desc']}",
+        "",
+        f"📊 Текущее состояние: <b>{cur_txt}</b>",
+        f"📍 Вы находитесь в ветке: <b>" + (f"ID <code>{here}</code>" if here else "Основной чат") + "</b>",
+        "",
+        "<i>Выберите необходимое действие:</i>"
+    ]
+
+    rows = []
+    if here:
+        rows.append([InlineKeyboardButton(text=f"📍 Привязать к ветке #{here}", callback_data=f"topics:bind:{cat}:{here}")])
+    rows.append([InlineKeyboardButton(text="🌐 Разрешить во всех темах / Сбросить", callback_data=f"topics:unbind:{cat}:{here}")])
+    rows.append([InlineKeyboardButton(text="◀️ Назад в меню тем", callback_data=f"topics:main:{here}")])
+
+    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _build_bind_here_card(chat_id: int, here: int) -> tuple[str, InlineKeyboardMarkup]:
+    lines = [
+        f"📍 <b>БЫСТРАЯ ПРИВЯЗКА ВЕТКИ #{here}</b>",
+        "✦ ══════════════════════════════ ✦",
+        f"Выберите, какую системную зону вы хотите назначить на ветку <b>ID <code>{here}</code></b>:",
+    ]
+    rows = [
+        [InlineKeyboardButton(text="🎰 Казино и мини-игры", callback_data=f"topics:bind:gram:{here}")],
+        [InlineKeyboardButton(text="📝 Анкеты и описания", callback_data=f"topics:bind:form:{here}")],
+        [InlineKeyboardButton(text="💬 СМС, общение и анонсы", callback_data=f"topics:bind:sms:{here}")],
+        [InlineKeyboardButton(text="🐉 Рейдовые боссы", callback_data=f"topics:bind:boss:{here}")],
+        [InlineKeyboardButton(text="📜 Правила беседы", callback_data=f"topics:bind:rules:{here}")],
+        [InlineKeyboardButton(text="◀️ Назад в меню тем", callback_data=f"topics:main:{here}")],
+    ]
+    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@router.callback_query(F.data.startswith("topics:"))
+async def cb_topics_dispatcher(call: CallbackQuery, bot: Bot):
+    from config import is_bot_owner
+    uid = call.from_user.id
+    cid = call.message.chat.id
+    have = await effective_rank(call.message, bot)
+    if have < 1 and not is_bot_owner(uid):
+        return await call.answer("🔒 Настройка тем доступна только администраторам беседы!", show_alert=True)
+
+    parts = call.data.split(":")
+    action = parts[1] if len(parts) > 1 else "main"
+
+    can_manage = False
+    try:
+        me = await bot.me()
+        m = await bot.get_chat_member(cid, me.id)
+        can_manage = getattr(m, "can_manage_topics", False)
+    except Exception:
+        pass
+
+    if action in {"main", "refresh"}:
+        here = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+        txt, kb = await render_topics_card_and_kb(cid, here, can_manage=can_manage)
+        try:
+            await call.message.edit_text(txt, reply_markup=kb, disable_web_page_preview=True)
+        except Exception:
+            pass
+        await call.answer("🔄 Список тем обновлён")
+
+    elif action == "cat":
+        cat = parts[2] if len(parts) > 2 else "gram"
+        here = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
+        txt, kb = await _build_topic_category_card(cid, here, cat)
+        try:
+            await call.message.edit_text(txt, reply_markup=kb, disable_web_page_preview=True)
+        except Exception:
+            pass
+        await call.answer()
+
+    elif action == "here_menu":
+        here = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+        if not here:
+            return await call.answer("⚠️ Вы находитесь в основном чате! Перейдите в нужную ветку форума.", show_alert=True)
+        txt, kb = _build_bind_here_card(cid, here)
+        try:
+            await call.message.edit_text(txt, reply_markup=kb, disable_web_page_preview=True)
+        except Exception:
+            pass
+        await call.answer()
+
+    elif action == "bind":
+        cat = parts[2]
+        tid = parts[3] if len(parts) > 3 else "0"
+        meta = TOPIC_CATEGORIES.get(cat)
+        if meta:
+            await db.set_setting(cid, meta["setting"], tid)
+            await call.answer(f"✅ Зона «{meta['title']}» привязана к ветке #{tid}!", show_alert=True)
+        here = int(tid) if tid.isdigit() else 0
+        txt, kb = await render_topics_card_and_kb(cid, here, can_manage=can_manage)
+        try:
+            await call.message.edit_text(txt, reply_markup=kb, disable_web_page_preview=True)
+        except Exception:
+            pass
+
+    elif action == "unbind":
+        cat = parts[2]
+        here = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
+        meta = TOPIC_CATEGORIES.get(cat)
+        if meta:
+            await db.set_setting(cid, meta["setting"], "0")
+            await call.answer(f"🌐 Зона «{meta['title']}» сброшена!", show_alert=True)
+        txt, kb = await render_topics_card_and_kb(cid, here, can_manage=can_manage)
+        try:
+            await call.message.edit_text(txt, reply_markup=kb, disable_web_page_preview=True)
+        except Exception:
+            pass
+
+    elif action == "reset_all":
+        here = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+        for meta in TOPIC_CATEGORIES.values():
+            await db.set_setting(cid, meta["setting"], "0")
+        await call.answer("🗑 Все привязки тем успешно сброшены!", show_alert=True)
+        txt, kb = await render_topics_card_and_kb(cid, here, can_manage=can_manage)
+        try:
+            await call.message.edit_text(txt, reply_markup=kb, disable_web_page_preview=True)
+        except Exception:
+            pass
+
+    elif action == "auto":
+        if have < 4 and not is_bot_owner(uid):
+            return await call.answer("🔒 Автонастройка доступна администраторам от 4 ранга!", show_alert=True)
+        await call.answer("🪄 Запуск автонастройки...")
+        fake_msg = call.message
+        await cmd_auto_setup_topics(fake_msg, bot)
 
 
 # ================= 11. ГОЛОСОВАНИЯ =================

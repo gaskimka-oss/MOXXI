@@ -3301,12 +3301,17 @@ async def cmd_gram_topic(message: Message, bot: Bot, args: str = "", **kw):
     if not tid:
         cur = await get_gram_topic(message.chat.id)
         cur_txt = (f"Сейчас: {_tlink(message.chat.id, cur)}" if cur else "Сейчас: разрешено во всех темах (не ограничено)")
+        kb_rows = [
+            [InlineKeyboardButton(text="🌐 Разрешить во всех темах (сброс)", callback_data="topics:unbind:gram:0")],
+            [InlineKeyboardButton(text="🧵 Все темы чата", callback_data="topics:main:0")]
+        ]
         return await message.reply(
             f"🎰 <b>Настройка игровой темы (Казино)</b>\n\n"
             f"📍 {cur_txt}\n\n"
             f"👉 <b>Чтобы привязать текущую ветку:</b> напишите прямо в ней: <code>тема казик</code> или <code>казик здесь</code>\n"
             f"👉 <b>Или ссылкой:</b> <code>тема игр https://t.me/c/123456/789</code>\n"
             f"👉 <b>Разрешить везде:</b> <code>игры везде</code> или <code>тема казик сброс</code>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows),
             disable_web_page_preview=True)
 
     await db.set_setting(message.chat.id, "gram_topic", str(tid))
