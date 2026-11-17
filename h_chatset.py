@@ -1391,6 +1391,7 @@ async def cb_topics_dispatcher(call: CallbackQuery, bot: Bot):
     if not is_admin:
         return await safe_answer("🔒 Настройка тем доступна только администраторам беседы!", show_alert=True)
 
+    is_forum = bool(getattr(call.message.chat, "is_forum", False)) if (call.message and call.message.chat) else False
     can_manage = False
     try:
         me = await bot.me()
