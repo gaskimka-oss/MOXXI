@@ -1129,6 +1129,14 @@ async def _migrate() -> None:
     """Добавляет недостающие колонки в уже существующих базах."""
     try:
         await _conn.execute(
+            "CREATE TABLE IF NOT EXISTS chat_forum_topics ("
+            "chat_id INTEGER NOT NULL, "
+            "thread_id INTEGER NOT NULL, "
+            "name TEXT NOT NULL DEFAULT '', "
+            "updated_at INTEGER NOT NULL DEFAULT 0, "
+            "PRIMARY KEY (chat_id, thread_id))"
+        )
+        await _conn.execute(
             "CREATE TABLE IF NOT EXISTS chat_themes ("
             "chat_id INTEGER PRIMARY KEY, "
             "theme TEXT NOT NULL DEFAULT 'rainbow', "
@@ -2172,6 +2180,37 @@ async def set_setting(chat_id: int, key: str, value: str) -> None:
 async def delete_setting(chat_id: int, key: str) -> None:
     _SETTINGS_CACHE.pop((chat_id, key), None)
     await execute("DELETE FROM settings WHERE chat_id=? AND key=?", (chat_id, key))
+
+
+# --- Известные темы форума групп (chat_forum_topics) ---
+async def record_chat_topic(chat_id: int, thread_id: int, name: str = "") -> None:
+    """Сохраняет или обновляет информацию об известной теме форума беседы."""
+    if not thread_id or chat_id >= 0:
+        return
+    now = int(time.time())
+    clean_name = (name or "").strip()
+    if clean_name:
+        await execute(
+            "INSERT INTO chat_forum_topics (chat_id, thread_id, name, updated_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(chat_id, thread_id) DO UPDATE SET name=excluded.name, updated_at=excluded.updated_at",
+            (chat_id, thread_id, clean_name, now)
+        )
+    else:
+        await execute(
+            "INSERT INTO chat_forum_topics (chat_id, thread_id, name, updated_at) VALUES (?, ?, '', ?) "
+            "ON CONFLICT(chat_id, thread_id) DO UPDATE SET updated_at=excluded.updated_at",
+            (chat_id, thread_id, now)
+        )
+
+
+async def get_known_chat_topics(chat_id: int) -> list[dict]:
+    """Возвращает список всех известных тем беседы."""
+    rows = await fetchall(
+        "SELECT thread_id, name FROM chat_forum_topics WHERE chat_id=? ORDER BY updated_at DESC LIMIT 30",
+        (chat_id,)
+    )
+    return [{"thread_id": int(r["thread_id"]), "name": str(r["name"])} for r in rows] if rows else []
+
 
 
 # --- VIP & VIP+ -----------------------------------------------------------

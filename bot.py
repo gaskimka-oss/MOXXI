@@ -165,6 +165,15 @@ async def user_middleware(handler, event, data: dict):
             object.__setattr__(event, "is_topic_message", True)
         except Exception:
             pass
+        try:
+            t_name = ""
+            if getattr(event, "forum_topic_created", None):
+                t_name = event.forum_topic_created.name
+            elif getattr(event, "forum_topic_edited", None):
+                t_name = event.forum_topic_edited.name
+            await db.record_chat_topic(event.chat.id, event.message_thread_id, t_name)
+        except Exception:
+            pass
 
     user = getattr(event, "from_user", None)
     if user:
