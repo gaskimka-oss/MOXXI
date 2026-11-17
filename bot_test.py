@@ -146,6 +146,8 @@ import h_moxxi_3_0 as moxxi_3_0
 import h_moxxi_apex as moxxi_apex
 import h_staff_hq as staff_hq
 import h_diagnostics as diagnostics
+import core_nav as nav
+import h_webapp as webapp
 
 
 async def set_commands(bot: Bot) -> None:
@@ -165,6 +167,7 @@ async def set_commands(bot: Bot) -> None:
 async def main() -> None:
     log.info("🧪 Инициализация тестовой базы данных: %s", TEST_DB_PATH)
     await db.init()
+    await staff_hq.init_staff_tables()
     log.info("✅ Тестовая база данных готова (изолирована от продакшна).")
 
     bot = Bot(
@@ -173,35 +176,54 @@ async def main() -> None:
     )
     dp = Dispatcher()
 
-    # Подключаем middleware
-    from bot import user_middleware, TopicClosedRetryMiddleware
-    dp.message.outer_middleware(user_middleware)
-    dp.callback_query.outer_middleware(user_middleware)
-    dp.message.middleware(access_middleware)
-    dp.callback_query.middleware(access_middleware)
+    # Подключаем middleware в точности как в основном боте:
+    from bot import user_middleware, keyboard_middleware, TopicClosedRetryMiddleware
+    dp.message.outer_middleware(keyboard_middleware)
+    dp.message.middleware(user_middleware)
+    dp.callback_query.middleware(user_middleware)
     bot.session.middleware(TopicClosedRetryMiddleware())
 
-    # Регистрируем все модули
-    dp.include_router(diagnostics.router)
-    dp.include_router(owner_panel.router)
+    # ДК применяется к командным роутерам
+    command_routers = (
+        helpmenu.router, mod_ranks.router, mod_bans.router, chatset.router,
+        dk.router, chatlock.router, fun.router, modules.router, rp.router,
+        userinfo.router, tournament.router, relations.router, vip.router,
+        pets.router, market.router, dungeon.router, jackpot.router, titles.router,
+        party_games.router, tictactoe.router, mega_games.router, webapp.router, community_support.router,
+        player_features.router,
+        security_plus.router, staff_plus.router, economy_plus.router, social_plus.router,
+        veteran.router, botinfo.router, ai_features.router, callall.router,
+        automod.router, nightmode.router, boss.router, items.router,
+        duels.router, clan_wars.router, fishing_craft.router, achievements.router,
+        quests.router, social_fun.router, grams.router, nav.router,
+        adminpanel.router, owner_panel.router, diagnostics.router, start.router, update_2_2.router, currency_exchange.router, vip_plus.router, moxxi_3_0.router,
+        staff_hq.router,
+    )
+    for r in command_routers:
+        r.message.middleware(access_middleware)
+
+    dp.include_router(nav.router)
     dp.include_router(adminpanel.router)
+    dp.include_router(owner_panel.router)
+    dp.include_router(diagnostics.router)
+    dp.include_router(staff_hq.router)
+    dp.include_router(clan_sync.router)
+    dp.include_router(start.router)
+    dp.include_router(helpmenu.router)
+    dp.include_router(dk.router)
+    dp.include_router(chatlock.router)
+    dp.include_router(callall.router)
     dp.include_router(mod_ranks.router)
     dp.include_router(mod_bans.router)
-    dp.include_router(automod.router)
-    dp.include_router(chatlock.router)
-    dp.include_router(nightmode.router)
-    dp.include_router(callall.router)
-    dp.include_router(dk.router)
-    dp.include_router(clan_sync.router)
-    dp.include_router(ai_features.router)
-    dp.include_router(helpmenu.router)
-    dp.include_router(start.router)
-    dp.include_router(staff_hq.router)
-    dp.include_router(staff_plus.router)
     dp.include_router(security_plus.router)
+    dp.include_router(staff_plus.router)
     dp.include_router(economy_plus.router)
     dp.include_router(social_plus.router)
     dp.include_router(veteran.router)
+    dp.include_router(automod.router)
+    dp.include_router(nightmode.router)
+    dp.include_router(ai_features.router)
+    dp.include_router(rp.router)
     dp.include_router(boss.router)
     dp.include_router(items.router)
     dp.include_router(duels.router)
@@ -235,18 +257,54 @@ async def main() -> None:
     dp.include_router(vip_plus.router)
     dp.include_router(moxxi_3_0.router)
     dp.include_router(moxxi_apex.router)
-    dp.include_router(rp.router)
     dp.include_router(passive.router)
 
-    me = await bot.get_me()
+    me = None
+    attempt = 0
+    while me is None:
+        attempt += 1
+        try:
+            me = await bot.get_me()
+            break
+        except Exception as e:
+            if attempt % 5 == 1 or attempt <= 3:
+                log.warning("Ожидание подключения к Telegram API (попытка %d: %s)... повтор через 5с", attempt, e)
+            await asyncio.sleep(5)
+
     log.info("🚀 ТЕСТ-БОТ ЗАПУЩЕН УСПЕШНО: @%s (ID: %s)", me.username, me.id)
     log.info("🛡 Безопасность: Продакшн-база iris.db НЕ задействована. Все тесты идут в %s", TEST_DB_PATH.name)
 
     await set_commands(bot)
-    await bot.delete_webhook(drop_pending_updates=True)
+
+    loop = asyncio.get_running_loop()
+    import signal
+    stopping_event = asyncio.Event()
+
+    def _on_stop():
+        stopping_event.set()
+        asyncio.create_task(dp.stop_polling())
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, _on_stop)
+        except (NotImplementedError, AttributeError):
+            pass
 
     try:
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+        while not stopping_event.is_set():
+            try:
+                await bot.delete_webhook(drop_pending_updates=True)
+                await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+                if stopping_event.is_set():
+                    break
+                log.warning("start_polling завершился без сигнала остановки. Авто-перезапуск через 3с...")
+                await asyncio.sleep(3)
+            except asyncio.CancelledError:
+                log.info("Получен сигнал остановки — завершаюсь.")
+                break
+            except Exception as e:
+                log.warning("Сбой сетевого соединения (%s): %s. Автоматическое переподключение через 5с...", type(e).__name__, e)
+                await asyncio.sleep(5)
     finally:
         log.info("🛑 Остановка тест-бота...")
         await db.close()

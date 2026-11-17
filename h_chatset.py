@@ -777,7 +777,7 @@ async def cmd_set_rules_topic(message: Message, bot: Bot, args: str = "", **kw):
 
 
 # ================= 10. ТЕМЫ МОДЕРАТОРОВ =================
-@router.message(Cmd("тема", "темы", section=S_TOPIC, rank=1, usage="тема",
+@router.message(Cmd("тема", "темы", "теми", "топик", "топики", section=S_TOPIC, rank=1, usage="тема",
                     desc="Что настроено в этой теме"))
 async def topic(message: Message, bot: Bot, args: str = "", **kw):
     """Показывает назначение темы, статус прав бота и подсказки быстрых команд.
