@@ -1043,11 +1043,44 @@ def _build_bind_here_card(chat_id: int, here: int) -> tuple[str, InlineKeyboardM
 @router.callback_query(F.data.startswith("topics:"))
 async def cb_topics_dispatcher(call: CallbackQuery, bot: Bot):
     from config import is_bot_owner
+    from core_ranks import get_rank
     uid = call.from_user.id
     cid = call.message.chat.id
-    have = await effective_rank(call.message, bot)
-    if have < 1 and not is_bot_owner(uid):
-        return await call.answer("🔒 Настройка тем доступна только администраторам беседы!", show_alert=True)
+
+    async def safe_answer(text: str = "", show_alert: bool = False):
+        try:
+            await call.answer(text, show_alert=show_alert)
+        except Exception:
+            pass
+
+    async def safe_edit(text: str, reply_markup=None):
+        try:
+            await call.message.edit_text(text, reply_markup=reply_markup, disable_web_page_preview=True)
+        except Exception:
+            pass
+
+    # Корректная проверка прав именно нажавшего пользователя (а не бота из call.message):
+    is_admin = is_bot_owner(uid)
+    admin_rank = 10 if is_admin else 0
+    if not is_admin:
+        r = await get_rank(cid, uid)
+        if r and r >= 1:
+            admin_rank = r
+            is_admin = True
+        else:
+            try:
+                cm = await bot.get_chat_member(cid, uid)
+                if cm.status == "creator":
+                    admin_rank = 10
+                    is_admin = True
+                elif cm.status == "administrator":
+                    admin_rank = 5
+                    is_admin = True
+            except Exception:
+                pass
+
+    if not is_admin:
+        return await safe_answer("🔒 Настройка тем доступна только администраторам беседы!", show_alert=True)
 
     parts = call.data.split(":")
     action = parts[1] if len(parts) > 1 else "main"
@@ -1063,32 +1096,23 @@ async def cb_topics_dispatcher(call: CallbackQuery, bot: Bot):
     if action in {"main", "refresh"}:
         here = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
         txt, kb = await render_topics_card_and_kb(cid, here, can_manage=can_manage)
-        try:
-            await call.message.edit_text(txt, reply_markup=kb, disable_web_page_preview=True)
-        except Exception:
-            pass
-        await call.answer("🔄 Список тем обновлён")
+        await safe_edit(txt, reply_markup=kb)
+        await safe_answer("🔄 Список тем обновлён")
 
     elif action == "cat":
         cat = parts[2] if len(parts) > 2 else "gram"
         here = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
         txt, kb = await _build_topic_category_card(cid, here, cat)
-        try:
-            await call.message.edit_text(txt, reply_markup=kb, disable_web_page_preview=True)
-        except Exception:
-            pass
-        await call.answer()
+        await safe_edit(txt, reply_markup=kb)
+        await safe_answer()
 
     elif action == "here_menu":
         here = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
         if not here:
-            return await call.answer("⚠️ Вы находитесь в основном чате! Перейдите в нужную ветку форума.", show_alert=True)
+            return await safe_answer("⚠️ Вы находитесь в основном чате! Перейдите в нужную ветку форума.", show_alert=True)
         txt, kb = _build_bind_here_card(cid, here)
-        try:
-            await call.message.edit_text(txt, reply_markup=kb, disable_web_page_preview=True)
-        except Exception:
-            pass
-        await call.answer()
+        await safe_edit(txt, reply_markup=kb)
+        await safe_answer()
 
     elif action == "bind":
         cat = parts[2]
@@ -1096,13 +1120,10 @@ async def cb_topics_dispatcher(call: CallbackQuery, bot: Bot):
         meta = TOPIC_CATEGORIES.get(cat)
         if meta:
             await db.set_setting(cid, meta["setting"], tid)
-            await call.answer(f"✅ Зона «{meta['title']}» привязана к ветке #{tid}!", show_alert=True)
+            await safe_answer(f"✅ Зона «{meta['title']}» привязана к ветке #{tid}!", show_alert=True)
         here = int(tid) if tid.isdigit() else 0
         txt, kb = await render_topics_card_and_kb(cid, here, can_manage=can_manage)
-        try:
-            await call.message.edit_text(txt, reply_markup=kb, disable_web_page_preview=True)
-        except Exception:
-            pass
+        await safe_edit(txt, reply_markup=kb)
 
     elif action == "unbind":
         cat = parts[2]
@@ -1110,28 +1131,22 @@ async def cb_topics_dispatcher(call: CallbackQuery, bot: Bot):
         meta = TOPIC_CATEGORIES.get(cat)
         if meta:
             await db.set_setting(cid, meta["setting"], "0")
-            await call.answer(f"🌐 Зона «{meta['title']}» сброшена!", show_alert=True)
+            await safe_answer(f"🌐 Зона «{meta['title']}» сброшена!", show_alert=True)
         txt, kb = await render_topics_card_and_kb(cid, here, can_manage=can_manage)
-        try:
-            await call.message.edit_text(txt, reply_markup=kb, disable_web_page_preview=True)
-        except Exception:
-            pass
+        await safe_edit(txt, reply_markup=kb)
 
     elif action == "reset_all":
         here = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
         for meta in TOPIC_CATEGORIES.values():
             await db.set_setting(cid, meta["setting"], "0")
-        await call.answer("🗑 Все привязки тем успешно сброшены!", show_alert=True)
+        await safe_answer("🗑 Все привязки тем успешно сброшены!", show_alert=True)
         txt, kb = await render_topics_card_and_kb(cid, here, can_manage=can_manage)
-        try:
-            await call.message.edit_text(txt, reply_markup=kb, disable_web_page_preview=True)
-        except Exception:
-            pass
+        await safe_edit(txt, reply_markup=kb)
 
     elif action == "auto":
-        if have < 4 and not is_bot_owner(uid):
-            return await call.answer("🔒 Автонастройка доступна администраторам от 4 ранга!", show_alert=True)
-        await call.answer("🪄 Запуск автонастройки...")
+        if admin_rank < 4 and not is_bot_owner(uid):
+            return await safe_answer("🔒 Автонастройка доступна администраторам от 4 ранга!", show_alert=True)
+        await safe_answer("🪄 Запуск автонастройки...")
         fake_msg = call.message
         await cmd_auto_setup_topics(fake_msg, bot)
 
