@@ -18,6 +18,7 @@ from aiogram import Bot, F, Router
 from aiogram.types import Message
 
 import db
+import config
 from core_ranks import effective_rank, get_rank, rank_label, rank_name, require
 from core_registry import Cmd, stars
 from core_resolve import human_period, parse_period, resolve_target
@@ -687,23 +688,166 @@ async def cmd_cd_general(message: Message, bot: Bot, args: str = "", **kw):
 
 
 
-# ---------------- 13. ОТПУСК МОДЕРАТОРА ----------------
-@router.message(Cmd("отпуск", "в отпуск", rank=6,
-                    usage="отпуск {ссылка} [срок]", desc="🏖 Отправить модератора в отпуск"))
+# ---------------- 13. ОТПУСК МОДЕРАТОРА / СОСТАВА ----------------
+@router.message(Cmd("отпуск", "в отпуск", "отправить в отпуск", "+отпуск",
+                    rank=0, section=14,
+                    usage="отпуск {ссылка} [срок] [причина]",
+                    desc="🏖 Отправить модератора или участника в отпуск"))
 async def cmd_set_vacation(message: Message, bot: Bot, args: str = "", **kw):
-    if not await require(message, bot, 6):
-        return
+    actor_id = message.from_user.id
+    actor_rank = await effective_rank(message, bot)
+
+    from config import is_bot_owner, ADMINS
+    is_admin = (actor_rank >= 2) or is_bot_owner(actor_id) or (actor_id in getattr(config, "ADMINS", set()))
+    is_clan_lead = False
+    if not is_admin:
+        c_owner = await db.fetchone("SELECT 1 FROM clans WHERE owner_id=?", (actor_id,))
+        if c_owner:
+            is_clan_lead = True
+        else:
+            c_lead = await db.fetchone("SELECT 1 FROM clan_members WHERE user_id=? AND role IN ('leader', 'owner', 'deputy')", (actor_id,))
+            if c_lead:
+                is_clan_lead = True
+
+    if not (is_admin or is_clan_lead):
+        return await message.reply(
+            "⛔️ <b>Недостаточно прав!</b>\n"
+            "Отправлять в отпуск могут администраторы (ранг 2+), владельцы чата или лидеры клана."
+        )
+
     uid, name, rest = await resolve_target(message, args, bot)
     if not uid:
-        return await message.reply("Укажите модератора: реплаем или @ником.")
+        return await message.reply(
+            "🏖 <b>Команда «отпуск»:</b>\n"
+            "Использование: <code>отпуск @юзер [срок] [причина]</code> (или ответом на сообщение)\n\n"
+            "Примеры:\n"
+            "• <code>отпуск @юзер 7д Сессия</code>\n"
+            "• <code>отпуск @юзер 2н Отдых на море</code>\n"
+            "• <code>отпуск @юзер</code> (по умолчанию 7 дней)"
+        )
+
+    if uid == bot.id:
+        return await message.reply("🤖 Боту отпуск не положен — я на посту 24/7!")
+
     tgt_rank = await get_rank(message.chat.id, uid)
-    if tgt_rank == 0:
+    if tgt_rank > actor_rank and not (is_bot_owner(actor_id) or actor_rank >= 8 or is_clan_lead):
+        return await message.reply("⛔️ Вы не можете отправить в отпуск участника с рангом выше вашего.")
+
+    secs, reason = parse_period(rest or "")
+    if secs <= 0:
+        secs = 7 * 86400  # по умолчанию 7 дней
+    reason = (reason or "").strip() or "Не указана"
+
+    now = int(time.time())
+    until_ts = now + secs
+    until_str = datetime.fromtimestamp(until_ts, tz=timezone(timedelta(hours=3))).strftime("%d.%m.%Y %H:%M МСК")
+
+    await db.execute(
+        "INSERT INTO staff_vacations (chat_id, user_id, until_ts, reason) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(chat_id, user_id) DO UPDATE SET until_ts=excluded.until_ts, reason=excluded.reason",
+        (message.chat.id, uid, until_ts, reason)
+    )
+
+    actor_name = message.from_user.first_name or f"ID {actor_id}"
+    await send_to_mod_log(
+        bot, message.chat.id,
+        f"🏖 <b>[ОТПУСК]</b> {mention_id(actor_id, actor_name)} отправил(а) в отпуск "
+        f"{mention_id(uid, name)} на {human_period(secs)} (до {until_str}).\nПричина: {html.escape(reason)}"
+    )
+
+    await message.reply(
+        f"🏖 <b>{mention_id(uid, name)} отправлен(а) в отпуск!</b>\n\n"
+        f"⏱ <b>Срок:</b> {human_period(secs)}\n"
+        f"📅 <b>До:</b> {until_str}\n"
+        f"📝 <b>Причина:</b> {html.escape(reason)}\n"
+        f"👤 <b>Оформил:</b> {mention_id(actor_id, actor_name)}\n\n"
+        f"<i>Статус отпуска отображается в статистике и списке состава. "
+        f"Чтобы вернуть досрочно:</i> <code>-отпуск @{html.escape(name) if not name.startswith('id') else ''}</code>",
+        disable_web_page_preview=True
+    )
+
+
+@router.message(Cmd("-отпуск", "снять отпуск", "отпуск снять", "вернуть из отпуска", "- отпуск",
+                    rank=0, section=14,
+                    usage="снять отпуск {ссылка}",
+                    desc="Вернуть участника из отпуска"))
+async def cmd_remove_vacation(message: Message, bot: Bot, args: str = "", **kw):
+    actor_id = message.from_user.id
+    actor_rank = await effective_rank(message, bot)
+
+    from config import is_bot_owner, ADMINS
+    is_admin = (actor_rank >= 2) or is_bot_owner(actor_id) or (actor_id in getattr(config, "ADMINS", set()))
+    is_clan_lead = False
+    if not is_admin:
+        c_owner = await db.fetchone("SELECT 1 FROM clans WHERE owner_id=?", (actor_id,))
+        if c_owner:
+            is_clan_lead = True
+        else:
+            c_lead = await db.fetchone("SELECT 1 FROM clan_members WHERE user_id=? AND role IN ('leader', 'owner', 'deputy')", (actor_id,))
+            if c_lead:
+                is_clan_lead = True
+
+    if not (is_admin or is_clan_lead):
         return await message.reply(
-            "ℹ️ Сварн (супер-варн) предназначен строго для персонала (ранги 1–9: от Стажёра до Заместителя).\n"
-            "Для обычных участников используйте команду: <code>варн</code>."
+            "⛔️ <b>Недостаточно прав!</b>\n"
+            "Снимать отпуск могут администраторы (ранг 2+), владельцы чата или лидеры клана."
         )
-    if tgt_rank == 0:
-        return await message.reply(
-            "ℹ️ Сварн (супер-варн) предназначен строго для персонала (ранги 1–9: от Стажёра до Заместителя).\n"
-            "Для обычных участников используйте команду: <code>варн</code>."
+
+    uid, name, _ = await resolve_target(message, args, bot)
+    if not uid:
+        return await message.reply("Укажите участника: реплаем или <code>-отпуск @юзер</code>.")
+
+    vac = await db.fetchone(
+        "SELECT until_ts, reason FROM staff_vacations WHERE chat_id=? AND user_id=?",
+        (message.chat.id, uid)
+    )
+    if not vac:
+        return await message.reply(f"ℹ️ {mention_id(uid, name)} не находится в отпуске.")
+
+    await db.execute("DELETE FROM staff_vacations WHERE chat_id=? AND user_id=?", (message.chat.id, uid))
+
+    actor_name = message.from_user.first_name or f"ID {actor_id}"
+    await send_to_mod_log(
+        bot, message.chat.id,
+        f"💼 <b>[ВОЗВРАТ ИЗ ОТПУСКА]</b> {mention_id(actor_id, actor_name)} вернул(а) "
+        f"{mention_id(uid, name)} из отпуска."
+    )
+
+    await message.reply(
+        f"💼 <b>{mention_id(uid, name)} возвращён(а) из отпуска к обязанностям!</b>\n"
+        f"👤 <b>Действие выполнил:</b> {mention_id(actor_id, actor_name)}"
+    )
+
+
+@router.message(Cmd("отпуска", "список отпусков", "отпускники", "все отпуска",
+                    rank=0, section=14,
+                    usage="отпуска",
+                    desc="Список участников в отпуске"))
+async def cmd_list_vacations(message: Message, bot: Bot, args: str = "", **kw):
+    cid = message.chat.id
+    now = int(time.time())
+    # Очищаем истёкшие отпуска
+    await db.execute("DELETE FROM staff_vacations WHERE chat_id=? AND until_ts <= ?", (cid, now))
+
+    rows = await db.fetchall(
+        "SELECT user_id, until_ts, reason FROM staff_vacations WHERE chat_id=? AND until_ts > ? ORDER BY until_ts ASC",
+        (cid, now)
+    )
+    if not rows:
+        return await message.reply("🏖 <b>В этом чате сейчас никто не находится в отпуске.</b>")
+
+    out = [f"🏖 <b>Участники в отпуске ({len(rows)}):</b>\n"]
+    for idx, r in enumerate(rows, 1):
+        uid = r["user_id"]
+        until_ts = r["until_ts"]
+        reason = r["reason"] or "Не указана"
+        u = await db.get_user(uid)
+        nm = u.get("first_name") or f"Игрок {uid}"
+        rem_secs = max(0, until_ts - now)
+        until_dt = datetime.fromtimestamp(until_ts, tz=timezone(timedelta(hours=3))).strftime("%d.%m.%Y %H:%M")
+        out.append(
+            f"<b>{idx}.</b> {mention_id(uid, nm)} — до <b>{until_dt} МСК</b> "
+            f"(осталось {human_period(rem_secs)})\n"
+            f"   📝 <i>Причина: {html.escape(reason)}</i>"
         )
+    await message.reply("\n".join(out), disable_web_page_preview=True)

@@ -1347,8 +1347,13 @@ async def cb_topics_dispatcher(call: CallbackQuery, bot: Bot):
     async def safe_edit(text: str, reply_markup=None):
         try:
             await call.message.edit_text(text, reply_markup=reply_markup, disable_web_page_preview=True)
-        except Exception:
-            pass
+        except Exception as e:
+            from aiogram.exceptions import TelegramBadRequest
+            if isinstance(e, TelegramBadRequest) and "message is not modified" in str(e).lower():
+                pass
+            else:
+                import logging
+                logging.getLogger("moxxibot").warning(f"[TOPICS] safe_edit error: {e}")
 
     parts = call.data.split(":")
     action = parts[1] if len(parts) > 1 else "main"
@@ -1400,30 +1405,34 @@ async def cb_topics_dispatcher(call: CallbackQuery, bot: Bot):
     except Exception:
         pass
 
-    if action in {"main", "refresh"}:
+    if action == "refresh":
+        await safe_answer("🔄 Обновляю список тем...")
         here = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
         if is_forum:
             await prune_dead_topics(bot, cid)
         txt, kb = await render_topics_card_and_kb(cid, here, can_manage=can_manage, author_id=author_id)
         await safe_edit(txt, reply_markup=kb)
-        await safe_answer("🔄 Список тем обновлён")
+
+    elif action == "main":
+        await safe_answer()
+        here = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+        txt, kb = await render_topics_card_and_kb(cid, here, can_manage=can_manage, author_id=author_id)
+        await safe_edit(txt, reply_markup=kb)
 
     elif action == "cat":
+        await safe_answer()
         cat = parts[2] if len(parts) > 2 else "gram"
         here = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
-        if is_forum:
-            await prune_dead_topics(bot, cid)
         txt, kb = await _build_topic_category_card(cid, here, cat, author_id=author_id)
         await safe_edit(txt, reply_markup=kb)
-        await safe_answer()
 
     elif action == "here_menu":
         here = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
         if not here:
             return await safe_answer("⚠️ Вы находитесь в основном чате! Перейдите в нужную ветку форума.", show_alert=True)
+        await safe_answer()
         txt, kb = _build_bind_here_card(cid, here, author_id=author_id)
         await safe_edit(txt, reply_markup=kb)
-        await safe_answer()
 
     elif action == "bind":
         cat = parts[2]

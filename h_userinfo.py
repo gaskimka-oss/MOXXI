@@ -1308,6 +1308,131 @@ async def cmd_nick_show(message: Message, bot: Bot, args: str = "", **kw):
     await message.reply(f"🏷 <b>Ник</b> {who}\n\n{html.escape(nick)}")
 
 
+# ═══════════════ ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ НИКЛИСТА И ОПИСАНИЙ ═══════════════
+async def _get_best_topic_link(chat_id: int) -> str:
+    """Возвращает ссылку на тему анкет или общения, если настроена."""
+    ft = await get_form_topic(chat_id)
+    if ft and ft > 0:
+        return topic_link(chat_id, ft)
+    sms_t = await db.get_setting(chat_id, "sms_topic", "0")
+    try:
+        sms_id = int(sms_t)
+        if sms_id > 0:
+            return topic_link(chat_id, sms_id)
+    except ValueError:
+        pass
+    return ""
+
+
+async def _get_chat_nick_data(cid: int):
+    """Возвращает (with_nick, without_nick) для конкретного чата."""
+    rows = await db.fetchall(
+        """
+        SELECT 
+            cm.user_id,
+            COALESCE(cn.nick, cp.hobby, u.nick, p.hobby) AS nick,
+            u.username,
+            u.first_name,
+            COALESCE(cp.real_name, p.real_name, u.first_name) AS display_name
+        FROM chat_members cm
+        LEFT JOIN chat_nicks cn ON cn.chat_id = cm.chat_id AND cn.user_id = cm.user_id
+        LEFT JOIN chat_profiles cp ON cp.chat_id = cm.chat_id AND cp.user_id = cm.user_id
+        LEFT JOIN users u ON u.user_id = cm.user_id
+        LEFT JOIN profiles p ON p.user_id = cm.user_id
+        WHERE cm.chat_id = ? AND cm.is_member = 1
+        ORDER BY cm.updated_at DESC
+        LIMIT 300
+        """,
+        (cid,)
+    )
+    extra_cn = await db.fetchall(
+        """
+        SELECT 
+            cn.user_id,
+            cn.nick,
+            u.username,
+            u.first_name,
+            COALESCE(cp.real_name, p.real_name, u.first_name) AS display_name
+        FROM chat_nicks cn
+        LEFT JOIN chat_profiles cp ON cp.chat_id = cn.chat_id AND cp.user_id = cn.user_id
+        LEFT JOIN users u ON u.user_id = cn.user_id
+        LEFT JOIN profiles p ON p.user_id = cn.user_id
+        WHERE cn.chat_id = ? AND (cn.nick IS NOT NULL AND cn.nick != '' AND cn.nick != '—')
+        """,
+        (cid,)
+    )
+
+    seen = set()
+    with_nick = []
+    without_nick = []
+
+    for r in rows:
+        seen.add(r["user_id"])
+        nk = r.get("nick")
+        if nk and str(nk).strip() and str(nk).strip() != "—":
+            with_nick.append(r)
+        else:
+            without_nick.append(r)
+
+    for r in extra_cn:
+        if r["user_id"] not in seen:
+            seen.add(r["user_id"])
+            with_nick.append(r)
+
+    return with_nick, without_nick
+
+
+def _format_nick_list_with(title: str, with_nick: list, total: int) -> str:
+    out = [f"🏷 <b>Ники участников · {title}</b> ({len(with_nick)} из {total})\n"]
+    if not with_nick:
+        out.append("<i>Пока никто в этой группе не установил ник.</i>\n\nПоставить: <code>+ник ваш ник</code>")
+    else:
+        for r in with_nick[:80]:
+            nick = r["nick"]
+            nm = r["display_name"] or r["first_name"] or (f"@{r['username']}" if r["username"] else str(r["user_id"]))
+            out.append(f"• {mention_id(r['user_id'], nm)} — <b>{html.escape(str(nick)[:32])}</b>")
+        if len(with_nick) > 80:
+            out.append(f"\n<i>…показаны первые 80 из {len(with_nick)} участников с ником</i>")
+    return "\n".join(out)
+
+
+def _format_nick_list_without(title: str, without_nick: list, total: int) -> str:
+    out = [f"👥 <b>Участники без ника · {title}</b> ({len(without_nick)} из {total})\n"]
+    if not without_nick:
+        out.append("🎉 <b>Все участники беседы уже установили никнейм!</b>")
+    else:
+        for r in without_nick[:60]:
+            nm = r["display_name"] or r["first_name"] or (f"@{r['username']}" if r["username"] else str(r["user_id"]))
+            out.append(f"• {mention_id(r['user_id'], nm)}")
+        if len(without_nick) > 60:
+            out.append(f"\n<i>…и ещё {len(without_nick) - 60} участников</i>")
+        out.append("\n💡 <i>Чтобы поставить ник:</i> <code>+ник [ваш ник]</code>")
+    return "\n".join(out)
+
+
+def _kb_nick_with(author_id: int, without_count: int) -> InlineKeyboardMarkup:
+    buttons = [
+        [
+            InlineKeyboardButton(text=f"👥 Без ника ({without_count})", callback_data=f"nlist:without:{author_id}"),
+            InlineKeyboardButton(text="🔄 Обновить", callback_data=f"nlist:refresh_with:{author_id}")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def _kb_nick_without(author_id: int, with_count: int) -> InlineKeyboardMarkup:
+    buttons = [
+        [
+            InlineKeyboardButton(text=f"🏷 С ником ({with_count})", callback_data=f"nlist:with:{author_id}"),
+            InlineKeyboardButton(text="📢 Тегнуть игроков", callback_data=f"nlist:tag:{author_id}")
+        ],
+        [
+            InlineKeyboardButton(text="🔄 Обновить", callback_data=f"nlist:refresh_without:{author_id}")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
 @router.message(Cmd("никлист", "ник лист", "список ников", "все ники",
                     section=S, rank=0, usage="никлист",
                     desc="Кто поставил себе ник"))
@@ -1316,63 +1441,14 @@ async def cmd_nick_list(message: Message, bot: Bot, args: str = "", **kw):
     in_group = getattr(message.chat, "type", "") in {"group", "supergroup"}
 
     if in_group:
-        rows = await db.fetchall(
-            """
-            SELECT 
-                cm.user_id,
-                COALESCE(cn.nick, cp.hobby, u.nick, p.hobby) AS nick,
-                u.username,
-                u.first_name,
-                COALESCE(cp.real_name, p.real_name, u.first_name) AS display_name
-            FROM chat_members cm
-            LEFT JOIN chat_nicks cn ON cn.chat_id = cm.chat_id AND cn.user_id = cm.user_id
-            LEFT JOIN chat_profiles cp ON cp.chat_id = cm.chat_id AND cp.user_id = cm.user_id
-            LEFT JOIN users u ON u.user_id = cm.user_id
-            LEFT JOIN profiles p ON p.user_id = cm.user_id
-            WHERE cm.chat_id = ? AND cm.is_member = 1
-              AND (
-                  (cn.nick IS NOT NULL AND cn.nick != '' AND cn.nick != '—')
-                  OR (cp.hobby IS NOT NULL AND cp.hobby != '' AND cp.hobby != '—')
-                  OR (u.nick IS NOT NULL AND u.nick != '' AND u.nick != '—')
-                  OR (p.hobby IS NOT NULL AND p.hobby != '' AND p.hobby != '—')
-              )
-            UNION
-            SELECT 
-                cn.user_id,
-                cn.nick,
-                u.username,
-                u.first_name,
-                COALESCE(cp.real_name, p.real_name, u.first_name) AS display_name
-            FROM chat_nicks cn
-            LEFT JOIN chat_profiles cp ON cp.chat_id = cn.chat_id AND cp.user_id = cn.user_id
-            LEFT JOIN users u ON u.user_id = cn.user_id
-            LEFT JOIN profiles p ON p.user_id = cn.user_id
-            WHERE cn.chat_id = ?
-              AND (cn.nick IS NOT NULL AND cn.nick != '' AND cn.nick != '—')
-            LIMIT 80
-            """,
-            (cid, cid)
-        )
-        total_m = await db.fetchone("SELECT COUNT(*) c FROM chat_members WHERE chat_id=? AND is_member=1", (cid,))
-        total_count = total_m["c"] if total_m and total_m["c"] else len(rows)
-
-        if not rows:
-            return await message.reply(
-                "🏷 <b>Никлист беседы</b>\n\n"
-                "Пока никто в этой группе не установил ник.\n\n"
-                "Поставить: <code>+ник ваш ник</code>"
-            )
-
+        with_nick, without_nick = await _get_chat_nick_data(cid)
+        total = len(with_nick) + len(without_nick)
         title = html.escape(message.chat.title or "Беседа")
-        out = [f"🏷 <b>Ники участников · {title}</b> ({len(rows)} из {total_count})\n"]
-        for r in rows:
-            nick = r["nick"]
-            nm = r["display_name"] or r["first_name"] or (f"@{r['username']}" if r["username"] else str(r["user_id"]))
-            out.append(f"• {mention_id(r['user_id'], html.escape(nm))} — "
-                       f"<b>{html.escape(str(nick)[:32])}</b>")
-        if len(rows) >= 80:
-            out.append("\n<i>…показаны первые 80 участников с ником</i>")
-        return await message.reply("\n".join(out)[:3900], disable_web_page_preview=True)
+        author_id = message.from_user.id if message.from_user else 0
+
+        text = _format_nick_list_with(title, with_nick, total)
+        kb = _kb_nick_with(author_id, len(without_nick))
+        return await message.reply(text[:3900], reply_markup=kb, disable_web_page_preview=True)
 
     rows = await db.fetchall(
         "SELECT u.user_id, u.username, u.first_name, u.nick, p.hobby, p.real_name, p.nick2 "
@@ -1391,9 +1467,140 @@ async def cmd_nick_list(message: Message, bot: Bot, args: str = "", **kw):
     for r in rows:
         nick = r["hobby"] or r["nick"] or r["nick2"]
         nm = r["real_name"] or r["first_name"] or (f"@{r['username']}" if r["username"] else str(r["user_id"]))
-        out.append(f"• {mention_id(r['user_id'], html.escape(nm))} — "
-                   f"<b>{html.escape(str(nick)[:32])}</b>")
+        out.append(f"• {mention_id(r['user_id'], nm)} — <b>{html.escape(str(nick)[:32])}</b>")
     await message.reply("\n".join(out)[:3900], disable_web_page_preview=True)
+
+
+async def _get_chat_desc_data(cid: int):
+    """Возвращает (done, empty, rows) для описаний конкретного чата."""
+    rows = await db.fetchall(
+        """
+        SELECT 
+            cm.user_id,
+            COALESCE(cp.real_name, p.real_name, u.first_name) AS real_name,
+            COALESCE(cp.hobby, cn.nick, p.hobby, u.nick) AS hobby,
+            COALESCE(cp.age, p.age) AS age,
+            COALESCE(cp.country, p.country) AS country,
+            COALESCE(cp.city, p.city) AS city,
+            COALESCE(cp.custom, p.custom) AS custom,
+            COALESCE(cp.filled, p.filled, 0) AS filled,
+            u.username,
+            u.first_name,
+            u.nick
+        FROM chat_members cm
+        LEFT JOIN chat_profiles cp ON cp.chat_id = cm.chat_id AND cp.user_id = cm.user_id
+        LEFT JOIN chat_nicks cn ON cn.chat_id = cm.chat_id AND cn.user_id = cm.user_id
+        LEFT JOIN profiles p ON p.user_id = cm.user_id
+        LEFT JOIN users u ON u.user_id = cm.user_id
+        WHERE cm.chat_id = ? AND cm.is_member = 1
+        ORDER BY cm.updated_at DESC
+        LIMIT 300
+        """,
+        (cid,)
+    )
+    if not rows:
+        rows = await db.fetchall(
+            """
+            SELECT 
+                cp.user_id,
+                COALESCE(cp.real_name, p.real_name, u.first_name) AS real_name,
+                COALESCE(cp.hobby, cn.nick, p.hobby, u.nick) AS hobby,
+                COALESCE(cp.age, p.age) AS age,
+                COALESCE(cp.country, p.country) AS country,
+                COALESCE(cp.city, p.city) AS city,
+                COALESCE(cp.custom, p.custom) AS custom,
+                COALESCE(cp.filled, p.filled, 0) AS filled,
+                u.username,
+                u.first_name,
+                u.nick
+            FROM chat_profiles cp
+            LEFT JOIN chat_nicks cn ON cn.chat_id = cp.chat_id AND cn.user_id = cp.user_id
+            LEFT JOIN profiles p ON p.user_id = cp.user_id
+            LEFT JOIN users u ON u.user_id = cp.user_id
+            WHERE cp.chat_id = ?
+            LIMIT 300
+            """,
+            (cid,)
+        )
+
+    done, empty = [], []
+    for r in rows:
+        has = bool(
+            ("custom" in r.keys() and r["custom"] and not str(r["custom"]).startswith("🧠 ИИ проверил"))
+            or r["filled"]
+            or sum(1 for _, _, c in FIELDS if c in r.keys() and r[c]) >= MIN_FIELDS
+        )
+        (done if has else empty).append(r)
+    return done, empty, rows
+
+
+def _format_desc_list_with(title: str, done: list, empty: list, total: int) -> str:
+    out = [
+        f"📝 <b>Список описаний (анкет) · {title}</b>\n",
+        f"✅ Заполнили описание: <b>{len(done)}</b>",
+        f"❌ Без описания: <b>{len(empty)}</b>",
+        f"👥 Всего участников: <b>{total}</b>\n",
+    ]
+    if not done:
+        out.append("<i>Пока никто в этой группе не заполнил описание.</i>\nЗаполнить: напишите <code>шаблон</code>")
+    else:
+        out.append("<b>📋 Заполненные анкеты беседы:</b>")
+        for idx, r in enumerate(done[:60], 1):
+            nm = r["real_name"] or r["hobby"] or r["first_name"] or (f"@{r['username']}" if r["username"] else str(r["user_id"]))
+            details = []
+            if r["age"]:
+                details.append(f"{r['age']} лет")
+            if r["country"]:
+                details.append(f"{r['country']}")
+            if r["hobby"]:
+                details.append(f"ник: {r['hobby']}")
+            det_str = f" ({', '.join(details)})" if details else ""
+            out.append(f"<b>{idx}.</b> {mention_id(r['user_id'], nm)}{html.escape(det_str)}")
+        if len(done) > 60:
+            out.append(f"\n<i>…и ещё {len(done) - 60} анкет</i>")
+    out.append("\n💡 <i>Чтобы посмотреть полное описание участника — напишите «описание @юзер»</i>")
+    return "\n".join(out)
+
+
+def _format_desc_list_without(title: str, done: list, empty: list, total: int) -> str:
+    out = [
+        f"👥 <b>Участники без описания · {title}</b> ({len(empty)} из {total})\n",
+        f"✅ С описанием: <b>{len(done)}</b> | ❌ Без описания: <b>{len(empty)}</b>\n",
+    ]
+    if not empty:
+        out.append("🎉 <b>Все участники беседы заполнили свои анкеты/описания!</b>")
+    else:
+        out.append("<b>📋 Список участников без анкеты:</b>")
+        for r in empty[:60]:
+            nm = r["real_name"] or r["hobby"] or r["first_name"] or (f"@{r['username']}" if r["username"] else str(r["user_id"]))
+            out.append(f"• {mention_id(r['user_id'], nm)}")
+        if len(empty) > 60:
+            out.append(f"\n<i>…и ещё {len(empty) - 60} участников</i>")
+        out.append("\n💡 <i>Чтобы заполнить:</i> <code>+описание [текст]</code> или напишите <code>шаблон</code>")
+    return "\n".join(out)
+
+
+def _kb_desc_with(author_id: int, empty_count: int) -> InlineKeyboardMarkup:
+    buttons = [
+        [
+            InlineKeyboardButton(text=f"👥 Без описания ({empty_count})", callback_data=f"dlist:without:{author_id}"),
+            InlineKeyboardButton(text="🔄 Обновить", callback_data=f"dlist:refresh_with:{author_id}")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def _kb_desc_without(author_id: int, done_count: int) -> InlineKeyboardMarkup:
+    buttons = [
+        [
+            InlineKeyboardButton(text=f"📝 С описанием ({done_count})", callback_data=f"dlist:with:{author_id}"),
+            InlineKeyboardButton(text="📢 Тегнуть игроков", callback_data=f"dlist:tag:{author_id}")
+        ],
+        [
+            InlineKeyboardButton(text="🔄 Обновить", callback_data=f"dlist:refresh_without:{author_id}")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 @router.message(Cmd("описание лист", "описания лист", "описаниялист", "описаниелист",
@@ -1405,94 +1612,13 @@ async def cmd_desc_list(message: Message, bot: Bot, args: str = "", **kw):
     in_group = getattr(message.chat, "type", "") in {"group", "supergroup"}
 
     if in_group:
-        rows = await db.fetchall(
-            """
-            SELECT 
-                cm.user_id,
-                COALESCE(cp.real_name, p.real_name, u.first_name) AS real_name,
-                COALESCE(cp.hobby, cn.nick, p.hobby, u.nick) AS hobby,
-                COALESCE(cp.age, p.age) AS age,
-                COALESCE(cp.country, p.country) AS country,
-                COALESCE(cp.city, p.city) AS city,
-                COALESCE(cp.custom, p.custom) AS custom,
-                COALESCE(cp.filled, p.filled, 0) AS filled,
-                u.username,
-                u.first_name,
-                u.nick
-            FROM chat_members cm
-            LEFT JOIN chat_profiles cp ON cp.chat_id = cm.chat_id AND cp.user_id = cm.user_id
-            LEFT JOIN chat_nicks cn ON cn.chat_id = cm.chat_id AND cn.user_id = cm.user_id
-            LEFT JOIN profiles p ON p.user_id = cm.user_id
-            LEFT JOIN users u ON u.user_id = cm.user_id
-            WHERE cm.chat_id = ? AND cm.is_member = 1
-            ORDER BY cm.updated_at DESC
-            LIMIT 150
-            """,
-            (cid,)
-        )
-        if not rows:
-            rows = await db.fetchall(
-                """
-                SELECT 
-                    cp.user_id,
-                    COALESCE(cp.real_name, p.real_name, u.first_name) AS real_name,
-                    COALESCE(cp.hobby, cn.nick, p.hobby, u.nick) AS hobby,
-                    COALESCE(cp.age, p.age) AS age,
-                    COALESCE(cp.country, p.country) AS country,
-                    COALESCE(cp.city, p.city) AS city,
-                    COALESCE(cp.custom, p.custom) AS custom,
-                    COALESCE(cp.filled, p.filled, 0) AS filled,
-                    u.username,
-                    u.first_name,
-                    u.nick
-                FROM chat_profiles cp
-                LEFT JOIN chat_nicks cn ON cn.chat_id = cp.chat_id AND cn.user_id = cp.user_id
-                LEFT JOIN profiles p ON p.user_id = cp.user_id
-                LEFT JOIN users u ON u.user_id = cp.user_id
-                WHERE cp.chat_id = ?
-                LIMIT 150
-                """,
-                (cid,)
-            )
-
-        done, empty = [], []
-        for r in rows:
-            has = bool(
-                ("custom" in r.keys() and r["custom"] and not str(r["custom"]).startswith("🧠 ИИ проверил"))
-                or r["filled"]
-                or sum(1 for _, _, c in FIELDS if c in r.keys() and r[c]) >= MIN_FIELDS
-            )
-            (done if has else empty).append(r)
-
+        done, empty, rows = await _get_chat_desc_data(cid)
         title = html.escape(message.chat.title or "Беседа")
-        out = [
-            f"📝 <b>Список описаний (анкет) · {title}</b>\n",
-            f"✅ Заполнили описание: <b>{len(done)}</b>",
-            f"❌ Без описания: <b>{len(empty)}</b>",
-            f"👥 Всего участников в списке: <b>{len(rows)}</b>\n",
-        ]
+        author_id = message.from_user.id if message.from_user else 0
 
-        if not done:
-            out.append("<i>Пока никто в этой группе не заполнил описание.</i>\nЗаполнить: напишите <code>шаблон</code>")
-        else:
-            out.append("<b>📋 Заполненные анкеты беседы:</b>")
-            for idx, r in enumerate(done[:60], 1):
-                nm = r["real_name"] or r["hobby"] or r["first_name"] or (f"@{r['username']}" if r["username"] else str(r["user_id"]))
-                details = []
-                if r["age"]:
-                    details.append(f"{r['age']} лет")
-                if r["country"]:
-                    details.append(r["country"])
-                if r["hobby"]:
-                    details.append(f"ник: {r['hobby']}")
-                det_str = f" ({', '.join(details)})" if details else ""
-                out.append(f"<b>{idx}.</b> {mention_id(r['user_id'], html.escape(nm))}{html.escape(det_str)}")
-
-            if len(done) > 60:
-                out.append(f"<i>…и ещё {len(done) - 60} анкет</i>")
-
-        out.append("\n💡 <i>Чтобы посмотреть полное описание участника — напишите «описание @юзер»</i>")
-        return await message.reply("\n".join(out)[:3900], disable_web_page_preview=True)
+        text = _format_desc_list_with(title, done, empty, len(rows))
+        kb = _kb_desc_with(author_id, len(empty))
+        return await message.reply(text[:3900], reply_markup=kb, disable_web_page_preview=True)
 
     rows = await db.fetchall(
         "SELECT p.*, u.username, u.first_name, u.nick FROM profiles p "
@@ -1524,14 +1650,179 @@ async def cmd_desc_list(message: Message, bot: Bot, args: str = "", **kw):
             if r["age"]:
                 details.append(f"{r['age']} лет")
             if r["country"]:
-                details.append(r["country"])
+                details.append(f"{r['country']}")
             if r["hobby"]:
                 details.append(f"ник: {r['hobby']}")
             det_str = f" ({', '.join(details)})" if details else ""
-            out.append(f"<b>{idx}.</b> {mention_id(r['user_id'], html.escape(nm))}{html.escape(det_str)}")
+            out.append(f"<b>{idx}.</b> {mention_id(r['user_id'], nm)}{html.escape(det_str)}")
 
         if len(done) > 60:
-            out.append(f"<i>…и ещё {len(done) - 60} анкет</i>")
+            out.append(f"\n<i>…и ещё {len(done) - 60} анкет</i>")
 
     out.append("\n💡 <i>Чтобы посмотреть полное описание участника — напишите «описание @юзер»</i>")
     await message.reply("\n".join(out)[:3900], disable_web_page_preview=True)
+
+
+# ═══════════════ CALLBACK-ОБРАБОТЧИКИ НИКЛИСТА И ОПИСАНИЙ ═══════════════
+@router.callback_query(F.data.startswith("nlist:"))
+async def cb_nlist_dispatcher(call: CallbackQuery, bot: Bot):
+    try:
+        await call.answer()
+    except Exception:
+        pass
+
+    parts = (call.data or "").split(":")
+    if len(parts) < 3:
+        return
+    action = parts[1]
+    try:
+        author_id = int(parts[2])
+    except ValueError:
+        author_id = 0
+
+    cid = call.message.chat.id
+    title = html.escape(call.message.chat.title or "Беседа")
+    user_id = call.from_user.id
+
+    if action == "tag":
+        from config import is_bot_owner
+        user_rank = await effective_rank(call.message, bot) if hasattr(call.message, "chat") else 0
+        is_lead = False
+        if not (user_rank >= 1 or is_bot_owner(user_id)):
+            c_owner = await db.fetchone("SELECT 1 FROM clans WHERE owner_id=?", (user_id,))
+            c_lead = await db.fetchone("SELECT 1 FROM clan_members WHERE user_id=? AND role IN ('leader', 'owner', 'deputy')", (user_id,))
+            is_lead = bool(c_owner or c_lead)
+
+        if not (user_rank >= 1 or is_bot_owner(user_id) or is_lead or user_id == author_id):
+            return await call.answer("⛔️ Тегать участников могут только администраторы чата!", show_alert=True)
+
+        with_nick, without_nick = await _get_chat_nick_data(cid)
+        if not without_nick:
+            return await call.answer("🎉 Все участники уже установили никнейм!", show_alert=True)
+
+        topic_url = await _get_best_topic_link(cid)
+        topic_line = f"\n👉 <b>Перейдите в тему:</b> {topic_url}" if topic_url else ""
+
+        mentions = []
+        for r in without_nick:
+            nm = r.get("display_name") or r.get("first_name") or (f"@{r['username']}" if r.get("username") else f"ID {r['user_id']}")
+            mentions.append(mention_id(r["user_id"], nm))
+
+        thread_id = getattr(call.message, "message_thread_id", None)
+        for i in range(0, len(mentions), 25):
+            chunk = mentions[i:i+25]
+            msg_text = (
+                f"📢 <b>Внимание, участники без ника:</b>\n"
+                f"{', '.join(chunk)}\n\n"
+                f"🏷 Пожалуйста, установите себе игровой никнейм в беседе командой:\n"
+                f"<code>+ник [ваш ник]</code>{topic_line}"
+            )
+            try:
+                await bot.send_message(cid, msg_text, message_thread_id=thread_id, disable_web_page_preview=True)
+            except Exception:
+                await bot.send_message(cid, msg_text, disable_web_page_preview=True)
+
+        return await call.answer("✅ Участники успешно тегнуты!", show_alert=False)
+
+    elif action in ("without", "refresh_without"):
+        with_nick, without_nick = await _get_chat_nick_data(cid)
+        total = len(with_nick) + len(without_nick)
+        text = _format_nick_list_without(title, without_nick, total)
+        kb = _kb_nick_without(author_id, len(with_nick))
+        try:
+            await call.message.edit_text(text[:3900], reply_markup=kb, disable_web_page_preview=True)
+        except Exception as e:
+            if "not modified" in str(e).lower():
+                await call.answer("ℹ️ Список уже актуален!")
+
+    elif action in ("with", "refresh_with"):
+        with_nick, without_nick = await _get_chat_nick_data(cid)
+        total = len(with_nick) + len(without_nick)
+        text = _format_nick_list_with(title, with_nick, total)
+        kb = _kb_nick_with(author_id, len(without_nick))
+        try:
+            await call.message.edit_text(text[:3900], reply_markup=kb, disable_web_page_preview=True)
+        except Exception as e:
+            if "not modified" in str(e).lower():
+                await call.answer("ℹ️ Список уже актуален!")
+
+
+@router.callback_query(F.data.startswith("dlist:"))
+async def cb_dlist_dispatcher(call: CallbackQuery, bot: Bot):
+    try:
+        await call.answer()
+    except Exception:
+        pass
+
+    parts = (call.data or "").split(":")
+    if len(parts) < 3:
+        return
+    action = parts[1]
+    try:
+        author_id = int(parts[2])
+    except ValueError:
+        author_id = 0
+
+    cid = call.message.chat.id
+    title = html.escape(call.message.chat.title or "Беседа")
+    user_id = call.from_user.id
+
+    if action == "tag":
+        from config import is_bot_owner
+        user_rank = await effective_rank(call.message, bot) if hasattr(call.message, "chat") else 0
+        is_lead = False
+        if not (user_rank >= 1 or is_bot_owner(user_id)):
+            c_owner = await db.fetchone("SELECT 1 FROM clans WHERE owner_id=?", (user_id,))
+            c_lead = await db.fetchone("SELECT 1 FROM clan_members WHERE user_id=? AND role IN ('leader', 'owner', 'deputy')", (user_id,))
+            is_lead = bool(c_owner or c_lead)
+
+        if not (user_rank >= 1 or is_bot_owner(user_id) or is_lead or user_id == author_id):
+            return await call.answer("⛔️ Тегать участников могут только администраторы чата!", show_alert=True)
+
+        done, empty, rows = await _get_chat_desc_data(cid)
+        if not empty:
+            return await call.answer("🎉 Все участники уже заполнили свои описания!", show_alert=True)
+
+        topic_url = await _get_best_topic_link(cid)
+        topic_line = f"\n👉 <b>Тема для анкет:</b> {topic_url}" if topic_url else ""
+
+        mentions = []
+        for r in empty:
+            nm = r.get("real_name") or r.get("hobby") or r.get("first_name") or (f"@{r['username']}" if r.get("username") else f"ID {r['user_id']}")
+            mentions.append(mention_id(r["user_id"], nm))
+
+        thread_id = getattr(call.message, "message_thread_id", None)
+        for i in range(0, len(mentions), 25):
+            chunk = mentions[i:i+25]
+            msg_text = (
+                f"📢 <b>Внимание, участники без описания/анкеты:</b>\n"
+                f"{', '.join(chunk)}\n\n"
+                f"📝 Пожалуйста, заполните своё описание в беседе командой:\n"
+                f"<code>+описание [текст]</code> или напишите <code>шаблон</code>{topic_line}"
+            )
+            try:
+                await bot.send_message(cid, msg_text, message_thread_id=thread_id, disable_web_page_preview=True)
+            except Exception:
+                await bot.send_message(cid, msg_text, disable_web_page_preview=True)
+
+        return await call.answer("✅ Участники успешно тегнуты!", show_alert=False)
+
+    elif action in ("without", "refresh_without"):
+        done, empty, rows = await _get_chat_desc_data(cid)
+        text = _format_desc_list_without(title, done, empty, len(rows))
+        kb = _kb_desc_without(author_id, len(done))
+        try:
+            await call.message.edit_text(text[:3900], reply_markup=kb, disable_web_page_preview=True)
+        except Exception as e:
+            if "not modified" in str(e).lower():
+                await call.answer("ℹ️ Список уже актуален!")
+
+    elif action in ("with", "refresh_with"):
+        done, empty, rows = await _get_chat_desc_data(cid)
+        text = _format_desc_list_with(title, done, empty, len(rows))
+        kb = _kb_desc_with(author_id, len(empty))
+        try:
+            await call.message.edit_text(text[:3900], reply_markup=kb, disable_web_page_preview=True)
+        except Exception as e:
+            if "not modified" in str(e).lower():
+                await call.answer("ℹ️ Список уже актуален!")
