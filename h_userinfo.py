@@ -435,12 +435,20 @@ async def cmd_info(message: Message, bot: Bot, args: str = "", **kw):
                         disable_web_page_preview=True)
 
 
-@router.message(Cmd("кто я", "я кто", "кто йа", "профиль", "мой профиль", section=S,
-                    usage="кто я", desc="Карточка о себе"))
-async def cmd_who_am_i(message: Message, bot: Bot, **kw):
+@router.message(Cmd("кто я", "я кто", "кто йа", "профиль", "мой профиль", "о себе", "обо мне", section=S,
+                    usage="кто я [@юзер]", desc="Карточка о себе или участнике"))
+async def cmd_who_am_i(message: Message, bot: Bot, args: str = "", **kw):
+    from core_resolve import real_reply
+    a = (args or "").strip()
+    if a or real_reply(message) is not None:
+        uid, name, _ = await resolve_target(message, a, bot)
+        if not uid:
+            who = html.escape(a.lstrip("@")[:32])
+            return await message.reply(f"🤔 Не знаю участника <b>@{who}</b>.", disable_web_page_preview=True)
+    else:
+        uid, name = message.from_user.id, message.from_user.first_name
     await message.reply(
-        await render_card(message, bot, message.from_user.id,
-                          message.from_user.first_name),
+        await render_card(message, bot, uid, name),
         disable_web_page_preview=True)
 
 
@@ -448,13 +456,22 @@ async def cmd_who_am_i(message: Message, bot: Bot, **kw):
                     usage="кто ты [ссылка]", desc="Информация о пользователе или боте"))
 async def cmd_who_are_you(message: Message, bot: Bot, args: str = "", **kw):
     from core_resolve import real_reply
-    if args or real_reply(message) is not None:
-        uid, name, _ = await resolve_target(message, args, bot)
+    a = (args or "").strip()
+    if a or real_reply(message) is not None:
+        uid, name, _ = await resolve_target(message, a, bot)
         if uid:
             return await message.reply(await render_card(message, bot, uid, name),
                                        disable_web_page_preview=True)
-    from h_botinfo import bot_status_text
-    await message.reply(await bot_status_text(bot, message), disable_web_page_preview=True)
+        else:
+            who = html.escape(a.lstrip("@")[:32])
+            return await message.reply(f"🤔 Не знаю участника <b>@{who}</b>.", disable_web_page_preview=True)
+    try:
+        from h_botinfo import bot_status_text
+        status_msg = await bot_status_text(bot, message)
+    except Exception as e:
+        log.warning("Ошибка генерации статуса бота в cmd_who_are_you: %s", e)
+        status_msg = "🤖 <b>MOXXI</b>\n\n🟢 <b>Статус: онлайн</b>\n📖 Все команды — <code>команды</code>"
+    await message.reply(status_msg, disable_web_page_preview=True)
 
 
 @router.message(Cmd("сообщения", "мои сообщения", "смс", "сообщений", "актив", "стата",
@@ -578,7 +595,7 @@ async def cmd_show_global_desc(message: Message, bot: Bot, **kw):
     await message.reply(text, disable_web_page_preview=True)
 
 
-@router.message(Cmd("описание", "анкета", "мое описание", "моё описание",
+@router.message(Cmd("описание", "анкета", "мое описание", "моё описание", "моя анкета",
                     section=S, usage="описание {ссылка}",
                     desc="Полное описание участника"))
 async def cmd_description(message: Message, bot: Bot, args: str = "", **kw):

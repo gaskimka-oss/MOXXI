@@ -69,8 +69,24 @@ async def measure_ping(bot: Bot) -> float:
 
 
 async def bot_status_text(bot: Bot, message: Message | None = None) -> str:
-    me = await bot.me()
-    ms = await measure_ping(bot)
+    me = None
+    try:
+        me = await asyncio.wait_for(bot.me(), timeout=1.5)
+    except Exception:
+        try:
+            me = await asyncio.wait_for(bot.get_me(), timeout=1.5)
+        except Exception:
+            me = getattr(bot, "_me", None)
+
+    fn = getattr(me, "first_name", None) if me else None
+    bot_name = html.escape(str(fn)) if fn and isinstance(fn, str) else "MOXXI"
+    un = getattr(me, "username", None) if me else None
+    bot_username = str(un) if un and isinstance(un, str) else "moxxibot"
+
+    try:
+        ms = await measure_ping(bot)
+    except Exception:
+        ms = -1.0
     icon, grade = ping_grade(ms) if ms >= 0 else ("🔴", "нет связи")
 
     ping_line = f"{ms:.0f} мс ({grade})" if ms >= 0 else "нет связи"
@@ -87,8 +103,8 @@ async def bot_status_text(bot: Bot, message: Message | None = None) -> str:
         chat_msgs = row_msg["c"] if row_msg else 0
 
         return (
-            f"🤖 <b>{html.escape(me.first_name)}</b>\n"
-            f"@{me.username}\n\n"
+            f"🤖 <b>{bot_name}</b>\n"
+            f"@{bot_username}\n\n"
             f"🟢 <b>Статус: онлайн</b>\n"
             f"{icon} Пинг: <b>{ping_line}</b>\n"
             f"⏱ Аптайм: <b>{uptime_str()}</b>\n\n"
@@ -99,8 +115,8 @@ async def bot_status_text(bot: Bot, message: Message | None = None) -> str:
             f"📖 Все команды — <code>команды</code>")
     else:
         return (
-            f"🤖 <b>{html.escape(me.first_name)}</b>\n"
-            f"@{me.username}\n\n"
+            f"🤖 <b>{bot_name}</b>\n"
+            f"@{bot_username}\n\n"
             f"🟢 <b>Статус: онлайн</b>\n"
             f"{icon} Пинг: <b>{ping_line}</b>\n"
             f"⏱ Аптайм: <b>{uptime_str()}</b>\n\n"
