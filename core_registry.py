@@ -287,6 +287,15 @@ class Cmd(Filter):
         if not body:
             return False
 
+        res = self._match_body(message, body, had_prefix)
+        if not res and "\n" in body:
+            lines = [l.strip() for l in body.splitlines() if l.strip()]
+            if len(lines) > 1:
+                # Поддержка цитирования AyuGram / Telegram Desktop (команда на последней строке после цитаты)
+                res = self._match_body(message, lines[-1], had_prefix)
+        return res
+
+    def _match_body(self, message: Message, body: str, had_prefix: bool) -> bool | dict[str, Any]:
         low = _norm(body)
         in_group = getattr(message.chat, "type", "") in {"group", "supergroup"}
         replied = getattr(message, "reply_to_message", None)
