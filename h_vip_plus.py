@@ -601,16 +601,16 @@ async def cmd_vip_bank(message: Message, bot: Bot, **kw):
     if not ok:
         return await message.reply("⭐ Доступно только для пользователей <b>⭐️ VIP</b>!\n💡 Оформить: <code>донат</code>")
 
-    u = await db.get_user(message.from_user.id)
-    bank_bal = int(u["bank"]) if u else 0
+    row = await db.fetchone("SELECT * FROM user_deposits WHERE chat_id=? AND user_id=?", (message.chat.id, message.from_user.id))
+    bank_bal = row["amount"] if row else 0
     text = (
         "🏦 ✨ <b>VIP-ДЕПОЗИТНЫЙ СЧЁТ MOXXI BANK</b> ✨ 🏦\n"
         "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-        f"• На депозите под процент: <b>{money(bank_bal)} 🪙</b>\n"
-        "• VIP-лимит вклада: <b>до 10 000 000 000 🪙</b> (в 5 раз выше обычного)\n"
-        "• Процентная ставка: <b>повышенная (+2% к базовой)</b>\n\n"
-        "📥 <i>Пополнить:</i> <code>депозит [сумма]</code>\n"
-        "📤 <i>Снять:</i> <code>снять [сумма]</code>"
+        f"• На депозите: <b>{money(bank_bal)} 🪙</b>\n"
+        "• Лимит вклада: <b>до 500 000 000 🪙</b>\n"
+        "• Процентная ставка: <b>1% в сутки</b>\n\n"
+        "📥 <i>Пополнить:</i> <code>вклад положить [сумма]</code>\n"
+        "📤 <i>Снять:</i> <code>вклад снять [сумма]</code>"
     )
     await message.reply(text)
 

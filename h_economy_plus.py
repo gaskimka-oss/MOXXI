@@ -232,19 +232,66 @@ async def cmd_quit_job(message: Message, bot: Bot, **kw):
 
 
 # ---------------- 17. БАНКОВСКИЕ ВКЛАДЫ ПОД % ----------------
-@router.message(Cmd("вклад", "депозит", "банк", usage="вклад",
-                    desc="🏦 Банковский счёт под 3% в сутки с защитой от кражи"))
-async def cmd_deposit_info(message: Message, bot: Bot, **kw):
-    row = await db.fetchone("SELECT * FROM user_deposits WHERE chat_id=? AND user_id=?",
-                            (message.chat.id, message.from_user.id))
-    amount = row["amount"] if row else 0
+MAX_DEPOSIT = 500_000_000  # 500кк (максимум можно положить)
+DEPOSIT_RATE_DAILY = 0.01  # 1% в сутки (вместо 3%)
 
+
+async def _get_and_accrue_deposit(chat_id: int, user_id: int) -> tuple[int, int]:
+    """
+    Возвращает (текущий_депозит, начисленные_проценты).
+    Начисляет 1% в сутки, если прошло >= 24ч (но не более MAX_DEPOSIT).
+    """
+    row = await db.fetchone(
+        "SELECT * FROM user_deposits WHERE chat_id=? AND user_id=?",
+        (chat_id, user_id)
+    )
+    if not row or row["amount"] <= 0:
+        return 0, 0
+
+    amount = int(row["amount"])
+    last_int = int(row["last_interest"]) if row["last_interest"] else 0
+    now = int(time.time())
+
+    if last_int <= 0:
+        await db.execute(
+            "UPDATE user_deposits SET last_interest=? WHERE chat_id=? AND user_id=?",
+            (now, chat_id, user_id)
+        )
+        return amount, 0
+
+    # Если уже достигнут или превышен лимит 500кк, проценты сверху не начисляются
+    if amount >= MAX_DEPOSIT:
+        return amount, 0
+
+    days = (now - last_int) // 86400
+    if days > 0:
+        capped_days = min(days, 14)  # максимум за 14 дней
+        interest = int(amount * (DEPOSIT_RATE_DAILY * capped_days))
+        new_amount = min(amount + interest, MAX_DEPOSIT)
+        actual_profit = max(0, new_amount - amount)
+        new_last = last_int + (days * 86400)
+        await db.execute(
+            "UPDATE user_deposits SET amount=?, last_interest=? WHERE chat_id=? AND user_id=?",
+            (new_amount, new_last, chat_id, user_id)
+        )
+        return new_amount, actual_profit
+
+    return amount, 0
+
+
+@router.message(Cmd("вклад", "депозит", "банк", usage="вклад",
+                    desc="🏦 Банковский счёт под 1% в сутки с защитой от кражи (лимит 500кк)"))
+async def cmd_deposit_info(message: Message, bot: Bot, **kw):
+    amount, profit = await _get_and_accrue_deposit(message.chat.id, message.from_user.id)
+
+    profit_note = f"\n📈 <i>Начислены проценты по вкладу:</i> <b>+{profit:,} монет</b>!" if profit > 0 else ""
     await message.reply(
         f"🏦 <b>ГОСУДАРСТВЕННЫЙ БАНК БЕСЕДЫ</b>\n\n"
         f"👤 Владелец: {mention_id(message.from_user.id, message.from_user.first_name)}\n"
-        f"💰 На депозите: <b>{amount:,} монет</b>\n"
-        f"📈 Процентная ставка: <b>3% в сутки</b>\n"
-        f"🛡 <b>Защита:</b> средства во вкладе на 100% защищены от команды <code>ограбить</code>!\n\n"
+        f"💰 На депозите: <b>{amount:,} / {MAX_DEPOSIT:,} монет</b>\n"
+        f"📈 Процентная ставка: <b>1% в сутки</b>\n"
+        f"🔒 <b>Лимит вклада:</b> <b>500 000 000 монет</b>\n"
+        f"🛡 <b>Защита:</b> средства во вкладе на 100% защищены от команды <code>ограбить</code>!{profit_note}\n\n"
         f"Управление:\n"
         f"• Положить: <code>вклад положить [сумма]</code>\n"
         f"• Снять: <code>вклад снять [сумма]</code>"
@@ -254,27 +301,50 @@ async def cmd_deposit_info(message: Message, bot: Bot, **kw):
 @router.message(Cmd("вклад положить", "положить вклад", "положить на вклад", "внести вклад",
                     "депозит положить", "положить депозит", "положить на депозит", "внести депозит",
                     usage="вклад положить [сумма]",
-                    desc="Положить монеты на депозит под процент"))
+                    desc="Положить монеты на депозит под процент (макс. 500кк)"))
 async def cmd_deposit_put(message: Message, bot: Bot, args: str = "", **kw):
     a = (args or "").strip()
     user = await db.get_user(message.from_user.id)
     cur_bal = user["balance"] if user else 0
+    cur_dep, _ = await _get_and_accrue_deposit(message.chat.id, message.from_user.id)
 
     if not a:
         return await message.reply(
-            f"🏦 <b>Банковский вклад под 3% в сутки</b>\n\n"
-            f"💰 Ваш баланс на руках: <b>{cur_bal:,} монет</b>\n\n"
+            f"🏦 <b>Банковский вклад под 1% в сутки</b>\n\n"
+            f"💰 Ваш баланс на руках: <b>{cur_bal:,} монет</b>\n"
+            f"🏦 На депозите: <b>{cur_dep:,} / {MAX_DEPOSIT:,} монет</b>\n\n"
             f"💡 Чтобы пополнить вклад, укажите сумму:\n"
             f"• <code>вклад положить 5000000</code>\n"
             f"• <code>вклад положить всё</code>"
         )
 
-    amount = parse_amount(a, cur_bal, minimum=1)
+    if cur_dep >= MAX_DEPOSIT:
+        return await message.reply(
+            f"🏦 <b>Вы достигли максимального лимита вклада!</b>\n"
+            f"На вкладе уже максимум: <b>{cur_dep:,} / {MAX_DEPOSIT:,} монет</b>.\n"
+            f"Снимите часть средств командой <code>вклад снять</code>, чтобы пополнять снова."
+        )
+
+    available_space = MAX_DEPOSIT - cur_dep
+    clean_a = a.lower().replace(" ", "")
+    if clean_a in {"все", "всё", "all", "va", "макс", "max"}:
+        amount = min(cur_bal, available_space)
+    else:
+        amount = parse_amount(a, cur_bal, minimum=1)
+
     if amount is None or amount <= 0:
         return await message.reply("Укажите сумму: <code>вклад положить 5000</code> или <code>вклад положить всё</code>.")
 
     if cur_bal < amount:
         return await message.reply(f"Недостаточно монет на руках. Ваш баланс: <b>{cur_bal:,} монет</b>.")
+
+    if amount > available_space:
+        return await message.reply(
+            f"⚠️ <b>Превышен максимальный лимит вклада!</b>\n"
+            f"Лимит депозита: <b>{MAX_DEPOSIT:,} монет</b>.\n"
+            f"Сейчас на вкладе: <b>{cur_dep:,} монет</b>.\n"
+            f"Вы можете положить ещё максимум: <b>{available_space:,} монет</b>."
+        )
 
     await db.add_coins(message.from_user.id, -amount, "deposit_put")
     now = int(time.time())
@@ -284,10 +354,12 @@ async def cmd_deposit_put(message: Message, bot: Bot, args: str = "", **kw):
         (message.chat.id, message.from_user.id, amount, now, amount)
     )
 
+    new_total = cur_dep + amount
     await message.reply(
         f"🏦 <b>ВКЛАД ПОПОЛНЕН!</b>\n\n"
         f"💵 Внесено: <b>+{amount:,} монет</b>\n"
-        f"📈 Каждый день начисляется <b>3%</b> пассивного дохода.\n"
+        f"🏦 Всего на вкладе: <b>{new_total:,} / {MAX_DEPOSIT:,} монет</b>\n"
+        f"📈 Каждый день начисляется <b>1%</b> пассивного дохода.\n"
         f"🛡 Средства защищены от ограблений!"
     )
 
@@ -299,19 +371,23 @@ async def cmd_deposit_put(message: Message, bot: Bot, args: str = "", **kw):
                     desc="Снять монеты с депозита на баланс"))
 async def cmd_deposit_withdraw(message: Message, bot: Bot, args: str = "", **kw):
     a = (args or "").strip()
-    row = await db.fetchone("SELECT * FROM user_deposits WHERE chat_id=? AND user_id=?",
-                            (message.chat.id, message.from_user.id))
-    cur_dep = row["amount"] if row else 0
+    cur_dep, profit = await _get_and_accrue_deposit(message.chat.id, message.from_user.id)
 
     if not a:
+        profit_text = f"\n📈 <i>Начислены проценты:</i> <b>+{profit:,} монет</b>!" if profit > 0 else ""
         return await message.reply(
-            f"🏦 <b>Ваш вклад в банке:</b> <b>{cur_dep:,} монет</b>\n\n"
+            f"🏦 <b>Ваш вклад в банке:</b> <b>{cur_dep:,} монет</b>{profit_text}\n\n"
             f"💡 Чтобы снять средства на руки, укажите сумму:\n"
             f"• <code>снять вклад 5000000</code>\n"
             f"• <code>снять вклад всё</code>"
         )
 
-    amount = parse_amount(a, cur_dep, minimum=1)
+    clean_a = a.lower().replace(" ", "")
+    if clean_a in {"все", "всё", "all", "va", "макс", "max"}:
+        amount = cur_dep
+    else:
+        amount = parse_amount(a, cur_dep, minimum=1)
+
     if amount is None or amount <= 0:
         return await message.reply("Укажите сумму для снятия: <code>снять вклад 5000</code> или <code>снять вклад всё</code>.")
 
@@ -324,9 +400,11 @@ async def cmd_deposit_withdraw(message: Message, bot: Bot, args: str = "", **kw)
     )
     await db.add_coins(message.from_user.id, amount, "deposit_withdraw")
 
+    rem = cur_dep - amount
     await message.reply(
         f"🏦 <b>ВЫВОД С ДЕПОЗИТА ВЫПОЛНЕН!</b>\n\n"
         f"💵 Снято: <b>{amount:,} монет</b>\n"
+        f"🏦 Остаток на вкладе: <b>{rem:,} монет</b>\n"
         f"💰 Монеты поступили на ваш основной баланс."
     )
 
