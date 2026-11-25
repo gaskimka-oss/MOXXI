@@ -67,11 +67,77 @@ async def cb_captcha(call: CallbackQuery, bot: Bot):
     _captcha.pop(call.from_user.id, None)
     await db.get_user(call.from_user.id)
     await db.execute("UPDATE users SET verified=1 WHERE user_id=?", (call.from_user.id,))
+    await call.message.answer(LANG_CHOOSE_TEXT, reply_markup=lang_selection_kb())
+    await call.answer("✅ Проверка пройдена!")
+
+
+# --- Выбор языка интерфейса -----------------------------------------------
+LANG_CHOOSE_TEXT = (
+    "🌐 <b>ВЫБОР ЯЗЫКА / SELECT LANGUAGE</b>\n"
+    "✦ ══════════════════════════ ✦\n\n"
+    "👋 <b>Добро пожаловать в MOXXI!</b>\n\n"
+    "Выберите удобный язык для работы с ботом:\n"
+    "Please select your preferred language:\n\n"
+    "<i>(Базовый язык: Русский. Вы сможете сменить язык в любой момент командой <code>язык</code>)</i>"
+)
+
+
+def lang_selection_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🇷🇺 Русский", callback_data="set_lang:ru"),
+            InlineKeyboardButton(text="🇬🇧 English", callback_data="set_lang:en"),
+        ],
+        [
+            InlineKeyboardButton(text="🇺🇦 Українська", callback_data="set_lang:uk"),
+            InlineKeyboardButton(text="🇧🇾 Беларуская", callback_data="set_lang:be"),
+        ],
+        [
+            InlineKeyboardButton(text="🇰🇿 Қазақша", callback_data="set_lang:kk"),
+            InlineKeyboardButton(text="🇩🇪 Deutsch", callback_data="set_lang:de"),
+        ],
+        [
+            InlineKeyboardButton(text="🇪🇸 Español", callback_data="set_lang:es"),
+            InlineKeyboardButton(text="🇫🇷 Français", callback_data="set_lang:fr"),
+        ],
+        [
+            InlineKeyboardButton(text="⏩ Продолжить (Русский)", callback_data="set_lang:ru_skip")
+        ]
+    ])
+
+
+@router.callback_query(F.data.startswith("set_lang:"))
+async def cb_set_lang(call: CallbackQuery, bot: Bot):
+    lang_code = call.data.split(":", 1)[1]
+    clean_lang = lang_code.replace("_skip", "")
+
+    await db.set_user_lang(call.from_user.id, clean_lang)
+
+    LANG_CONFIRM = {
+        "ru": "✅ Язык установлен: Русский!",
+        "en": "✅ Language selected: English!",
+        "uk": "✅ Мову встановлено: Українська!",
+        "be": "✅ Мову ўстаноўлена: Беларуская!",
+        "kk": "✅ Тіл орнатылды: Қазақша!",
+        "de": "✅ Sprache ausgewählt: Deutsch!",
+        "es": "✅ Idioma seleccionado: Español!",
+        "fr": "✅ Langue sélectionnée: Français!",
+    }
+    ans = LANG_CONFIRM.get(clean_lang, "✅ Язык установлен: Русский!")
+    await call.answer(ans, show_alert=False)
+
     u = await db.get_user(call.from_user.id)
     me = await bot.me()
-    await call.message.answer(await main_text(call.from_user.first_name, u),
-                                 reply_markup=await main_kb(call.from_user.id, me.username))
-    await call.answer("✅ Проверка пройдена!")
+    try:
+        await call.message.edit_text(
+            await main_text(call.from_user.first_name, u),
+            reply_markup=await main_kb(call.from_user.id, me.username)
+        )
+    except Exception:
+        await call.message.answer(
+            await main_text(call.from_user.first_name, u),
+            reply_markup=await main_kb(call.from_user.id, me.username)
+        )
 
 
 async def _delayed_delete(msg: Message, delay: float = 1.5) -> None:
@@ -153,6 +219,9 @@ async def main_kb(uid: int = 0, bot_username: str = "moxxichat_bot") -> InlineKe
         ],
         [
             InlineKeyboardButton(text="🎁 Бонусы", callback_data="mm:bonus"),
+            InlineKeyboardButton(text="🌐 Язык", callback_data="mm:lang"),
+        ],
+        [
             InlineKeyboardButton(text="📖 Все Команды", callback_data="mm:cmds"),
         ]
     ]
@@ -203,11 +272,16 @@ async def cmd_start(message: Message, bot: Bot, **kw):
         return await message.reply(text_msg, reply_markup=kb_group)
 
     try:
-        await message.answer("🧹 <i>Интерфейс обновлен: открыто единое интерактивное меню.</i>", reply_markup=kb.hide())
+        await message.answer("🧹 <i>Интерфейс обновлен: выбор языка.</i>", reply_markup=kb.hide())
     except Exception:
         pass
-    await message.answer(await main_text(message.from_user.first_name, u),
-                         reply_markup=await main_kb(message.from_user.id, me.username))
+    await message.answer(LANG_CHOOSE_TEXT, reply_markup=lang_selection_kb())
+
+
+@router.message(Cmd("язык", "языки", "сменить язык", "lang", "language", section=32,
+                    usage="язык", desc="Выбор языка интерфейса"))
+async def cmd_language(message: Message, bot: Bot, **kw):
+    await message.reply(LANG_CHOOSE_TEXT, reply_markup=lang_selection_kb())
 
 
 @router.message(Cmd("меню", "menu", "главное меню", section=32, usage="меню", desc="Главное меню бота"))
@@ -346,6 +420,10 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
             await call.message.delete()
         except Exception:
             await call.answer("Меню закрыто")
+        return await call.answer()
+
+    if what == "lang":
+        await call.message.answer(LANG_CHOOSE_TEXT, reply_markup=lang_selection_kb())
         return await call.answer()
 
     if what == "main":

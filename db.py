@@ -1237,7 +1237,8 @@ async def _migrate() -> None:
                   ("grams", "INTEGER NOT NULL DEFAULT 0"),
                   ("coins", "INTEGER NOT NULL DEFAULT 0"),
                   ("crystals", "INTEGER NOT NULL DEFAULT 0"),
-                  ("gender", "TEXT NOT NULL DEFAULT 'none'")],
+                  ("gender", "TEXT NOT NULL DEFAULT 'none'"),
+                  ("lang", "TEXT NOT NULL DEFAULT 'ru'")],
         "chat_themes": [
             ("theme", "TEXT NOT NULL DEFAULT 'rainbow'"),
             ("hierarchy", "TEXT NOT NULL DEFAULT 'default'"),
@@ -1299,6 +1300,11 @@ async def _migrate() -> None:
                     await _conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
                 except Exception:
                     pass
+
+    try:
+        await _conn.execute("UPDATE users SET lang='ru' WHERE lang IS NULL OR lang=''")
+    except Exception:
+        pass
 
     # Автоматическая инициализация официальных групп проекта Moxxi:
     default_links = {
@@ -1871,6 +1877,18 @@ async def get_user(user_id: int) -> aiosqlite.Row:
         )
         row = await fetchone("SELECT * FROM users WHERE user_id=?", (user_id,))
     return row  # type: ignore[return-value]
+
+
+async def get_user_lang(user_id: int) -> str:
+    row = await fetchone("SELECT lang FROM users WHERE user_id=?", (user_id,))
+    if row and row["lang"]:
+        return str(row["lang"])
+    return "ru"
+
+
+async def set_user_lang(user_id: int, lang: str) -> None:
+    await get_user(user_id)
+    await execute("UPDATE users SET lang=? WHERE user_id=?", (lang, user_id))
 
 
 async def touch_user(user_id: int, username: str | None, first_name: str | None) -> None:

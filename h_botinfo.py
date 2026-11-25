@@ -139,60 +139,8 @@ async def cmd_bot(message: Message, bot: Bot, args: str = "", had_prefix: bool =
 @router.message(Cmd("чаты", "список чатов", "все чаты", "chats", section=S, rank=8, hidden=True,
                     usage="чаты", desc="Список всех групп бота (только для владельца)"))
 async def cmd_chats(message: Message, bot: Bot, **kw):
-    import config
-    is_owner = bool(message.from_user and message.from_user.id == config.OWNER_ID)
-    if not is_owner:
-        return await message.reply("🔒 <b>Команда «чаты» доступна только владельцу/создателю бота!</b>")
-
-    rows = await db.fetchall("SELECT chat_id, title, added_at FROM chats WHERE chat_id < 0 ORDER BY added_at DESC")
-    stat_rows = await db.fetchall("SELECT DISTINCT chat_id FROM chat_stats WHERE chat_id < 0")
-
-    chat_dict = {}
-    for r in rows:
-        chat_dict[r["chat_id"]] = {"title": r["title"] or f"Группа {r['chat_id']}", "added_at": r["added_at"]}
-    for sr in stat_rows:
-        cid = sr["chat_id"]
-        if cid not in chat_dict:
-            chat_dict[cid] = {"title": f"Группа {cid}", "added_at": 0}
-
-    if not chat_dict:
-        return await message.reply("💬 <b>Бот пока не добавлен ни в одну группу.</b>")
-
-    lines = [f"💬 <b>Список всех подключённых групп ({len(chat_dict)}):</b>\n"]
-    idx = 1
-    for cid, info in chat_dict.items():
-        title = info["title"]
-        members_str = "—"
-        msgs_str = "0"
-        link_str = ""
-
-        try:
-            c_info = await bot.get_chat(cid)
-            if c_info.title:
-                title = c_info.title
-            if c_info.username:
-                link_str = f" • @{c_info.username}"
-            elif c_info.invite_link:
-                link_str = f" • <a href=\"{c_info.invite_link}\">ссылка</a>"
-        except Exception:
-            pass
-
-        try:
-            cnt = await bot.get_chat_member_count(cid)
-            members_str = str(cnt)
-        except Exception:
-            pass
-
-        row_msg = await db.fetchone("SELECT COALESCE(SUM(messages),0) c FROM chat_stats WHERE chat_id=?", (cid,))
-        if row_msg and row_msg["c"]:
-            msgs_str = str(row_msg["c"])
-
-        lines.append(
-            f"<b>{idx}. {html.escape(title)}</b>{link_str}\n"
-            f"   • ID: <code>{cid}</code>\n"
-            f"   • 👥 Участников: <b>{members_str}</b> | ✉️ СМС: <b>{msgs_str}</b>"
-        )
-        idx += 1
+    from h_adminpanel import cmd_chats as admin_cmd_chats
+    return await admin_cmd_chats(message, bot, **kw)
 
     text = "\n\n".join(lines)
     if len(text) > 3900:

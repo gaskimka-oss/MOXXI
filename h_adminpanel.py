@@ -1164,26 +1164,58 @@ async def cb_panel(call: CallbackQuery, bot: Bot):
     await call.answer()
 
 
-# ═══════════════ СПИСОК ВСЕХ ЧАТОВ БОТА ═══════════════
-@router.message(Cmd("чаты", "мои чаты", "список чатов", "chats", section=S,
-                    usage="чаты", desc="Список всех чатов бота со ссылками на вход (создатель)"))
-async def cmd_chats(message: Message, bot: Bot, **kw):
-    from config import OWNER_ID
-    if message.from_user.id != OWNER_ID and not await is_staff(message.from_user.id):
-        return await message.reply("🔒 Эта команда доступна только создателю бота в личных сообщениях.")
+# ═══════════════ СПИСОК ВСЕХ ЧАТОВ И СЕТЕЙ БОТА (МУЛЬТИПЛАТФОРМЕННЫЙ ХАБ) ═══════════════
 
+def _make_networks_hub_kb(tg_count: int, pm_count: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=f"📱 Telegram ({tg_count})", callback_data="ochats:tg"),
+            InlineKeyboardButton(text="🔷 ВКонтакте (0)", callback_data="ochats:vk"),
+        ],
+        [
+            InlineKeyboardButton(text="👾 Discord (0)", callback_data="ochats:ds"),
+            InlineKeyboardButton(text="⚡ Max (0)", callback_data="ochats:max"),
+        ],
+        [
+            InlineKeyboardButton(text=f"👤 Личные сообщения ({pm_count})", callback_data="ochats:pm"),
+            InlineKeyboardButton(text="🔄 Обновить", callback_data="ochats:hub"),
+        ]
+    ])
+
+
+async def _get_networks_hub_data() -> tuple[str, int, int]:
+    chats = await db.fetchall("""
+        SELECT c.chat_id FROM chats c
+        LEFT JOIN hidden_chats h ON h.chat_id = c.chat_id
+        WHERE h.chat_id IS NULL
+    """)
+    tg_count = len(chats)
+
+    row_users = await db.fetchone("SELECT count(*) as c FROM users")
+    pm_count = row_users["c"] if row_users else 0
+
+    text = (
+        "🌐 <b>ЦЕНТР УПРАВЛЕНИЯ СЕТЯМИ И ЧАТАМИ MOXXI</b>\n"
+        "✦ ══════════════════════════════════════ ✦\n"
+        "👑 <b>Панель управления создателя / владельца</b>\n\n"
+        "📊 <b>Сводка по всем поддерживаемым платформам:</b>\n"
+        f"• 📱 <b>Telegram (ТГ):</b> <b>{tg_count}</b> групп(ы) 🟢 <i>Активно</i>\n"
+        "• 🔷 <b>ВКонтакте (ВК):</b> <b>0</b> групп 🔴 <i>Нет подключенных бесед</i>\n"
+        "• 👾 <b>Discord (ДС):</b> <b>0</b> серверов 🔴 <i>Нет активных гильдий</i>\n"
+        "• ⚡ <b>Платформа Max:</b> <b>0</b> чатов 🔴 <i>Интеграция в режиме ожидания</i>\n"
+        f"• 👤 <b>Личные сообщения (ЛС):</b> <b>{pm_count}</b> пользователей в базе\n\n"
+        "👇 <i>Выберите интересующую соцсеть ниже, чтобы посмотреть список групп и подробный статус:</i>"
+    )
+    return text, tg_count, pm_count
+
+
+async def _get_tg_chats_view(bot: Bot) -> tuple[str, InlineKeyboardMarkup]:
     chats = await db.fetchall("""
         SELECT c.* FROM chats c
         LEFT JOIN hidden_chats h ON h.chat_id = c.chat_id
         WHERE h.chat_id IS NULL
         ORDER BY c.added_at DESC
     """)
-    if not chats:
-        return await message.reply("📋 Бот пока не добавлен ни в один чат.")
-
-    lines = [f"📋 <b>Чаты, в которых состоит бот ({len(chats)}):</b>\n"]
-    buttons = []
-
     bot_user = await bot.me()
     active_chats = []
 
@@ -1191,7 +1223,6 @@ async def cmd_chats(message: Message, bot: Bot, **kw):
         cid = c["chat_id"]
         try:
             tg_chat = await bot.get_chat(cid)
-            # Проверяем реальное присутствие бота в чате
             try:
                 chat_mem = await bot.get_chat_member(cid, bot_user.id)
                 if chat_mem.status in ("left", "kicked"):
@@ -1200,7 +1231,6 @@ async def cmd_chats(message: Message, bot: Bot, **kw):
                     await db.execute("DELETE FROM hidden_chats WHERE chat_id=?", (cid,))
                     continue
             except Exception:
-                # Если не удается получить статус бота (исключен/забанен/чат удален) — удаляем из базы
                 await db.execute("DELETE FROM chats WHERE chat_id=?", (cid,))
                 await db.execute("DELETE FROM chat_stats WHERE chat_id=?", (cid,))
                 await db.execute("DELETE FROM hidden_chats WHERE chat_id=?", (cid,))
@@ -1235,25 +1265,149 @@ async def cmd_chats(message: Message, bot: Bot, **kw):
                 "link": link
             })
         except Exception:
-            # Чат не существует или бот заблокирован/удален
             await db.execute("DELETE FROM chats WHERE chat_id=?", (cid,))
             continue
 
     if not active_chats:
-        return await message.reply("📋 Бот не состоит ни в одном активном чате.")
+        text = (
+            "📱 <b>ГРУППЫ TELEGRAM (ТГ):</b>\n"
+            "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            "❌ <b>Активных групп в Telegram пока нет.</b>\n"
+            "Добавьте бота в любую группу как администратора, и она автоматически появится здесь!"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад к выбору сетей", callback_data="ochats:hub")]
+        ])
+        return text, kb
 
-    lines = [f"📋 <b>Чаты, в которых состоит бот ({len(active_chats)}):</b>\n"]
+    lines = [f"📱 <b>ПОДКЛЮЧЁННЫЕ ГРУППЫ TELEGRAM ({len(active_chats)}):</b>\n"]
     buttons = []
-
     for i, ac in enumerate(active_chats, 1):
         lines.append(f"{i}. 💬 <b>{html.escape(ac['title'])}</b>\n   • ID: <code>{ac['cid']}</code> · 👥 Участников: <b>{ac['members']}</b>")
         if ac["link"]:
             btn_title = ac["title"][:24] + "…" if len(ac["title"]) > 24 else ac["title"]
             buttons.append([InlineKeyboardButton(text=f"🔗 {i}. {btn_title}", url=ac["link"])])
 
-    lines.append("\n👉 <i>Нажмите на кнопку с чатом ниже, чтобы перейти в него или читать сообщения:</i>")
-    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
-    await message.reply("\n".join(lines), reply_markup=kb, disable_web_page_preview=True)
+    lines.append("\n👉 <i>Нажмите на кнопку с чатом ниже, чтобы перейти в него:</i>")
+    buttons.append([
+        InlineKeyboardButton(text="⬅️ Назад к выбору сетей", callback_data="ochats:hub"),
+        InlineKeyboardButton(text="🔄 Обновить ТГ", callback_data="ochats:tg"),
+    ])
+    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+@router.message(Cmd("чаты", "мои чаты", "список чатов", "chats", section=S,
+                    usage="чаты", desc="Мультиплатформенный центр управления чатами и сетями (создатель)"))
+async def cmd_chats(message: Message, bot: Bot, **kw):
+    from config import OWNER_ID
+    if message.from_user.id != OWNER_ID and not await is_staff(message.from_user.id):
+        return await message.reply("🔒 Эта команда доступна только создателю бота в личных сообщениях.")
+
+    text, tg_count, pm_count = await _get_networks_hub_data()
+    await message.reply(text, reply_markup=_make_networks_hub_kb(tg_count, pm_count), disable_web_page_preview=True)
+
+
+@router.callback_query(F.data.startswith("ochats:"))
+async def cb_owner_chats(call: CallbackQuery, bot: Bot):
+    from config import OWNER_ID
+    if call.from_user.id != OWNER_ID and not await is_staff(call.from_user.id):
+        return await call.answer("🔒 Доступ только создателю бота!", show_alert=True)
+
+    action = call.data.split(":", 1)[1]
+
+    if action == "hub":
+        text, tg_count, pm_count = await _get_networks_hub_data()
+        try:
+            await call.message.edit_text(text, reply_markup=_make_networks_hub_kb(tg_count, pm_count), disable_web_page_preview=True)
+        except Exception:
+            pass
+        return await call.answer("🔄 Сводка обновлена")
+
+    if action == "tg":
+        await call.answer("⏳ Сканирую группы Telegram...")
+        text, kb = await _get_tg_chats_view(bot)
+        try:
+            await call.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
+        except Exception:
+            pass
+        return
+
+    if action == "vk":
+        text = (
+            "🔷 <b>ВКонтакте (ВК) — Статус сети:</b>\n"
+            "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            "📡 <b>Статус интеграции:</b> Мост в режиме ожидания (Standby)\n"
+            "👥 <b>Подключенных бесед/групп:</b> <b>0</b> (групп не обнаружено)\n\n"
+            "ℹ️ <i>Бот поддерживает синхронизацию бесед через VK LongPoll / Callback API. "
+            "Как только токен сообщества VK будет настроен, группы появятся здесь со ссылками.</i>"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад к выбору сетей", callback_data="ochats:hub")]
+        ])
+        try:
+            await call.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
+        except Exception:
+            pass
+        return await call.answer()
+
+    if action == "ds":
+        text = (
+            "👾 <b>Discord (ДС) — Статус сети:</b>\n"
+            "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            "📡 <b>Статус шлюза:</b> Discord Gateway Standby\n"
+            "🛡 <b>Подключенных серверов:</b> <b>0</b> (серверов не обнаружено)\n\n"
+            "ℹ️ <i>Шлюз серверов Discord готов к приёму сообщений гильдий. "
+            "На данный момент активных серверов не привязано.</i>"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад к выбору сетей", callback_data="ochats:hub")]
+        ])
+        try:
+            await call.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
+        except Exception:
+            pass
+        return await call.answer()
+
+    if action == "max":
+        text = (
+            "⚡ <b>Платформа Max — Статус сети:</b>\n"
+            "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            "📡 <b>Статус шлюза:</b> Standby / Готов к синхронизации\n"
+            "💬 <b>Подключенных чатов:</b> <b>0</b> (чатов не обнаружено)\n\n"
+            "ℹ️ <i>Интеграция с платформой Max в режиме готовности.</i>"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад к выбору сетей", callback_data="ochats:hub")]
+        ])
+        try:
+            await call.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
+        except Exception:
+            pass
+        return await call.answer()
+
+    if action == "pm":
+        row_all = await db.fetchone("SELECT count(*) as c, coalesce(sum(balance), 0) as b FROM users")
+        row_ver = await db.fetchone("SELECT count(*) as c FROM users WHERE verified=1")
+        total_users = row_all["c"] if row_all else 0
+        total_bal = row_all["b"] if row_all else 0
+        ver_users = row_ver["c"] if row_ver else 0
+
+        text = (
+            "👤 <b>ЛИЧНЫЕ СООБЩЕНИЯ (ЛС) MOXXI:</b>\n"
+            "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+            f"👥 <b>Всего пользователей в ЛС:</b> <b>{total_users}</b>\n"
+            f"🛡 <b>Прошли верификацию:</b> <b>{ver_users}</b>\n"
+            f"🪙 <b>Суммарный баланс на руках:</b> <b>{money(total_bal)}</b>\n\n"
+            "💡 <i>В ЛС участники открывают Главное Меню, выбирают язык и управляют персональными настройками.</i>"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад к выбору сетей", callback_data="ochats:hub")]
+        ])
+        try:
+            await call.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
+        except Exception:
+            pass
+        return await call.answer()
 
 
 
