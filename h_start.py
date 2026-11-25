@@ -27,6 +27,7 @@ router.message.filter(F.chat.type == "private")
 EMOJI = ["🍎", "🍌", "🍇", "🍓", "🍒", "🥝", "🍑", "🍍", "🥥", "🍋"]
 _captcha: dict[int, dict] = {}
 _pending_support_ticket: dict[int, float] = {}
+_pending_referrals: dict[int, int] = {}
 
 
 def _captcha_kb(right: str, options: list[str]) -> InlineKeyboardMarkup:
@@ -67,6 +68,31 @@ async def cb_captcha(call: CallbackQuery, bot: Bot):
     _captcha.pop(call.from_user.id, None)
     await db.get_user(call.from_user.id)
     await db.execute("UPDATE users SET verified=1 WHERE user_id=?", (call.from_user.id,))
+
+    # Обработка реферала
+    inviter = _pending_referrals.pop(call.from_user.id, 0)
+    if inviter and inviter != call.from_user.id:
+        try:
+            registered = await db.add_bot_referral(inviter, call.from_user.id)
+            if registered:
+                bonus = await db.claim_referral_milestones(inviter)
+                fn = html.escape(call.from_user.first_name or "Друг")
+                stats = await db.get_bot_referral_stats(inviter)
+                cnt = stats["count"]
+                msg_text = (
+                    f"🎉 <b>Новый реферал!</b>\n"
+                    f"По вашей ссылке зарегистрировался игрок <b>{fn}</b>!\n"
+                    f"❄️ Начислено: <b>+10 Снежинок</b> (Всего приглашено: {cnt} чел.)"
+                )
+                if bonus > 0:
+                    msg_text += (
+                        f"\n\n🔥 <b>ВЫ ДОСТИГЛИ РУБЕЖА В 20 ДРУЗЕЙ!</b>\n"
+                        f"💰 Награда: <b>+{bonus:,} грамм</b> зачислена прямо на ваш баланс!"
+                    )
+                await bot.send_message(inviter, msg_text)
+        except Exception:
+            pass
+
     await call.message.answer(LANG_CHOOSE_TEXT, reply_markup=lang_selection_kb())
     await call.answer("✅ Проверка пройдена!")
 
@@ -218,10 +244,11 @@ async def main_kb(uid: int = 0, bot_username: str = "moxxichat_bot") -> InlineKe
             InlineKeyboardButton(text="🏆 Топ Рейтинги", callback_data="mm:tops"),
         ],
         [
+            InlineKeyboardButton(text="👥 Рефералы (+50к)", callback_data="mm:ref"),
             InlineKeyboardButton(text="🎁 Бонусы", callback_data="mm:bonus"),
-            InlineKeyboardButton(text="🌐 Язык", callback_data="mm:lang"),
         ],
         [
+            InlineKeyboardButton(text="🌐 Язык", callback_data="mm:lang"),
             InlineKeyboardButton(text="📖 Все Команды", callback_data="mm:cmds"),
         ]
     ]
@@ -252,9 +279,54 @@ async def cmd_start(message: Message, bot: Bot, **kw):
         await db.track_daily_activity(message.from_user.id, is_start=True)
     except Exception:
         pass
+
+    # Парсим реферальный код из /start ref_12345 или /start r_12345
+    inviter_id = 0
+    txt = (message.text or "").strip()
+    parts = txt.split(maxsplit=1)
+    if len(parts) > 1:
+        param = parts[1].strip()
+        if param.startswith("ref_"):
+            try:
+                inviter_id = int(param.split("ref_")[1])
+            except Exception:
+                pass
+        elif param.startswith("r_"):
+            try:
+                inviter_id = int(param.split("r_")[1])
+            except Exception:
+                pass
+
+    if inviter_id and inviter_id != message.from_user.id:
+        _pending_referrals[message.from_user.id] = inviter_id
+
     u = await db.get_user(message.from_user.id)
     if not u["verified"]:
         return await send_captcha(message)
+
+    # Если уже верифицирован, проверяем регистрацию реферала (если первый раз)
+    if inviter_id and inviter_id != message.from_user.id and not u.get("ref_by"):
+        try:
+            registered = await db.add_bot_referral(inviter_id, message.from_user.id)
+            if registered:
+                bonus = await db.claim_referral_milestones(inviter_id)
+                fn = html.escape(message.from_user.first_name or "Друг")
+                stats = await db.get_bot_referral_stats(inviter_id)
+                cnt = stats["count"]
+                msg_text = (
+                    f"🎉 <b>Новый реферал!</b>\n"
+                    f"Игрок <b>{fn}</b> перешел по вашей ссылке!\n"
+                    f"❄️ Начислено: <b>+10 Снежинок</b> (Всего приглашено: {cnt} чел.)"
+                )
+                if bonus > 0:
+                    msg_text += (
+                        f"\n\n🔥 <b>ВЫ ДОСТИГЛИ РУБЕЖА В 20 ДРУЗЕЙ!</b>\n"
+                        f"💰 Награда: <b>+{bonus:,} грамм</b> зачислена прямо на ваш баланс!"
+                    )
+                await bot.send_message(inviter_id, msg_text)
+        except Exception:
+            pass
+
     me = await bot.me()
 
     if message.chat.type != "private":
@@ -424,6 +496,11 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
 
     if what == "lang":
         await call.message.answer(LANG_CHOOSE_TEXT, reply_markup=lang_selection_kb())
+        return await call.answer()
+
+    if what == "ref":
+        text, kb_ref = await render_referrals_card(uid, me.username)
+        await call.message.answer(text, reply_markup=kb_ref)
         return await call.answer()
 
     if what == "main":
@@ -990,7 +1067,10 @@ async def cb_buy(call: CallbackQuery, bot: Bot):
 
 @router.pre_checkout_query()
 async def pre_checkout(q: PreCheckoutQuery, bot: Bot):
-    raw_key = (q.invoice_payload or "").split(":")[-1]
+    payload = q.invoice_payload or ""
+    if payload.startswith("skip_quest:"):
+        return await bot.answer_pre_checkout_query(q.id, ok=True)
+    raw_key = payload.split(":")[-1]
     if raw_key == "vip_30":
         old_lvl, old_until, old_act = await db.get_vip_info(q.from_user.id)
         if old_act and old_lvl >= 2:
@@ -1006,7 +1086,27 @@ async def on_paid(message: Message, bot: Bot):
     sp = getattr(message, "successful_payment", None)
     if not sp:
         return
-    raw_key = (sp.invoice_payload or "").split(":")[-1]
+    payload = getattr(sp, "invoice_payload", "") or ""
+    if payload.startswith("skip_quest:"):
+        parts = payload.split(":")
+        chat_id = int(parts[1])
+        qid = int(parts[2])
+        await db.skip_chat_quest(chat_id, qid)
+        q_meta = next((x for x in db.DEFAULT_TREE_QUESTS if x["id"] == qid), None)
+        reward = q_meta["reward_flakes"] if q_meta else 60
+        u_mention = mention(message.from_user)
+        try:
+            await bot.send_message(
+                chat_id,
+                f"⭐️🎉 <b>ПРОПУСК ЗАДАНИЯ ЁЛКИ ОПЛАЧЕН!</b>\n\n"
+                f"Участник {u_mention} пропустил задание #{qid} за {sp.total_amount} ⭐️!\n"
+                f"❄️ Беседа получила <b>+{reward} Снежинок</b>! Новогодняя Ёлка стала ярче! 🎄"
+            )
+        except Exception:
+            pass
+        return await message.answer(f"✅ Вы успешно оплатили пропуск задания #{qid} для беседы! Ей начислено +{reward} ❄️ Снежинок!")
+
+    raw_key = payload.split(":")[-1]
     pack = STARS_PACKS.get(raw_key)
     uid = message.from_user.id
     if not pack:
@@ -1125,3 +1225,55 @@ async def cmd_add_to_group(message: Message, bot: Bot, **kw):
         reply_markup=kb,
         disable_web_page_preview=True
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# РЕФЕРАЛЬНАЯ СИСТЕМА MOXXI
+# ═══════════════════════════════════════════════════════════════════════════
+
+async def render_referrals_card(user_id: int, bot_username: str) -> tuple[str, InlineKeyboardMarkup]:
+    stats = await db.get_bot_referral_stats(user_id)
+    cnt = stats["count"]
+    flakes = stats["snowflakes"]
+    milestones = stats["milestones"]
+    in_tier = cnt % 20
+    filled = int(round(8 * in_tier / 20)) if 20 > 0 else 0
+    bar = "█" * filled + "░" * (8 - filled)
+    ref_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
+
+    text = (
+        f"👥 <b>РЕФЕРАЛЬНАЯ ПРОГРАММА MOXXI</b> 👥\n"
+        f"✦ ══════════════════════════════ ✦\n"
+        f"🔗 <b>Ваша личная ссылка для приглашения:</b>\n"
+        f"<code>{ref_link}</code>\n\n"
+        f"📊 <b>Ваша статистика:</b>\n"
+        f"├ 👥 Приглашено друзей: <b>{cnt} чел.</b>\n"
+        f"├ ❄️ Снежинки за друзей: <b>{flakes:,} ❄️</b>\n"
+        f"└ 💰 Получено супер-бонусов: <b>{milestones * 50_000:,} грамм</b>\n\n"
+        f"🎁 <b>НАГРАДЫ ЗА ПРИГЛАШЕНИЯ:</b>\n"
+        f"├ ❄️ <b>+10 Снежинок</b> за каждого приведённого друга\n"
+        f"├ 🎁 <b>+1,000 грамм и 5 ❄️</b> новичку в подарок при старте\n"
+        f"└ 💎 <b>+50,000 ГРАММ НА БАЛАНС за каждые 20 друзей!</b>\n\n"
+        f"🎯 <b>До следующей выплаты 50,000 грамм:</b>\n"
+        f"[{bar}] <b>{in_tier}/20 друзей</b>\n"
+        f"✦ ══════════════════════════════ ✦\n"
+        f"👉 <i>Отправляйте ссылку друзьям, в свои чаты и каналы!</i>"
+    )
+    share_text = "Заходи в бота MOXXI! Тут зимний новогодний ивент, казино, рейды и море призов!"
+    import urllib.parse
+    encoded_text = urllib.parse.quote(share_text)
+    share_url = f"https://t.me/share/url?url={ref_link}&text={encoded_text}"
+    kb_ref = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 Поделиться ссылкой", url=share_url)],
+        [InlineKeyboardButton(text="⬅️ В главное меню", callback_data="mm:main")]
+    ])
+    return text, kb_ref
+
+
+@router.message(Cmd("реф", "рефералка", "рефералы", "друзья", "пригласить", "ref", section=32,
+                    usage="реф", desc="Реферальная ссылка и награды"))
+async def cmd_referrals(message: Message, bot: Bot, **kw):
+    me = await bot.me()
+    text, kb_ref = await render_referrals_card(message.from_user.id, me.username)
+    await message.reply(text, reply_markup=kb_ref)
+

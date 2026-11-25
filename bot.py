@@ -98,6 +98,7 @@ import h_moxxi_apex as moxxi_apex
 import h_staff_hq as staff_hq
 import core_telemetry as telemetry
 import h_diagnostics as diagnostics
+import h_winter_event as winter_event
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s")
@@ -260,6 +261,17 @@ async def user_middleware(handler, event, data: dict):
                     await modlog.remember(event)
                 except Exception:
                     pass
+            try:
+                if winter_event.is_winter_active():
+                    await db.advance_chat_quest(chat.id, "messages", 1)
+            except Exception:
+                pass
+        if isinstance(event, Message) and getattr(event, "new_chat_members", None):
+            try:
+                if winter_event.is_winter_active():
+                    await db.advance_chat_quest(chat.id, "joins", len(event.new_chat_members))
+            except Exception:
+                pass
         if await db.get_setting(chat.id, "silent") == "1":
             txt = (getattr(event, "text", "") or "").lower().lstrip("!./ ")
             if not txt.startswith(("включить чат", "проверка", "команды")):
@@ -590,11 +602,12 @@ async def main() -> None:
         duels.router, clan_wars.router, fishing_craft.router, achievements.router,
         quests.router, social_fun.router, grams.router, nav.router,
         adminpanel.router, owner_panel.router, diagnostics.router, start.router, update_2_2.router, currency_exchange.router, vip_plus.router, moxxi_3_0.router,
-        staff_hq.router,
+        staff_hq.router, winter_event.router,
     )
     for r in command_routers:
         r.message.middleware(access_middleware)
 
+    dp.include_router(winter_event.router)
     dp.include_router(nav.router)
     dp.include_router(adminpanel.router)
     dp.include_router(owner_panel.router)

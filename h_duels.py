@@ -429,6 +429,13 @@ async def _resolve_duel(message: Message, bot: Bot, cid: int,
     )
 
     try:
+        from h_winter_event import is_winter_active
+        if is_winter_active():
+            await db.advance_chat_quest(cid, "duels", 1)
+    except Exception:
+        pass
+
+    try:
         await arena_msg.edit_text(result_text, disable_web_page_preview=True)
     except Exception:
         await bot.send_message(cid, result_text, disable_web_page_preview=True)

@@ -1168,6 +1168,28 @@ async def _migrate() -> None:
             "PRIMARY KEY (chat_id, joined_user_id))"
         )
         await _conn.execute(
+            "CREATE TABLE IF NOT EXISTS bot_referrals ("
+            "inviter_id INTEGER NOT NULL, "
+            "joined_user_id INTEGER PRIMARY KEY, "
+            "created_at INTEGER NOT NULL)"
+        )
+        await _conn.execute(
+            "CREATE TABLE IF NOT EXISTS chat_winter_quests ("
+            "chat_id INTEGER NOT NULL, "
+            "quest_id INTEGER NOT NULL, "
+            "progress INTEGER NOT NULL DEFAULT 0, "
+            "goal INTEGER NOT NULL, "
+            "completed INTEGER NOT NULL DEFAULT 0, "
+            "PRIMARY KEY (chat_id, quest_id))"
+        )
+        await _conn.execute(
+            "CREATE TABLE IF NOT EXISTS winter_snowballs ("
+            "chat_id INTEGER NOT NULL, "
+            "user_id INTEGER NOT NULL, "
+            "target_id INTEGER NOT NULL, "
+            "ts INTEGER NOT NULL)"
+        )
+        await _conn.execute(
             "CREATE TABLE IF NOT EXISTS clan_bosses ("
             "clan_id INTEGER PRIMARY KEY, "
             "boss_name TEXT NOT NULL, "
@@ -1238,7 +1260,16 @@ async def _migrate() -> None:
                   ("coins", "INTEGER NOT NULL DEFAULT 0"),
                   ("crystals", "INTEGER NOT NULL DEFAULT 0"),
                   ("gender", "TEXT NOT NULL DEFAULT 'none'"),
-                  ("lang", "TEXT NOT NULL DEFAULT 'ru'")],
+                  ("lang", "TEXT NOT NULL DEFAULT 'ru'"),
+                  ("snowflakes", "INTEGER NOT NULL DEFAULT 0"),
+                  ("ref_by", "INTEGER NOT NULL DEFAULT 0"),
+                  ("ref_count", "INTEGER NOT NULL DEFAULT 0"),
+                  ("ref_bonus_milestones", "INTEGER NOT NULL DEFAULT 0")],
+        "chats": [
+            ("snowflakes", "INTEGER NOT NULL DEFAULT 0"),
+            ("tree_level", "INTEGER NOT NULL DEFAULT 1"),
+            ("tree_xp", "INTEGER NOT NULL DEFAULT 0"),
+        ],
         "chat_themes": [
             ("theme", "TEXT NOT NULL DEFAULT 'rainbow'"),
             ("hierarchy", "TEXT NOT NULL DEFAULT 'default'"),
@@ -3258,5 +3289,185 @@ async def close() -> None:
         except Exception:
             pass
         _conn = None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# НОВОГОДНИЙ ИВЕНТ 2027: СНЕЖИНКИ, РЕФЕРАЛЫ И ЁЛКА В ГРУППАХ
+# ═══════════════════════════════════════════════════════════════════════════
+
+DEFAULT_TREE_QUESTS = [
+    {"id": 1, "desc": "💬 Написать 250 сообщений в чате", "goal": 250, "reward_flakes": 60, "stars": 15, "type": "messages"},
+    {"id": 2, "desc": "🎰 Сыграть 15 мини-игр в чате", "goal": 15, "reward_flakes": 60, "stars": 20, "type": "games"},
+    {"id": 3, "desc": "⚔️ Провести 5 дуэлей между участниками", "goal": 5, "reward_flakes": 60, "stars": 15, "type": "duels"},
+    {"id": 4, "desc": "👥 Пригласить 3 новых людей в чат", "goal": 3, "reward_flakes": 70, "stars": 25, "type": "joins"},
+]
+
+
+async def add_bot_referral(inviter_id: int, joined_user_id: int) -> bool:
+    """Регистрирует нового пользователя по реферальной ссылке бота.
+    Возвращает True если реферал уникальный/новый, False если уже был зарегистрирован."""
+    if inviter_id == joined_user_id or inviter_id <= 0 or joined_user_id <= 0:
+        return False
+    try:
+        now = int(time.time())
+        res = await execute(
+            "INSERT INTO bot_referrals (inviter_id, joined_user_id, created_at) VALUES (?, ?, ?)",
+            (inviter_id, joined_user_id, now)
+        )
+        if res:
+            # Обновляем счетчик у инвайтера и прописываем ref_by у новичка
+            await execute("UPDATE users SET ref_count = ref_count + 1, snowflakes = snowflakes + 10 WHERE user_id = ?", (inviter_id,))
+            await execute("UPDATE users SET ref_by = ?, snowflakes = snowflakes + 5, balance = balance + 1000 WHERE user_id = ?", (inviter_id, joined_user_id))
+            return True
+    except Exception:
+        pass
+    return False
+
+
+async def get_bot_referral_stats(user_id: int) -> dict:
+    row = await fetchone(
+        "SELECT ref_count, ref_bonus_milestones, snowflakes, balance FROM users WHERE user_id = ?",
+        (user_id,)
+    )
+    if not row:
+        return {"count": 0, "milestones": 0, "snowflakes": 0, "balance": 0}
+    return {
+        "count": int(row["ref_count"] or 0),
+        "milestones": int(row["ref_bonus_milestones"] or 0),
+        "snowflakes": int(row["snowflakes"] or 0),
+        "balance": int(row["balance"] or 0),
+    }
+
+
+async def claim_referral_milestones(user_id: int) -> int:
+    """Проверяет пороги по 20 рефералов. Начисляет по 50,000 грамм за каждые 20 рефералов.
+    Возвращает сумму начисленного бонуса (например 50000, 100000 или 0)."""
+    stats = await get_bot_referral_stats(user_id)
+    count = stats["count"]
+    milestones_claimed = stats["milestones"]
+    eligible_milestones = count // 20
+    if eligible_milestones > milestones_claimed:
+        new_milestones = eligible_milestones - milestones_claimed
+        bonus_amount = new_milestones * 50_000
+        await execute(
+            "UPDATE users SET balance = balance + ?, ref_bonus_milestones = ? WHERE user_id = ?",
+            (bonus_amount, eligible_milestones, user_id)
+        )
+        return bonus_amount
+    return 0
+
+
+async def add_user_snowflakes(user_id: int, amount: int) -> int:
+    await execute("UPDATE users SET snowflakes = MAX(0, snowflakes + ?) WHERE user_id = ?", (amount, user_id))
+    row = await fetchone("SELECT snowflakes FROM users WHERE user_id = ?", (user_id,))
+    return int(row["snowflakes"]) if row else 0
+
+
+async def add_chat_snowflakes(chat_id: int, amount: int) -> int:
+    await execute("UPDATE chats SET snowflakes = MAX(0, snowflakes + ?) WHERE chat_id = ?", (amount, chat_id))
+    row = await fetchone("SELECT snowflakes FROM chats WHERE chat_id = ?", (chat_id,))
+    return int(row["snowflakes"]) if row else 0
+
+
+async def get_chat_tree_info(chat_id: int) -> dict:
+    row = await fetchone("SELECT snowflakes, tree_level, tree_xp FROM chats WHERE chat_id = ?", (chat_id,))
+    if not row:
+        return {"snowflakes": 0, "tree_level": 1, "tree_xp": 0}
+    return {
+        "snowflakes": int(row["snowflakes"] or 0),
+        "tree_level": max(1, min(10, int(row["tree_level"] or 1))),
+        "tree_xp": int(row["tree_xp"] or 0),
+    }
+
+
+async def init_chat_quests_if_empty(chat_id: int) -> list[dict]:
+    rows = await fetchall("SELECT quest_id, progress, goal, completed FROM chat_winter_quests WHERE chat_id = ? ORDER BY quest_id", (chat_id,))
+    if not rows:
+        for q in DEFAULT_TREE_QUESTS:
+            await execute(
+                "INSERT OR REPLACE INTO chat_winter_quests (chat_id, quest_id, progress, goal, completed) VALUES (?, ?, 0, ?, 0)",
+                (chat_id, q["id"], q["goal"])
+            )
+        rows = await fetchall("SELECT quest_id, progress, goal, completed FROM chat_winter_quests WHERE chat_id = ? ORDER BY quest_id", (chat_id,))
+    return [dict(r) for r in rows]
+
+
+async def advance_chat_quest(chat_id: int, quest_type: str, amount: int = 1) -> bool:
+    """Увеличивает прогресс квеста по типу ('messages', 'games', 'duels', 'joins').
+    Если все квесты круга закрыты — апает уровень Ёлки и выдает +250 снежинок."""
+    type_map = {"messages": 1, "games": 2, "duels": 3, "joins": 4}
+    qid = type_map.get(quest_type)
+    if not qid:
+        return False
+    await init_chat_quests_if_empty(chat_id)
+    q = await fetchone("SELECT progress, goal, completed FROM chat_winter_quests WHERE chat_id = ? AND quest_id = ?", (chat_id, qid))
+    if not q or q["completed"]:
+        return False
+    new_prog = q["progress"] + amount
+    completed = 1 if new_prog >= q["goal"] else 0
+    await execute(
+        "UPDATE chat_winter_quests SET progress = ?, completed = ? WHERE chat_id = ? AND quest_id = ?",
+        (new_prog, completed, chat_id, qid)
+    )
+    if completed:
+        q_meta = next((x for x in DEFAULT_TREE_QUESTS if x["id"] == qid), None)
+        flakes = q_meta["reward_flakes"] if q_meta else 50
+        await add_chat_snowflakes(chat_id, flakes)
+        await _check_tree_round_complete(chat_id)
+        return True
+    return False
+
+
+async def skip_chat_quest(chat_id: int, quest_id: int) -> bool:
+    """Мгновенно завершает квест (вызывается при оплате Telegram Stars)."""
+    await init_chat_quests_if_empty(chat_id)
+    q = await fetchone("SELECT goal, completed FROM chat_winter_quests WHERE chat_id = ? AND quest_id = ?", (chat_id, quest_id))
+    if not q:
+        return False
+    await execute(
+        "UPDATE chat_winter_quests SET progress = goal, completed = 1 WHERE chat_id = ? AND quest_id = ?",
+        (chat_id, quest_id)
+    )
+    q_meta = next((x for x in DEFAULT_TREE_QUESTS if x["id"] == quest_id), None)
+    flakes = q_meta["reward_flakes"] if q_meta else 60
+    await add_chat_snowflakes(chat_id, flakes)
+    await _check_tree_round_complete(chat_id)
+    return True
+
+
+async def _check_tree_round_complete(chat_id: int) -> bool:
+    rows = await fetchall("SELECT completed FROM chat_winter_quests WHERE chat_id = ?", (chat_id,))
+    if rows and all(r["completed"] for r in rows):
+        await execute(
+            "UPDATE chats SET tree_level = MIN(10, COALESCE(tree_level, 1) + 1), "
+            "snowflakes = snowflakes + 250 WHERE chat_id = ?",
+            (chat_id,)
+        )
+        for q in DEFAULT_TREE_QUESTS:
+            await execute(
+                "UPDATE chat_winter_quests SET progress = 0, completed = 0 WHERE chat_id = ? AND quest_id = ?",
+                (chat_id, q["id"])
+            )
+        return True
+    return False
+
+
+async def get_winter_top_chats(limit: int = 10) -> list[dict]:
+    rows = await fetchall(
+        "SELECT chat_id, title, snowflakes, tree_level FROM chats "
+        "WHERE snowflakes > 0 OR tree_level > 1 ORDER BY snowflakes DESC, tree_level DESC LIMIT ?",
+        (limit,)
+    )
+    return [dict(r) for r in rows]
+
+
+async def get_winter_chat_rank(chat_id: int) -> tuple[int, int]:
+    """Возвращает (место_в_топе, количество_снежинок_чата)."""
+    row = await fetchone("SELECT snowflakes FROM chats WHERE chat_id = ?", (chat_id,))
+    flakes = int(row["snowflakes"] or 0) if row else 0
+    row_rank = await fetchone("SELECT COUNT(*) + 1 as rank FROM chats WHERE snowflakes > ?", (flakes,))
+    rank = int(row_rank["rank"]) if row_rank else 1
+    return rank, flakes
+
 
 
