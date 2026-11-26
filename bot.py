@@ -101,6 +101,7 @@ import h_diagnostics as diagnostics
 import h_winter_event as winter_event
 import h_advent as advent
 import h_winter_boss_santa as winter_boss_santa
+import h_autodelete as autodelete
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s")
@@ -586,6 +587,16 @@ async def main() -> None:
             log.error("Telemetry error handler: %s", e_err)
 
     dp.message.outer_middleware(keyboard_middleware)
+
+    @dp.message.outer_middleware()
+    async def autodelete_outer_mw(handler, event: Message, data: dict):
+        if event and event.chat and event.chat.type in {"group", "supergroup"} and event.from_user and not event.from_user.is_bot:
+            try:
+                await autodelete.check_and_trigger_autodelete(data["bot"], event)
+            except Exception:
+                pass
+        return await handler(event, data)
+
     dp.message.middleware(user_middleware)
     dp.callback_query.middleware(user_middleware)
 
@@ -604,11 +615,12 @@ async def main() -> None:
         duels.router, clan_wars.router, fishing_craft.router, achievements.router,
         quests.router, social_fun.router, grams.router, nav.router,
         adminpanel.router, owner_panel.router, diagnostics.router, start.router, update_2_2.router, currency_exchange.router, vip_plus.router, moxxi_3_0.router,
-        staff_hq.router, winter_event.router, advent.router, winter_boss_santa.router,
+        staff_hq.router, winter_event.router, advent.router, winter_boss_santa.router, autodelete.router,
     )
     for r in command_routers:
         r.message.middleware(access_middleware)
 
+    dp.include_router(autodelete.router)
     dp.include_router(winter_event.router)
     dp.include_router(advent.router)
     dp.include_router(winter_boss_santa.router)

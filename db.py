@@ -1048,6 +1048,23 @@ CREATE TABLE IF NOT EXISTS mine_cooldowns (
     user_id INTEGER PRIMARY KEY,
     last_mine INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS chat_autodelete_settings (
+    chat_id INTEGER PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    delay_seconds INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS chat_user_autodelete (
+    chat_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    delay_seconds INTEGER NOT NULL DEFAULT 0,
+    username TEXT NOT NULL DEFAULT '',
+    first_name TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(chat_id, user_id)
+);
 """
 
 
@@ -3635,6 +3652,62 @@ async def get_world_boss_top_hitters(limit: int = 5) -> list[dict]:
         (limit,)
     )
     return [dict(r) for r in rows]
+
+
+# ── СИСТЕМА ГИБКОГО АВТОУДАЛЕНИЯ СООБЩЕНИЙ ──────────────────────────────
+
+async def set_chat_autodelete(chat_id: int, delay_seconds: int, enabled: bool = True) -> None:
+    now = int(time.time())
+    await execute(
+        "INSERT INTO chat_autodelete_settings (chat_id, enabled, delay_seconds, updated_at) "
+        "VALUES (?, ?, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET "
+        "enabled = excluded.enabled, delay_seconds = excluded.delay_seconds, updated_at = excluded.updated_at",
+        (chat_id, 1 if enabled else 0, max(0, delay_seconds), now)
+    )
+
+
+async def disable_chat_autodelete(chat_id: int) -> None:
+    now = int(time.time())
+    await execute(
+        "INSERT INTO chat_autodelete_settings (chat_id, enabled, delay_seconds, updated_at) "
+        "VALUES (?, 0, 0, ?) ON CONFLICT(chat_id) DO UPDATE SET enabled = 0, updated_at = excluded.updated_at",
+        (chat_id, now)
+    )
+
+
+async def get_chat_autodelete_setting(chat_id: int) -> Optional[dict]:
+    row = await fetchone("SELECT * FROM chat_autodelete_settings WHERE chat_id = ?", (chat_id,))
+    return dict(row) if row else None
+
+
+async def set_user_autodelete(chat_id: int, user_id: int, delay_seconds: int, username: str = "", first_name: str = "") -> None:
+    now = int(time.time())
+    await execute(
+        "INSERT INTO chat_user_autodelete (chat_id, user_id, delay_seconds, username, first_name, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(chat_id, user_id) DO UPDATE SET "
+        "delay_seconds = excluded.delay_seconds, username = excluded.username, first_name = excluded.first_name",
+        (chat_id, user_id, max(0, delay_seconds), username or "", first_name or "", now)
+    )
+
+
+async def remove_user_autodelete(chat_id: int, user_id: int) -> bool:
+    cur = await execute("DELETE FROM chat_user_autodelete WHERE chat_id = ? AND user_id = ?", (chat_id, user_id))
+    return bool(cur and cur.rowcount > 0)
+
+
+async def get_user_autodelete(chat_id: int, user_id: int) -> Optional[dict]:
+    row = await fetchone("SELECT * FROM chat_user_autodelete WHERE chat_id = ? AND user_id = ?", (chat_id, user_id))
+    return dict(row) if row else None
+
+
+async def get_chat_autodelete_users(chat_id: int) -> list[dict]:
+    rows = await fetchall(
+        "SELECT user_id, delay_seconds, username, first_name, created_at FROM chat_user_autodelete "
+        "WHERE chat_id = ? ORDER BY created_at DESC",
+        (chat_id,)
+    )
+    return [dict(r) for r in rows]
+
 
 
 
