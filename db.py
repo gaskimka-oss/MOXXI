@@ -1190,6 +1190,51 @@ async def _migrate() -> None:
             "ts INTEGER NOT NULL)"
         )
         await _conn.execute(
+            "CREATE TABLE IF NOT EXISTS advent_claims ("
+            "user_id INTEGER NOT NULL, "
+            "day INTEGER NOT NULL, "
+            "ts INTEGER NOT NULL, "
+            "PRIMARY KEY (user_id, day))"
+        )
+        await _conn.execute(
+            "CREATE TABLE IF NOT EXISTS santa_gifts ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "chat_id INTEGER NOT NULL, "
+            "from_id INTEGER NOT NULL, "
+            "to_id INTEGER NOT NULL, "
+            "amount INTEGER NOT NULL DEFAULT 0, "
+            "flakes INTEGER NOT NULL DEFAULT 0, "
+            "note TEXT NOT NULL DEFAULT '', "
+            "is_anon INTEGER NOT NULL DEFAULT 0, "
+            "opened INTEGER NOT NULL DEFAULT 0, "
+            "created_at INTEGER NOT NULL)"
+        )
+        await _conn.execute(
+            "CREATE TABLE IF NOT EXISTS world_boss ("
+            "boss_id INTEGER PRIMARY KEY, "
+            "name TEXT NOT NULL, "
+            "max_hp INTEGER NOT NULL, "
+            "current_hp INTEGER NOT NULL, "
+            "reward_flakes INTEGER NOT NULL DEFAULT 500, "
+            "reward_coins INTEGER NOT NULL DEFAULT 500000, "
+            "status TEXT NOT NULL DEFAULT 'alive', "
+            "spawned_ts INTEGER NOT NULL)"
+        )
+        await _conn.execute(
+            "CREATE TABLE IF NOT EXISTS world_boss_hits ("
+            "user_id INTEGER PRIMARY KEY, "
+            "damage INTEGER NOT NULL DEFAULT 0, "
+            "hits_count INTEGER NOT NULL DEFAULT 0, "
+            "last_hit INTEGER NOT NULL DEFAULT 0)"
+        )
+        await _conn.execute(
+            "CREATE TABLE IF NOT EXISTS user_cases ("
+            "user_id INTEGER NOT NULL, "
+            "case_id INTEGER NOT NULL, "
+            "count INTEGER NOT NULL DEFAULT 0, "
+            "PRIMARY KEY (user_id, case_id))"
+        )
+        await _conn.execute(
             "CREATE TABLE IF NOT EXISTS clan_bosses ("
             "clan_id INTEGER PRIMARY KEY, "
             "boss_name TEXT NOT NULL, "
@@ -3468,6 +3513,129 @@ async def get_winter_chat_rank(chat_id: int) -> tuple[int, int]:
     row_rank = await fetchone("SELECT COUNT(*) + 1 as rank FROM chats WHERE snowflakes > ?", (flakes,))
     rank = int(row_rank["rank"]) if row_rank else 1
     return rank, flakes
+
+
+# ── КЕЙСЫ ПОЛЬЗОВАТЕЛЕЙ ─────────────────────────────────────────────────────
+
+async def get_user_cases(user_id: int) -> dict[int, int]:
+    """Возвращает словарь {case_id: count} для имеющихся у игрока кейсов."""
+    rows = await fetchall("SELECT case_id, count FROM user_cases WHERE user_id = ? AND count > 0", (user_id,))
+    return {int(r["case_id"]): int(r["count"]) for r in rows}
+
+
+async def add_user_case(user_id: int, case_id: int, count: int = 1) -> int:
+    """Добавляет или списывает кейсы у игрока."""
+    await execute(
+        "INSERT INTO user_cases (user_id, case_id, count) VALUES (?, ?, ?) "
+        "ON CONFLICT(user_id, case_id) DO UPDATE SET count = MAX(0, count + ?)",
+        (user_id, case_id, count, count)
+    )
+    row = await fetchone("SELECT count FROM user_cases WHERE user_id = ? AND case_id = ?", (user_id, case_id))
+    return int(row["count"]) if row else 0
+
+
+# ── АДВЕНТ-КАЛЕНДАРЬ (1-31 ДЕКАБРЯ) ────────────────────────────────────────
+
+async def get_advent_claimed_days(user_id: int) -> set[int]:
+    rows = await fetchall("SELECT day FROM advent_claims WHERE user_id = ?", (user_id,))
+    return {int(r["day"]) for r in rows}
+
+
+async def claim_advent_day(user_id: int, day: int) -> bool:
+    """Забирает награду за указанный день. Возвращает True, если забрал впервые."""
+    try:
+        now = int(time.time())
+        res = await execute("INSERT INTO advent_claims (user_id, day, ts) VALUES (?, ?, ?)", (user_id, day, now))
+        return bool(res)
+    except Exception:
+        return False
+
+
+# ── ТАЙНЫЙ САНТА ────────────────────────────────────────────────────────────
+
+async def create_santa_gift(chat_id: int, from_id: int, to_id: int, amount: int, flakes: int, note: str, is_anon: bool) -> int:
+    now = int(time.time())
+    await execute(
+        "INSERT INTO santa_gifts (chat_id, from_id, to_id, amount, flakes, note, is_anon, opened, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)",
+        (chat_id, from_id, to_id, amount, flakes, note, 1 if is_anon else 0, now)
+    )
+    row = await fetchone("SELECT last_insert_rowid() as id")
+    return int(row["id"]) if row else 0
+
+
+async def get_santa_gift(gift_id: int) -> Optional[dict]:
+    row = await fetchone("SELECT * FROM santa_gifts WHERE id = ?", (gift_id,))
+    return dict(row) if row else None
+
+
+async def open_santa_gift(gift_id: int, user_id: int) -> Optional[dict]:
+    gift = await get_santa_gift(gift_id)
+    if not gift or gift["opened"] or gift["to_id"] != user_id:
+        return None
+    await execute("UPDATE santa_gifts SET opened = 1 WHERE id = ?", (gift_id,))
+    if gift["amount"] > 0:
+        await add_balance(user_id, gift["amount"], "santa_gift")
+    if gift["flakes"] > 0:
+        await add_user_snowflakes(user_id, gift["flakes"])
+    return gift
+
+
+# ── МИРОВОЙ НОВОГОДНИЙ РЕЙД-БОСС: ЗЛОЙ КРАМПУС ──────────────────────────────
+
+async def get_or_spawn_world_boss() -> dict:
+    row = await fetchone("SELECT * FROM world_boss WHERE boss_id = 1")
+    now = int(time.time())
+    if not row or row["status"] == "defeated":
+        # Если босс повержен более 2 часов назад или еще не создан — спавним нового!
+        if not row or (now - int(row["spawned_ts"])) > 7200:
+            max_hp = 1_500_000
+            await execute(
+                "INSERT OR REPLACE INTO world_boss (boss_id, name, max_hp, current_hp, reward_flakes, reward_coins, status, spawned_ts) "
+                "VALUES (1, '👹 Злой Крампус', ?, ?, 500, 500000, 'alive', ?)",
+                (max_hp, max_hp, now)
+            )
+            await execute("DELETE FROM world_boss_hits")
+            row = await fetchone("SELECT * FROM world_boss WHERE boss_id = 1")
+    return dict(row) if row else {}
+
+
+async def hit_world_boss(user_id: int, damage: int) -> dict:
+    boss = await get_or_spawn_world_boss()
+    if not boss or boss["status"] != "alive":
+        return {"boss": boss, "defeated": False, "damage_dealt": 0}
+
+    cur_hp = boss["current_hp"]
+    real_dmg = min(cur_hp, damage)
+    new_hp = max(0, cur_hp - real_dmg)
+    defeated = (new_hp == 0)
+    new_status = "defeated" if defeated else "alive"
+    now = int(time.time())
+
+    await execute(
+        "UPDATE world_boss SET current_hp = ?, status = ? WHERE boss_id = 1",
+        (new_hp, new_status)
+    )
+    await execute(
+        "INSERT INTO world_boss_hits (user_id, damage, hits_count, last_hit) VALUES (?, ?, 1, ?) "
+        "ON CONFLICT(user_id) DO UPDATE SET damage = damage + ?, hits_count = hits_count + 1, last_hit = ?",
+        (user_id, real_dmg, now, real_dmg, now)
+    )
+
+    boss["current_hp"] = new_hp
+    boss["status"] = new_status
+    return {"boss": boss, "defeated": defeated, "damage_dealt": real_dmg}
+
+
+async def get_world_boss_top_hitters(limit: int = 5) -> list[dict]:
+    rows = await fetchall(
+        "SELECT h.user_id, h.damage, h.hits_count, u.first_name, u.username "
+        "FROM world_boss_hits h LEFT JOIN users u ON h.user_id = u.user_id "
+        "ORDER BY h.damage DESC LIMIT ?",
+        (limit,)
+    )
+    return [dict(r) for r in rows]
+
 
 
 

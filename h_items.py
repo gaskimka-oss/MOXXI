@@ -13,6 +13,7 @@ import db
 from core_ranks import require
 from core_registry import Cmd
 from utils import mention, money
+from h_winter_event import is_winter_active
 
 router = Router(name="items")
 S = 39  # Раздел: Инвентарь, предметы и снаряжение
@@ -91,10 +92,11 @@ SHOP_ITEMS = {
 }
 
 CASES = {
-    1: {"name": "📦 Бронзовый кейс", "price": 500, "min_c": 300, "max_c": 1500, "xp": 50},
-    2: {"name": "🧰 Серебряный кейс", "price": 1500, "min_c": 1000, "max_c": 4500, "xp": 150},
-    3: {"name": "🎁 Золотой кейс", "price": 4000, "min_c": 3000, "max_c": 12000, "xp": 400},
-    4: {"name": "💎 Кейс Moxxi (Мифик)", "price": 10000, "min_c": 8000, "max_c": 35000, "xp": 1200}
+    1: {"name": "📦 Бронзовый кейс", "price": 500, "currency": "coins", "min_c": 300, "max_c": 1500, "xp": 50, "icon": "📦"},
+    2: {"name": "🧰 Серебряный кейс", "price": 1500, "currency": "coins", "min_c": 1000, "max_c": 4500, "xp": 150, "icon": "🧰"},
+    3: {"name": "🎁 Золотой кейс", "price": 4000, "currency": "coins", "min_c": 3000, "max_c": 12000, "xp": 400, "icon": "🎁"},
+    4: {"name": "💎 Кейс Moxxi (Мифик)", "price": 10000, "currency": "coins", "min_c": 8000, "max_c": 35000, "xp": 1200, "icon": "💎"},
+    5: {"name": "❄️ Ледяной Кейс 2027", "price": 30, "currency": "snowflakes", "min_c": 15000, "max_c": 80000, "xp": 2500, "icon": "❄️", "winter_only": True}
 }
 
 
@@ -189,16 +191,244 @@ async def cmd_shop(message: Message, bot: Bot, args: str = "", **kw):
     await message.reply("\n".join(text))
 
 
-# ══════════════════ 2. КЕЙСЫ ══════════════════
+# ══════════════════ 2. КЕЙСЫ И АНИМИРОВАННАЯ РУЛЕТКА ══════════════════
 
-@router.message(Cmd("кейсы", "открыть кейс", "кейсы мокси", section=S, rank=0,
-                    usage="кейс [1-4]", desc="🎁 Открытие кейсов с ценными призами"))
+async def open_case_animated(bot: Bot, chat_id: int, user_obj, case_id: int, edit_msg=None, reply_to_msg=None) -> None:
+    uid = user_obj.id
+    user = await db.get_user(uid)
+    c = CASES.get(case_id)
+    if not c:
+        return
+
+    # Проверка зимнего кейса
+    if c.get("winter_only") and not is_winter_active():
+        err_txt = "❄️ Ледяной Кейс 2027 откроется 1 декабря вместе со стартом новогоднего сезона!"
+        if edit_msg:
+            return await edit_msg.edit_text(err_txt)
+        elif reply_to_msg:
+            return await reply_to_msg.reply(err_txt)
+        return
+
+    # Проверка наличия кейса в инвентаре
+    user_cases = await db.get_user_cases(uid)
+    has_stored = user_cases.get(case_id, 0) > 0
+
+    if has_stored:
+        await db.add_user_case(uid, case_id, -1)
+    else:
+        if c["currency"] == "snowflakes":
+            flakes = user.get("snowflakes", 0) or 0
+            if flakes < c["price"]:
+                err_txt = f"❌ Недостаточно ❄️ Снежинок! Нужно <b>{c['price']} ❄️</b> (у вас: {flakes} ❄️)."
+                if edit_msg:
+                    return await edit_msg.edit_text(err_txt)
+                elif reply_to_msg:
+                    return await reply_to_msg.reply(err_txt)
+                return
+            await db.add_user_snowflakes(uid, -c["price"])
+        else:
+            if user["balance"] < c["price"]:
+                err_txt = f"❌ Недостаточно средств для открытия {c['name']}! Нужно <b>{money(c['price'])}</b>."
+                if edit_msg:
+                    return await edit_msg.edit_text(err_txt)
+                elif reply_to_msg:
+                    return await reply_to_msg.reply(err_txt)
+                return
+            await db.add_balance(uid, -c["price"])
+
+    # Розыгрыш призов
+    won_coins = random.randint(c["min_c"], c["max_c"])
+    won_xp = c["xp"]
+    won_items = []
+    main_drop_icon = "💰"
+    now_ts = int(time.time())
+
+    if case_id == 1 and random.random() < 0.20:
+        won_items.append("🧪 Аптечка первой помощи")
+        main_drop_icon = "🧪"
+        await db.execute("INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) VALUES (?, 'item_medkit', '🧪 Аптечка первой помощи', 1, ?) ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1", (uid, now_ts))
+    elif case_id == 2:
+        if random.random() < 0.22:
+            won_items.append("🛡️ Щит от варна")
+            main_drop_icon = "🛡️"
+            await db.execute("INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) VALUES (?, 'shield_warn', '🛡️ Щит от варна', 1, ?) ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1", (uid, now_ts))
+        if random.random() < 0.12:
+            won_items.append("🗡️ Меч Драконоборца")
+            main_drop_icon = "🗡️"
+            await db.execute("INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) VALUES (?, 'weapon_sword', '🗡️ Меч Драконоборца', 1, ?) ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1", (uid, now_ts))
+    elif case_id == 3:
+        if random.random() < 0.25:
+            won_items.append("🛡️ Щит от варна")
+            main_drop_icon = "🛡️"
+            await db.execute("INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) VALUES (?, 'shield_warn', '🛡️ Щит от варна', 1, ?) ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1", (uid, now_ts))
+        if random.random() < 0.15:
+            won_items.append("🦺 Титановый Бронежилет")
+            main_drop_icon = "🦺"
+            await db.execute("INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) VALUES (?, 'armor_titan', '🦺 Титановый Бронежилет', 1, ?) ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1", (uid, now_ts))
+        if random.random() < 0.15:
+            won_items.append("💊 Набор медика")
+            main_drop_icon = "💊"
+            await db.execute("INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) VALUES (?, 'item_doc_kit', '💊 Набор медика', 1, ?) ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1", (uid, now_ts))
+        if random.random() < 0.10:
+            won_items.append("💎 Кристальный значок")
+            main_drop_icon = "💎"
+            await db.execute("INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) VALUES (?, 'badge_diamond', '💎 Кристальный значок', 1, ?) ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1", (uid, now_ts))
+    elif case_id == 4:
+        if random.random() < 0.18:
+            won_items.append("🔫 Плазменный Бластер (СУПЕР ДРОП!)")
+            main_drop_icon = "🔫"
+            await db.execute("INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) VALUES (?, 'weapon_blaster', '🔫 Плазменный Бластер', 1, ?) ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1", (uid, now_ts))
+        if random.random() < 0.20:
+            won_items.append("🦺 Титановый Бронежилет")
+            main_drop_icon = "🦺"
+            await db.execute("INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) VALUES (?, 'armor_titan', '🦺 Титановый Бронежилет', 1, ?) ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1", (uid, now_ts))
+        if random.random() < 0.15:
+            won_items.append("🌌 Космический значок (МИФИК!)")
+            main_drop_icon = "🌌"
+            await db.execute("INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) VALUES (?, 'badge_void', '🌌 Космический значок', 1, ?) ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1", (uid, now_ts))
+    elif case_id == 5:
+        if random.random() < 0.25:
+            won_items.append("❄️ Ледяной Клинок Вьюги (Эксклюзив!)")
+            main_drop_icon = "❄️"
+            await db.execute("INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) VALUES (?, 'weapon_ice_blade', '❄️ Ледяной Клинок Вьюги', 1, ?) ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1", (uid, now_ts))
+        if random.random() < 0.20:
+            won_items.append("🛷 Ледяные Сани Санты (Транспорт!)")
+            main_drop_icon = "🛷"
+            await db.execute("INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) VALUES (?, 'car_ice_sleigh', '🛷 Ледяные Сани Санты', 1, ?) ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1", (uid, now_ts))
+        if random.random() < 0.30:
+            won_items.append("🎄 Новогодний значок Деда Мороза")
+            main_drop_icon = "🎄"
+            await db.execute("INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) VALUES (?, 'badge_santa', '🎄 Новогодний значок Деда Мороза', 1, ?) ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1", (uid, now_ts))
+
+    await db.add_balance(uid, won_coins)
+    await db.add_xp(chat_id, uid, won_xp)
+
+    # 🎬 КАДР 1: Запуск рулетки
+    frame1 = (
+        f"🎰 <b>ОТКРЫВАЕМ: {c['name']}...</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n"
+        f"░░░░░ [ 📦 | 💰 | 🧪 | 💎 | 🔫 ] ░░░░░\n\n"
+        f"<i>Запуск барабана рулетки...</i>"
+    )
+    if edit_msg:
+        active_msg = edit_msg
+        await active_msg.edit_text(frame1)
+    elif reply_to_msg:
+        active_msg = await reply_to_msg.reply(frame1)
+    else:
+        active_msg = await bot.send_message(chat_id, frame1)
+
+    await asyncio.sleep(0.7)
+
+    # 🎬 КАДР 2: Быстрое вращение
+    frame2 = (
+        f"🎰 <b>ВРАЩЕНИЕ БАРАБАНА: {c['name']}...</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n"
+        f"⚡️ 🌀 [ 💰 | 🦺 | ⚡️ | 🧪 | 🗡️ ] 🌀 ⚡️\n\n"
+        f"<i>Барабан крутится на полной скорости... 💨</i>"
+    )
+    try:
+        await active_msg.edit_text(frame2)
+    except Exception:
+        pass
+
+    await asyncio.sleep(0.7)
+
+    # 🎬 КАДР 3: Замедление стрелки
+    slot_pool = ["💰", "🦺", "🧪", "💎", "🔫", "🗡️", "⚡️", "🎁", "❄️"]
+    p_left = random.choice([x for x in slot_pool if x != main_drop_icon])
+    p_right = random.choice([x for x in slot_pool if x != main_drop_icon and x != p_left])
+    frame3 = (
+        f"🎰 <b>ЗАМЕДЛЕНИЕ СТРЕЛКИ...</b>\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n"
+        f"▶️ 🎯 [ {p_left} | ✨ <b>{main_drop_icon}</b> ✨ | {p_right} ] 🎯 ◀️\n\n"
+        f"<i>Стрелка останавливается... ⏳</i>"
+    )
+    try:
+        await active_msg.edit_text(frame3)
+    except Exception:
+        pass
+
+    await asyncio.sleep(0.8)
+
+    # 🎬 КАДР 4: Финальный показ
+    drops = [f"💰 <b>+{money(won_coins)}</b>", f"⚡️ <b>+{won_xp} XP</b>"]
+    for it in won_items:
+        drops.append(f"✨ <b>{it}</b>")
+
+    final_card = (
+        f"🎉 💥 <b>УСПЕШНО ОТКРЫТ {c['name'].upper()}!</b> 💥 🎉\n"
+        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n"
+        f"👤 <b>Игрок:</b> {mention(user_obj)}\n\n"
+        f"🎁 <b>ВАШ ВЫИГРЫШ:</b>\n" +
+        "\n".join(f"  └─▸ {d}" for d in drops) +
+        f"\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+        f"<i>Открыть еще раз:</i> <code>кейс {case_id}</code>"
+    )
+    kb_res = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🔄 Открыть ещё", callback_data=f"open_case:{case_id}"),
+            InlineKeyboardButton(text="🎁 Все кейсы", callback_data="cases_list")
+        ]
+    ])
+    try:
+        await active_msg.edit_text(final_card, reply_markup=kb_res)
+    except Exception:
+        pass
+
+
+async def render_cases_menu(user_obj) -> tuple[str, InlineKeyboardMarkup]:
+    uid = user_obj.id
+    user = await db.get_user(uid)
+    stored_cases = await db.get_user_cases(uid)
+    flakes = user.get("snowflakes", 0) or 0
+    winter_on = is_winter_active()
+
+    stored_lines = []
+    for cid, cnt in stored_cases.items():
+        if cnt > 0 and cid in CASES:
+            stored_lines.append(f"  └─▸ {CASES[cid]['name']}: <b>{cnt} шт.</b>")
+
+    stored_block = ""
+    if stored_lines:
+        stored_block = "🎒 <b>Ваши кейсы в инвентаре:</b>\n" + "\n".join(stored_lines) + "\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+
+    winter_line = f" · ❄️ <b>{flakes:,} Снежинок</b>" if winter_on else ""
+
+    text = [
+        "🎁 ✨ <b>КЕЙСЫ И БОКСЫ MOXXI</b> ✨ 🎁",
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈",
+        f"💰 Баланс: <b>{money(user['balance'])}</b>{winter_line}\n",
+        stored_block,
+        "<b>ДОСТУПНЫЕ КЕЙСЫ:</b>"
+    ]
+
+    buttons = []
+    for cid, c in CASES.items():
+        if c.get("winter_only") and not winter_on:
+            continue
+        curr_str = f"{c['price']} ❄️" if c["currency"] == "snowflakes" else money(c['price'])
+        text.append(
+            f"<b>{cid}. {c['name']}</b> — <b>{curr_str}</b>\n"
+            f"   └─▸ Призы: <code>{c['min_c']}–{c['max_c']} монет</code>, <code>+{c['xp']} XP</code>, оружие, броня и значки!\n"
+        )
+        buttons.append([InlineKeyboardButton(text=f"{c['name']} ({curr_str})", callback_data=f"open_case:{cid}")])
+
+    text.append("┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈")
+    text.append("💡 <i>Открыть кейс:</i> <code>кейс 1</code>, <code>кейс 2</code>, <code>кейс 3</code>, <code>кейс 4</code>, <code>кейс 5</code>")
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+    return "\n".join(text), kb
+
+
+@router.message(Cmd("кейсы", "открыть кейс", "кейсы мокси", "кейси", "кейс", section=S, rank=0,
+                    usage="кейс [1-5]", desc="🎁 Открытие кейсов с живой анимацией рулетки"))
 async def cmd_cases(message: Message, bot: Bot, args: str = "", **kw):
     had_prefix = kw.get("had_prefix", False)
     in_group = message.chat.type in {"group", "supergroup"}
-    a = (args or "").strip()
-    uid = message.from_user.id
-    user = await db.get_user(uid)
+    a = (args or "").strip().lower()
+
+    if a in ("нг", "зима", "зимний", "лед", "ледяной"):
+        a = "5"
 
     if a and not (a.isdigit() and int(a) in CASES):
         if not had_prefix and in_group:
@@ -206,140 +436,28 @@ async def cmd_cases(message: Message, bot: Bot, args: str = "", **kw):
 
     if a.isdigit() and int(a) in CASES:
         case_id = int(a)
-        c = CASES[case_id]
-        if user["balance"] < c["price"]:
-            return await message.reply(
-                f"❌ Недостаточно средств для открытия {c['name']}! Нужно <b>{money(c['price'])}</b>."
-            )
+        await open_case_animated(bot, message.chat.id, message.from_user, case_id, reply_to_msg=message)
+        return
 
-        await db.add_balance(uid, -c["price"])
+    text, kb = await render_cases_menu(message.from_user)
+    await message.reply(text, reply_markup=kb)
 
-        # Розыгрыш призов
-        won_coins = random.randint(c["min_c"], c["max_c"])
-        won_xp = c["xp"]
-        won_items: list[str] = []
 
-        # Дроп аптечки (бронзовый/серебряный)
-        if case_id == 1 and random.random() < 0.20:
-            won_items.append("🧪 Аптечка первой помощи")
-            await db.execute(
-                "INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) "
-                "VALUES (?, 'item_medkit', '🧪 Аптечка первой помощи', 1, ?) "
-                "ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1",
-                (uid, int(time.time()))
-            )
+@router.callback_query(F.data.startswith("open_case:"))
+async def cb_open_case(call: CallbackQuery, bot: Bot):
+    cid = int(call.data.split(":")[1])
+    await open_case_animated(bot, call.message.chat.id, call.from_user, cid, edit_msg=call.message)
+    await call.answer()
 
-        if case_id == 2:
-            if random.random() < 0.22:
-                won_items.append("🛡️ Щит от варна")
-                await db.execute(
-                    "INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) "
-                    "VALUES (?, 'shield_warn', '🛡️ Щит от варна', 1, ?) "
-                    "ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1",
-                    (uid, int(time.time()))
-                )
-            if random.random() < 0.12:
-                won_items.append("🗡️ Меч Драконоборца")
-                await db.execute(
-                    "INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) "
-                    "VALUES (?, 'weapon_sword', '🗡️ Меч Драконоборца', 1, ?) "
-                    "ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1",
-                    (uid, int(time.time()))
-                )
 
-        if case_id == 3:
-            if random.random() < 0.25:
-                won_items.append("🛡️ Щит от варна")
-                await db.execute(
-                    "INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) "
-                    "VALUES (?, 'shield_warn', '🛡️ Щит от варна', 1, ?) "
-                    "ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1",
-                    (uid, int(time.time()))
-                )
-            if random.random() < 0.15:
-                won_items.append("🦺 Титановый Бронежилет")
-                await db.execute(
-                    "INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) "
-                    "VALUES (?, 'armor_titan', '🦺 Титановый Бронежилет', 1, ?) "
-                    "ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1",
-                    (uid, int(time.time()))
-                )
-            if random.random() < 0.15:
-                won_items.append("💊 Набор медика")
-                await db.execute(
-                    "INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) "
-                    "VALUES (?, 'item_doc_kit', '💊 Набор медика', 1, ?) "
-                    "ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1",
-                    (uid, int(time.time()))
-                )
-            if random.random() < 0.10:
-                won_items.append("💎 Кристальный значок")
-                await db.execute(
-                    "INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) "
-                    "VALUES (?, 'badge_diamond', '💎 Кристальный значок', 1, ?) "
-                    "ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1",
-                    (uid, int(time.time()))
-                )
-
-        if case_id == 4:
-            if random.random() < 0.18:
-                won_items.append("🔫 Плазменный Бластер (СУПЕР ДРОП!)")
-                await db.execute(
-                    "INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) "
-                    "VALUES (?, 'weapon_blaster', '🔫 Плазменный Бластер', 1, ?) "
-                    "ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1",
-                    (uid, int(time.time()))
-                )
-            if random.random() < 0.20:
-                won_items.append("🦺 Титановый Бронежилет")
-                await db.execute(
-                    "INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) "
-                    "VALUES (?, 'armor_titan', '🦺 Титановый Бронежилет', 1, ?) "
-                    "ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1",
-                    (uid, int(time.time()))
-                )
-            if random.random() < 0.15:
-                won_items.append("🌌 Космический значок (МИФИК!)")
-                await db.execute(
-                    "INSERT INTO user_inventory (user_id, item_id, item_name, count, ts) "
-                    "VALUES (?, 'badge_void', '🌌 Космический значок', 1, ?) "
-                    "ON CONFLICT(user_id, item_id) DO UPDATE SET count = count + 1",
-                    (uid, int(time.time()))
-                )
-
-        await db.add_balance(uid, won_coins)
-        await db.add_xp(message.chat.id, uid, won_xp)
-
-        drops = [f"💰 <b>+{money(won_coins)}</b>", f"⚡️ <b>+{won_xp} XP</b>"]
-        for it in won_items:
-            drops.append(f"✨ <b>{it}</b>")
-
-        res = (
-            f"🎉 ✨ <b>ОТКРЫТИЕ {c['name'].upper()}!</b> ✨ 🎉\n"
-            f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n"
-            f"👤 Открыл: {mention(message.from_user)}\n\n"
-            f"🎁 <b>ВАШ ВЫИГРЫШ:</b>\n" +
-            "\n".join(f"  └─▸ {d}" for d in drops) +
-            "\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
-            f"<i>Открыть еще:</i> <code>кейс {case_id}</code>"
-        )
-        return await message.reply(res)
-
-    text = [
-        "🎁 ✨ <b>КЕЙСЫ И БОКСЫ MOXXI</b> ✨ 🎁",
-        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈",
-        f"Ваш баланс: <b>{money(user['balance'])}</b>\n"
-    ]
-
-    for cid, c in CASES.items():
-        text.append(
-            f"<b>{cid}. {c['name']}</b> — <b>{money(c['price'])}</b>\n"
-            f"   └─▸ Призы: <code>{c['min_c']}–{c['max_c']} монет</code>, <code>+{c['xp']} XP</code>, шанс на оружие, броню и значки!\n"
-        )
-
-    text.append("┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈")
-    text.append("💡 <i>Открыть кейс:</i> <code>кейс 1</code>, <code>кейс 2</code>, <code>кейс 3</code>, <code>кейс 4</code>")
-    await message.reply("\n".join(text))
+@router.callback_query(F.data == "cases_list")
+async def cb_cases_list(call: CallbackQuery, bot: Bot):
+    text, kb = await render_cases_menu(call.from_user)
+    try:
+        await call.message.edit_text(text, reply_markup=kb)
+    except Exception:
+        pass
+    await call.answer()
 
 
 # ══════════════════ 3. ИНВЕНТАРЬ ══════════════════

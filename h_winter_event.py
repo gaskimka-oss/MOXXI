@@ -423,3 +423,50 @@ async def cmd_changelog(message: Message, **kw):
             f"🎁 <i>Вас ждёт Новогодняя Ёлка, квесты со звёздами Stars, рефералка с наградой 50,000 грамм и Битва за Буст 10 LVL!</i>"
         )
     await message.reply(CHANGELOG_TEXT)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# НЕЙРО-ПОЗДРАВЛЕНИЯ ОТ ДЕДА МОРОЗА И СНЕГУРОЧКИ
+# ═══════════════════════════════════════════════════════════════════════════
+
+GREETING_TEMPLATES = [
+    "🎅 <i>«О-хо-хо! {name}, Дедушка Мороз заглянул в твои логи и видит — в этом году ты фармил как зверь! Желаю сорвать джекпот в казино, держать баланс на максимуме и чтобы в 2027 твоя ёлка сияла ярче Кремля! Держи морозный сувенир: +3 ❄️!»</i>",
+    "🎄 <i>«{name}, салам от Снегурочки! Пусть в Новом Году твои бизнесы приносят миллионы в минуту, дуэли заканчиваются онли победами, а хейтеры замерзают в сугробах! Лови праздничный бонус: +3 ❄️ Снежинки!»</i>",
+    "❄️ <i>«Йоу, {name}! Дед Мороз зарядил свои сани и мчит на полной скорости! Пусть в 2027 у тебя будет столько монет, сколько снега в Сибири, а удача улыбается на каждом круге рулетки! Держи +3 ❄️!»</i>",
+    "✨ <i>«{name}, слышишь звон бубенцов? Это твоя прибыль стучится в двери! Желаю топового клана, верных друзей по рефке и легкой победы в Битве за Буст 10 LVL! С наступающим! Лови +3 ❄️!»</i>",
+    "☃️ <i>«Снеговик передает привет, {name}! В этом году ты был хорошим игроком (ну, почти, если не считать сливы в кости)! Пусть 2027 принесет тонны фарма, редкий шмот из кейсов и вечный кайф! +3 ❄️ тебе в карман!»</i>",
+]
+
+
+@router.message(Cmd("поздравь", "поздравление", "дед мороз", "снегурочка", section=32,
+                    usage="поздравь [@юзер]", desc="🎅 Новогоднее поздравление от Деда Мороза со стихами и подарком"))
+async def cmd_santa_greeting(message: Message, bot: Bot, **kw):
+    target_id = message.from_user.id
+    target_name = message.from_user.first_name or "Боец"
+
+    if message.reply_to_message and message.reply_to_message.from_user:
+        target_id = message.reply_to_message.from_user.id
+        target_name = message.reply_to_message.from_user.first_name or "Друг"
+    elif message.entities:
+        for ent in message.entities:
+            if ent.type == "text_mention" and ent.user:
+                target_id = ent.user.id
+                target_name = ent.user.first_name
+                break
+
+    template = random.choice(GREETING_TEMPLATES)
+    t_mention = f'<a href="tg://user?id={target_id}">{html.escape(target_name)}</a>'
+    greeting_body = template.format(name=t_mention)
+
+    # Дарим 3 снежинки цели
+    await db.add_user_snowflakes(target_id, 3)
+
+    res = (
+        f"🎅 ✨ <b>ПРАЗДНИЧНОЕ ПОЗДРАВЛЕНИЕ ОТ MOXXI</b> ✨ 🎄\n"
+        f"✦ ══════════════════════════════════════ ✦\n\n"
+        f"{greeting_body}\n\n"
+        f"✦ ══════════════════════════════════════ ✦\n"
+        f"🎁 <i>Поздравьте друзей: <code>поздравь @юзер</code>!</i>"
+    )
+    await message.reply(res)
+
