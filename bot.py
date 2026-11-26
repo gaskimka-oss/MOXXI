@@ -102,6 +102,8 @@ import h_winter_event as winter_event
 import h_advent as advent
 import h_winter_boss_santa as winter_boss_santa
 import h_autodelete as autodelete
+import h_staff_salaries as staff_salaries
+import h_custom_donates as custom_donates
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s")
@@ -616,10 +618,13 @@ async def main() -> None:
         quests.router, social_fun.router, grams.router, nav.router,
         adminpanel.router, owner_panel.router, diagnostics.router, start.router, update_2_2.router, currency_exchange.router, vip_plus.router, moxxi_3_0.router,
         staff_hq.router, winter_event.router, advent.router, winter_boss_santa.router, autodelete.router,
+        staff_salaries.router, custom_donates.router,
     )
     for r in command_routers:
         r.message.middleware(access_middleware)
 
+    dp.include_router(staff_salaries.router)
+    dp.include_router(custom_donates.router)
     dp.include_router(autodelete.router)
     dp.include_router(winter_event.router)
     dp.include_router(advent.router)

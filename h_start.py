@@ -1105,7 +1105,7 @@ async def cb_buy(call: CallbackQuery, bot: Bot):
 @router.pre_checkout_query()
 async def pre_checkout(q: PreCheckoutQuery, bot: Bot):
     payload = q.invoice_payload or ""
-    if payload.startswith("skip_quest:"):
+    if payload.startswith(("skip_quest:", "snowflakes:", "act_shop:", "citem:")):
         return await bot.answer_pre_checkout_query(q.id, ok=True)
     raw_key = payload.split(":")[-1]
     if raw_key == "vip_30":
@@ -1124,6 +1124,50 @@ async def on_paid(message: Message, bot: Bot):
     if not sp:
         return
     payload = getattr(sp, "invoice_payload", "") or ""
+    uid = message.from_user.id
+
+    if payload.startswith("snowflakes:"):
+        parts = payload.split(":")
+        flakes_amount = int(parts[1])
+        await db.add_user_snowflakes(uid, flakes_amount)
+        return await message.answer(
+            f"❄️🎉 <b>НОВОГОДНЯЯ ВАЛЮТА УСПЕШНО НАЧИСЛЕНА!</b>\n\n"
+            f"Вам начислено: <b>+{flakes_amount:,} ❄️ Снежинок</b>!\n"
+            f"Используйте их для открытия ❄️ Ледяных Кейсов 2027 и прокачки Ёлки!"
+        )
+
+    if payload.startswith("act_shop:"):
+        parts = payload.split(":")
+        chat_id = int(parts[1])
+        await db.activate_custom_donate_shop(chat_id, uid)
+        return await message.answer(
+            f"🎉 <b>КОНСТРУКТОР ДОНАТОВ УСПЕШНО АКТИВИРОВАН!</b>\n\n"
+            f"Для вашей беседы активирован собственный магазин привилегий!\n"
+            f"Создавайте привилегии: <code>+донат [название] [цена] [описание]</code>\n"
+            f"Витрина магазина: <code>донат шоп</code>"
+        )
+
+    if payload.startswith("citem:"):
+        parts = payload.split(":")
+        item_id = int(parts[1])
+        chat_id = int(parts[2])
+        it = await db.get_custom_donate_item(item_id)
+        if it:
+            await db.add_custom_donate_order(chat_id, item_id, uid, it["price_rub"], "XTR")
+            try:
+                await bot.send_message(
+                    chat_id,
+                    f"🛍🎉 <b>ПОКУПКА ПРИВИЛЕГИИ В БЕСЕДЕ!</b>\n\n"
+                    f"Участник {mention(message.from_user)} приобрёл: <b>«{html.escape(it['title'])}»</b>!\n"
+                    f"Спасибо за поддержку проекта MOXXI! ⭐️"
+                )
+            except Exception:
+                pass
+            return await message.answer(
+                f"✅ <b>Привилегия «{html.escape(it['title'])}» успешно оплачена!</b>\n\n"
+                f"Уведомление отправлено в беседу. Спасибо за покупку!"
+            )
+
     if payload.startswith("skip_quest:"):
         parts = payload.split(":")
         chat_id = int(parts[1])

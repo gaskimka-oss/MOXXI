@@ -1065,6 +1065,55 @@ CREATE TABLE IF NOT EXISTS chat_user_autodelete (
     created_at INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY(chat_id, user_id)
 );
+
+CREATE TABLE IF NOT EXISTS chat_staff_salaries (
+    chat_id INTEGER NOT NULL,
+    rank INTEGER NOT NULL,
+    amount INTEGER NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'coins',
+    interval_seconds INTEGER NOT NULL DEFAULT 86400,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY(chat_id, rank)
+);
+
+CREATE TABLE IF NOT EXISTS staff_salary_claims (
+    chat_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    last_claim_ts INTEGER NOT NULL DEFAULT 0,
+    total_earned INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY(chat_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS chat_custom_donate_shop (
+    chat_id INTEGER PRIMARY KEY,
+    owner_id INTEGER NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 0,
+    activated_at INTEGER NOT NULL DEFAULT 0,
+    title TEXT NOT NULL DEFAULT 'Магазин привилегий беседы'
+);
+
+CREATE TABLE IF NOT EXISTS chat_custom_donate_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    price_rub INTEGER NOT NULL,
+    price_stars INTEGER NOT NULL DEFAULT 0,
+    description TEXT NOT NULL DEFAULT '',
+    item_type TEXT NOT NULL DEFAULT 'custom',
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS chat_custom_donate_orders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id INTEGER NOT NULL,
+    item_id INTEGER NOT NULL,
+    buyer_id INTEGER NOT NULL,
+    amount_rub INTEGER NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'RUB',
+    status TEXT NOT NULL DEFAULT 'paid',
+    created_at INTEGER NOT NULL
+);
 """
 
 
@@ -3707,6 +3756,111 @@ async def get_chat_autodelete_users(chat_id: int) -> list[dict]:
         (chat_id,)
     )
     return [dict(r) for r in rows]
+
+
+# ── СИСТЕМА ЗАРПЛАТ АДМИНИСТРАЦИИ ОТ ВЛАДЕЛЬЦА С КОМИССИЕЙ 3% ─────────────
+
+async def set_staff_salary(chat_id: int, rank: int, amount: int, currency: str, interval_seconds: int) -> None:
+    now = int(time.time())
+    await execute(
+        "INSERT INTO chat_staff_salaries (chat_id, rank, amount, currency, interval_seconds, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(chat_id, rank) DO UPDATE SET "
+        "amount = excluded.amount, currency = excluded.currency, interval_seconds = excluded.interval_seconds",
+        (chat_id, rank, amount, currency, max(60, interval_seconds), now)
+    )
+
+
+async def remove_staff_salary(chat_id: int, rank: int) -> bool:
+    cur = await execute("DELETE FROM chat_staff_salaries WHERE chat_id = ? AND rank = ?", (chat_id, rank))
+    return bool(cur and cur.rowcount > 0)
+
+
+async def get_staff_salary(chat_id: int, rank: int) -> Optional[dict]:
+    row = await fetchone("SELECT * FROM chat_staff_salaries WHERE chat_id = ? AND rank = ?", (chat_id, rank))
+    return dict(row) if row else None
+
+
+async def get_chat_salaries(chat_id: int) -> list[dict]:
+    rows = await fetchall("SELECT * FROM chat_staff_salaries WHERE chat_id = ? ORDER BY rank ASC", (chat_id,))
+    return [dict(r) for r in rows]
+
+
+async def get_staff_salary_claim(chat_id: int, user_id: int) -> Optional[dict]:
+    row = await fetchone("SELECT * FROM staff_salary_claims WHERE chat_id = ? AND user_id = ?", (chat_id, user_id))
+    return dict(row) if row else None
+
+
+async def record_staff_salary_claim(chat_id: int, user_id: int, amount: int) -> None:
+    now = int(time.time())
+    await execute(
+        "INSERT INTO staff_salary_claims (chat_id, user_id, last_claim_ts, total_earned) "
+        "VALUES (?, ?, ?, ?) ON CONFLICT(chat_id, user_id) DO UPDATE SET "
+        "last_claim_ts = excluded.last_claim_ts, total_earned = total_earned + excluded.total_earned",
+        (chat_id, user_id, now, amount)
+    )
+
+
+# ── КОНСТРУКТОР КАСТОМНЫХ ДОНАТОВ БЕСЕДЫ ЗА 76₽ ────────────────────────────
+
+async def activate_custom_donate_shop(chat_id: int, owner_id: int, title: str = "Магазин привилегий беседы") -> None:
+    now = int(time.time())
+    await execute(
+        "INSERT INTO chat_custom_donate_shop (chat_id, owner_id, is_active, activated_at, title) "
+        "VALUES (?, ?, 1, ?, ?) ON CONFLICT(chat_id) DO UPDATE SET "
+        "is_active = 1, title = excluded.title",
+        (chat_id, owner_id, now, title)
+    )
+
+
+async def get_custom_donate_shop(chat_id: int) -> Optional[dict]:
+    row = await fetchone("SELECT * FROM chat_custom_donate_shop WHERE chat_id = ?", (chat_id,))
+    return dict(row) if row else None
+
+
+async def is_custom_donate_shop_active(chat_id: int) -> bool:
+    row = await fetchone("SELECT is_active FROM chat_custom_donate_shop WHERE chat_id = ?", (chat_id,))
+    return bool(row and row["is_active"] == 1)
+
+
+async def add_custom_donate_item(chat_id: int, title: str, price_rub: int, price_stars: int = 0, description: str = "", item_type: str = "custom") -> int:
+    now = int(time.time())
+    await execute(
+        "INSERT INTO chat_custom_donate_items (chat_id, title, price_rub, price_stars, description, item_type, active, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, 1, ?)",
+        (chat_id, title, price_rub, price_stars, description, item_type, now)
+    )
+    row = await fetchone("SELECT last_insert_rowid() as id")
+    return int(row["id"]) if row else 0
+
+
+async def remove_custom_donate_item(chat_id: int, item_id: int) -> bool:
+    cur = await execute("UPDATE chat_custom_donate_items SET active = 0 WHERE chat_id = ? AND id = ?", (chat_id, item_id))
+    return bool(cur and cur.rowcount > 0)
+
+
+async def get_custom_donate_items(chat_id: int) -> list[dict]:
+    rows = await fetchall(
+        "SELECT * FROM chat_custom_donate_items WHERE chat_id = ? AND active = 1 ORDER BY id ASC",
+        (chat_id,)
+    )
+    return [dict(r) for r in rows]
+
+
+async def get_custom_donate_item(item_id: int) -> Optional[dict]:
+    row = await fetchone("SELECT * FROM chat_custom_donate_items WHERE id = ? AND active = 1", (item_id,))
+    return dict(row) if row else None
+
+
+async def add_custom_donate_order(chat_id: int, item_id: int, buyer_id: int, amount_rub: int, currency: str = "RUB") -> int:
+    now = int(time.time())
+    await execute(
+        "INSERT INTO chat_custom_donate_orders (chat_id, item_id, buyer_id, amount_rub, currency, status, created_at) "
+        "VALUES (?, ?, ?, ?, ?, 'paid', ?)",
+        (chat_id, item_id, buyer_id, amount_rub, currency, now)
+    )
+    row = await fetchone("SELECT last_insert_rowid() as id")
+    return int(row["id"]) if row else 0
+
 
 
 
