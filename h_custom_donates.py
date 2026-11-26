@@ -96,10 +96,10 @@ async def on_buy_snow_callback(cb: CallbackQuery, bot: Bot):
         await cb.answer("⚠️ Пожалуйста, начните диалог с ботом в ЛС перед оплатой!", show_alert=True)
 
 
-# ════════════════════════════ 2. КАСТОМНЫЙ ДОНАТ-ШОП ════════════════════════════
+# ════════════════════════════ 2. КАСТОМНЫЙ МАГАЗИН БЕСЕДЫ ════════════════════════════
 
-@router.message(Cmd("донат шоп", "донат магазин", "донаты чата", "товары чата", section=S, group_only=True,
-                    usage="донат шоп", desc="Кастомный магазин донатов беседы"))
+@router.message(Cmd("шоп беседы", "товары беседы", "маркет чата", "шоп чата", "витрина беседы",
+                    section=S, group_only=True, usage="шоп беседы", desc="Кастомный магазин привилегий беседы"))
 async def cmd_donate_shop(message: Message, bot: Bot, **kw):
     chat_id = message.chat.id
     is_active = await db.is_custom_donate_shop_active(chat_id)
@@ -174,7 +174,7 @@ async def cmd_add_donate_item(message: Message, bot: Bot, args: str = "", **kw):
     if not is_active:
         return await message.reply(
             f"⚠️ Сначала активируйте конструктор магазина за {ACTIVATION_PRICE_RUB}₽!\n"
-            f"Команда: <code>донат шоп</code>"
+            f"Команда: <code>шоп беседы</code>"
         )
 
     parts = (args or "").strip().split(maxsplit=2)
