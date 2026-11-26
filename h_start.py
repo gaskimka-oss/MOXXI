@@ -203,18 +203,38 @@ async def main_text(name: str | None, u: dict) -> str:
     else:
         status_str = "🔹 Участник"
 
+    from h_winter_event import is_winter_active
+    winter_on = is_winter_active()
+    flakes_val = int(u_dict.get("snowflakes", 0) or 0)
+
+    if winter_on:
+        header = "❄️ 🎄 <b>MOXXI — ЗИМНИЙ СЕЗОН</b> 🎄 ❄️"
+        border = "✦ ══ • ⊰ ❄️ ⛄️ 🎁 🎰 🏢 ⚔️ 🎄 🎅 💎 ⊱ • ══ ✦"
+        greeting = f"👋 С наступающим Новым Годом, <b>{html.escape(name or 'Боец')}</b>!"
+        subtext = "✨ <i>Морозный сезон подарков, снежинок и Битвы за Буст 10 LVL!</i>"
+        flakes_line = f"├ ❄️ <b>Снежинки:</b> <code>{flakes_val:,} ❄️</code>\n"
+        call_to_action = "🎁 <b>Выберите интересующий раздел:</b>"
+    else:
+        header = "🍸 ✨ <b>MOXXI 2.1 — ГЛАВНОЕ МЕНЮ</b> ✨ 🍸"
+        border = "✦ ══ • ⊰ 💖 🔮 🎰 🏢 ⚔️ 🪙 🍷 👑 ⊱ • ══ ✦"
+        greeting = f"👋 Рады видеть, <b>{html.escape(name or 'Боец')}</b>!"
+        subtext = "🔥 <i>Игровой мир азарта, экономики, рейдов и умного ИИ!</i>"
+        flakes_line = ""
+        call_to_action = "🚀 <b>Выберите интересующий раздел:</b>"
+
     return (
-        f"🍸 ✨ <b>MOXXI 2.1 — ГЛАВНОЕ МЕНЮ</b> ✨ 🍸\n"
-        f"✦ ══ • ⊰ 💖 🔮 🎰 🏢 ⚔️ 🪙 🍷 👑 ⊱ • ══ ✦\n\n"
-        f"👋 Рады видеть, <b>{html.escape(name or 'Боец')}</b>!\n"
-        f"🔥 <i>Игровой мир азарта, экономики, рейдов и умного ИИ!</i>\n\n"
+        f"{header}\n"
+        f"{border}\n\n"
+        f"{greeting}\n"
+        f"{subtext}\n\n"
         f"┌ 💎 <b>Ваш статус:</b> {status_str}\n"
         f"├ 💰 <b>Баланс:</b> <code>{money(u_dict.get('balance', 0))}</code>\n"
+        f"{flakes_line}"
         f"├ ⚡️ <b>Опыт:</b> <code>{xp_val} XP</code>\n"
         f"├ ⭐️ <b>Репутация:</b> <code>{rep_val}</code> <i>({rep_title})</i>\n"
         f"└ 🎒 <b>Инвентарь:</b> <code>{inv_count} предм.</code>\n\n"
         f"✦ ══════════════════════════════ ✦\n"
-        f"🚀 <b>Выберите интересующий раздел:</b>"
+        f"{call_to_action}"
     )
 
 
@@ -258,6 +278,13 @@ async def main_kb(uid: int = 0, bot_username: str = "moxxichat_bot") -> InlineKe
     if staff_rank >= 1:
         rows.insert(0, [
             InlineKeyboardButton(text="👑 Админ-Панель (Управление)", callback_data="mm:admin_panel")
+        ])
+
+    from h_winter_event import is_winter_active
+    if is_winter_active():
+        insert_idx = 1 if staff_rank >= 1 else 0
+        rows.insert(insert_idx, [
+            InlineKeyboardButton(text="🎄 Новогодняя Ёлка (+Буст 10 LVL)", callback_data="mm:winter")
         ])
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -501,6 +528,16 @@ async def cb_menu(call: CallbackQuery, bot: Bot):
     if what == "ref":
         text, kb_ref = await render_referrals_card(uid, me.username)
         await call.message.answer(text, reply_markup=kb_ref)
+        return await call.answer()
+
+    if what == "winter":
+        from h_winter_event import CHANGELOG_TEXT
+        kb_w = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏆 Битва за Буст 10 LVL", callback_data="winter_top_refresh")],
+            [InlineKeyboardButton(text="👥 Пригласить друзей (+50к)", callback_data="mm:ref")],
+            [InlineKeyboardButton(text="⬅️ В главное меню", callback_data="mm:main")]
+        ])
+        await call.message.answer(CHANGELOG_TEXT, reply_markup=kb_w)
         return await call.answer()
 
     if what == "main":
