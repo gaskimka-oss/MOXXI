@@ -1114,6 +1114,29 @@ CREATE TABLE IF NOT EXISTS chat_custom_donate_orders (
     status TEXT NOT NULL DEFAULT 'paid',
     created_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS creator_payout_wallets (
+    user_id INTEGER PRIMARY KEY,
+    card_requisites TEXT NOT NULL DEFAULT '',
+    balance_rub REAL NOT NULL DEFAULT 0.0,
+    balance_stars INTEGER NOT NULL DEFAULT 0,
+    total_earned_rub REAL NOT NULL DEFAULT 0.0,
+    total_withdrawn_rub REAL NOT NULL DEFAULT 0.0,
+    updated_at INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS payout_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    chat_id INTEGER NOT NULL,
+    amount_rub REAL NOT NULL,
+    amount_stars INTEGER NOT NULL DEFAULT 0,
+    method TEXT NOT NULL DEFAULT 'card',
+    requisites TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at INTEGER NOT NULL,
+    processed_at INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
@@ -3860,6 +3883,81 @@ async def add_custom_donate_order(chat_id: int, item_id: int, buyer_id: int, amo
     )
     row = await fetchone("SELECT last_insert_rowid() as id")
     return int(row["id"]) if row else 0
+
+
+# ── КОШЕЛЕК СОЗДАТЕЛЯ (95% СОЗДАТЕЛЮ / 5% ПЛАТФОРМЕ) И ВЫПЛАТЫ ────────────
+
+async def get_or_create_creator_wallet(user_id: int) -> dict:
+    row = await fetchone("SELECT * FROM creator_payout_wallets WHERE user_id = ?", (user_id,))
+    if row:
+        return dict(row)
+    now = int(time.time())
+    await execute(
+        "INSERT INTO creator_payout_wallets (user_id, card_requisites, balance_rub, balance_stars, total_earned_rub, total_withdrawn_rub, updated_at) "
+        "VALUES (?, '', 0.0, 0, 0.0, 0.0, ?) ON CONFLICT(user_id) DO NOTHING",
+        (user_id, now)
+    )
+    r2 = await fetchone("SELECT * FROM creator_payout_wallets WHERE user_id = ?", (user_id,))
+    return dict(r2) if r2 else {}
+
+
+async def credit_creator_earnings(user_id: int, net_rub: float, net_stars: int = 0) -> None:
+    now = int(time.time())
+    await get_or_create_creator_wallet(user_id)
+    await execute(
+        "UPDATE creator_payout_wallets SET balance_rub = balance_rub + ?, balance_stars = balance_stars + ?, "
+        "total_earned_rub = total_earned_rub + ?, updated_at = ? WHERE user_id = ?",
+        (net_rub, net_stars, net_rub, now, user_id)
+    )
+
+
+async def set_creator_requisites(user_id: int, requisites: str) -> None:
+    now = int(time.time())
+    await get_or_create_creator_wallet(user_id)
+    await execute(
+        "UPDATE creator_payout_wallets SET card_requisites = ?, updated_at = ? WHERE user_id = ?",
+        (requisites.strip(), now, user_id)
+    )
+
+
+async def create_payout_request(user_id: int, chat_id: int, amount_rub: float, amount_stars: int, method: str, requisites: str) -> int:
+    now = int(time.time())
+    await execute(
+        "INSERT INTO payout_requests (user_id, chat_id, amount_rub, amount_stars, method, requisites, status, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)",
+        (user_id, chat_id, amount_rub, amount_stars, method, requisites, now)
+    )
+    row = await fetchone("SELECT last_insert_rowid() as id")
+    p_id = int(row["id"]) if row else 0
+
+    # Списываем запрошенную сумму с доступного баланса кошелька
+    if method == "card":
+        await execute("UPDATE creator_payout_wallets SET balance_rub = balance_rub - ? WHERE user_id = ?", (amount_rub, user_id))
+    elif method == "stars":
+        await execute("UPDATE creator_payout_wallets SET balance_stars = balance_stars - ? WHERE user_id = ?", (amount_stars, user_id))
+
+    return p_id
+
+
+async def get_pending_payouts(limit: int = 20) -> list[dict]:
+    rows = await fetchall(
+        "SELECT p.*, u.first_name, u.username FROM payout_requests p "
+        "LEFT JOIN users u ON p.user_id = u.user_id WHERE p.status = 'pending' ORDER BY p.id ASC LIMIT ?",
+        (limit,)
+    )
+    return [dict(r) for r in rows]
+
+
+async def complete_payout_request(payout_id: int) -> Optional[dict]:
+    p = await fetchone("SELECT * FROM payout_requests WHERE id = ?", (payout_id,))
+    if not p or p["status"] != "pending":
+        return None
+    now = int(time.time())
+    await execute("UPDATE payout_requests SET status = 'completed', processed_at = ? WHERE id = ?", (now, payout_id))
+    if p["amount_rub"] > 0:
+        await execute("UPDATE creator_payout_wallets SET total_withdrawn_rub = total_withdrawn_rub + ? WHERE user_id = ?", (p["amount_rub"], p["user_id"]))
+    return dict(p)
+
 
 
 

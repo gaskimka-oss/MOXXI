@@ -1153,13 +1153,45 @@ async def on_paid(message: Message, bot: Bot):
         chat_id = int(parts[2])
         it = await db.get_custom_donate_item(item_id)
         if it:
-            await db.add_custom_donate_order(chat_id, item_id, uid, it["price_rub"], "XTR")
+            price_rub = it["price_rub"]
+            stars_paid = sp.total_amount or (it.get("price_stars") or max(1, price_rub // 2))
+
+            # Сплит: 95% создателю магазина / 5% платформе MOXXI (Гасиму)
+            net_creator_rub = round(price_rub * 0.95, 2)
+            fee_platform_rub = round(price_rub * 0.05, 2)
+            net_creator_stars = max(1, int(stars_paid * 0.95))
+            fee_platform_stars = max(0, stars_paid - net_creator_stars)
+
+            await db.add_custom_donate_order(chat_id, item_id, uid, price_rub, "XTR")
+
+            # Зачисляем 95% владельцу магазина беседы
+            shop = await db.get_custom_donate_shop(chat_id)
+            if shop and shop.get("owner_id"):
+                owner_id = shop["owner_id"]
+                await db.credit_creator_earnings(owner_id, net_creator_rub, net_creator_stars)
+                # Уведомляем создателя магазина в ЛС
+                try:
+                    w = await db.get_or_create_creator_wallet(owner_id)
+                    await bot.send_message(
+                        owner_id,
+                        f"💰🎉 <b>НОВАЯ ПРОДАЖА В ВАШЕЙ БЕСЕДЕ!</b>\n"
+                        f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+                        f"Привилегия: <b>«{html.escape(it['title'])}»</b>\n"
+                        f"Покупатель: {mention(message.from_user)}\n"
+                        f"Сумма покупки: <b>{price_rub} ₽</b> ({stars_paid} ⭐)\n\n"
+                        f"💵 <b>Ваш чистый заработок (95%):</b> <b>+{net_creator_rub:,.2f} ₽</b> (+{net_creator_stars} ⭐)\n"
+                        f"🏦 Комиссия платформы (5%): {fee_platform_rub:,.2f} ₽ ({fee_platform_stars} ⭐)\n\n"
+                        f"💼 Баланс вашего кошелька: <b>{w.get('balance_rub', 0):,.2f} ₽</b> (команда: <code>мой кошелек</code>)"
+                    )
+                except Exception:
+                    pass
+
             try:
                 await bot.send_message(
                     chat_id,
                     f"🛍🎉 <b>ПОКУПКА ПРИВИЛЕГИИ В БЕСЕДЕ!</b>\n\n"
                     f"Участник {mention(message.from_user)} приобрёл: <b>«{html.escape(it['title'])}»</b>!\n"
-                    f"Спасибо за поддержку проекта MOXXI! ⭐️"
+                    f"Поздравляем с приобретением! ⭐️"
                 )
             except Exception:
                 pass

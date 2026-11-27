@@ -283,15 +283,217 @@ async def on_act_shop_rub(cb: CallbackQuery, bot: Bot):
     except Exception:
         pass
 
-    # Резервная прямая активация
     await db.activate_custom_donate_shop(chat_id, cb.from_user.id)
     await cb.answer("✅ Конструктор донатов успешно активирован!", show_alert=True)
     await cb.message.edit_text(
         "🎉 <b>КОНСТРУКТОР ДОНАТОВ УСПЕШНО АКТИВИРОВАН!</b>\n\n"
         "Теперь вы можете создавать авторские привилегии и роли:\n"
         "<code>+донат [название] [цена_руб] [описание]</code>\n\n"
-        "<i>Открыть витрину: <code>донат шоп</code></i>"
+        "<i>Открыть витрину: <code>шоп беседы</code></i>\n"
+        "<i>Проверить заработок (95% с продаж): <code>мой кошелек</code></i>"
     )
+
+
+# ════════════════════════════ 4. КОШЕЛЁК СОЗДАТЕЛЯ И ВЫВОД СРЕДСТВ (95% / 5%) ════════════════════════════
+
+@router.message(Cmd("мой кошелек", "кошелек создателя", "доходы магазина", "баланс шопа", "доходы шопа",
+                    section=S, usage="мой кошелек", desc="Кошелёк создателя с доходами от продаж (95%)"))
+async def cmd_creator_wallet(message: Message, **kw):
+    uid = message.from_user.id
+    w = await db.get_or_create_creator_wallet(uid)
+
+    bal_rub = w.get("balance_rub", 0.0) or 0.0
+    bal_stars = w.get("balance_stars", 0) or 0
+    total_rub = w.get("total_earned_rub", 0.0) or 0.0
+    req = w.get("card_requisites", "") or "Реквизиты не привязаны"
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="💳 Вывести на карту / СБП", callback_data="payout:card"),
+            InlineKeyboardButton(text="⭐ Вывести в Stars", callback_data="payout:stars")
+        ],
+        [
+            InlineKeyboardButton(text="📝 Привязать реквизиты карты", callback_data="req:help")
+        ]
+    ])
+
+    text = (
+        "💼 <b>КОШЕЛЁК СОЗДАТЕЛЯ МАГАЗИНА MOXXI</b>\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n"
+        f"💰 <b>Доступно к выводу:</b> <b>{bal_rub:,.2f} ₽</b>\n"
+        f"⭐ <b>Доступно в Stars:</b> <b>{bal_stars:,} ⭐</b>\n"
+        f"📈 <b>Всего заработано:</b> <code>{total_rub:,.2f} ₽</code>\n\n"
+        f"💳 <b>Ваши реквизиты:</b>\n<code>{html.escape(req)}</code>\n\n"
+        "💎 <b>Условия платформы:</b>\n"
+        "• <b>95%</b> с каждой покупки мгновенно поступает на ваш баланс!\n"
+        "• <b>5%</b> — комиссия платформы MOXXI за эквайринг и хостинг.\n"
+        "• Вывод на карты банков РФ (СБП/МИР) или перевод в Telegram Stars!\n\n"
+        "<i>Привязать реквизиты: <code>привязать карту [номер/телефон СБП банк]</code></i>\n"
+        "<i>Пример: <code>привязать карту +79991234567 Сбербанк</code></i>"
+    )
+    await message.reply(text, reply_markup=kb)
+
+
+@router.message(Cmd("привязать карту", "моя карта", "реквизиты карты", section=S,
+                    usage="привязать карту [номер или СБП + банк]", desc="Привязать реквизиты для вывода заработка"))
+async def cmd_bind_card(message: Message, args: str = "", **kw):
+    req_str = (args or "").strip()
+    if not req_str:
+        return await message.reply(
+            "📝 <b>Укажите реквизиты для получения выплат!</b>\n\n"
+            "Примеры:\n"
+            "• <code>привязать карту +79991234567 Сбербанк (СБП)</code>\n"
+            "• <code>привязать карту +79997654321 Т-Банк</code>\n"
+            "• <code>привязать карту 2200 1234 5678 9012 МИР</code>"
+        )
+
+    await db.set_creator_requisites(message.from_user.id, req_str)
+    await message.reply(
+        f"✅ <b>Реквизиты успешно сохранены!</b>\n\n"
+        f"💳 <code>{html.escape(req_str)}</code>\n\n"
+        f"Теперь вы можете заказывать вывод средств: <code>мой кошелек</code>"
+    )
+
+
+@router.callback_query(F.data == "payout:card")
+async def on_payout_card_click(cb: CallbackQuery, bot: Bot):
+    w = await db.get_or_create_creator_wallet(cb.from_user.id)
+    bal_rub = w.get("balance_rub", 0.0) or 0.0
+    req = w.get("card_requisites", "")
+
+    if bal_rub < 100:
+        return await cb.answer("⚠️ Минимальная сумма вывода на карту: 100 рублей.", show_alert=True)
+    if not req:
+        return await cb.answer("⚠️ Сначала укажите реквизиты: команда «привязать карту [данные]»!", show_alert=True)
+
+    # Создаем заявку на вывод
+    p_id = await db.create_payout_request(
+        user_id=cb.from_user.id,
+        chat_id=cb.message.chat.id,
+        amount_rub=bal_rub,
+        amount_stars=0,
+        method="card",
+        requisites=req
+    )
+
+    await cb.answer("✅ Заявка на вывод успешно создана!", show_alert=True)
+    await cb.message.reply(
+        f"💳 <b>ЗАЯВКА НА ВЫВОД СРЕДСТВ #{p_id} ПРИНЯТА!</b>\n\n"
+        f"💰 <b>Сумма:</b> <b>{bal_rub:,.2f} ₽</b> (чистыми)\n"
+        f"🏦 <b>Реквизиты:</b> <code>{html.escape(req)}</code>\n"
+        f"Статус: 🟡 <i>В обработке администрацией</i>\n\n"
+        f"Средства поступят на указанную карту/СБП в течение 1-12 часов!"
+    )
+
+    # Оповещение владельцу бота (Гасиму)
+    import config
+    try:
+        await bot.send_message(
+            config.OWNER_ID,
+            f"🔔 <b>НОВАЯ ЗАЯВКА НА ВЫВОД #{p_id}!</b>\n"
+            f"👤 Создатель: {mention(cb.from_user)} (ID: <code>{cb.from_user.id}</code>)\n"
+            f"💰 Сумма к переводу: <b>{bal_rub:,.2f} ₽</b>\n"
+            f"💳 Реквизиты: <code>{html.escape(req)}</code>\n\n"
+            f"<i>Подтвердить выплату: <code>выплачено {p_id}</code></i>"
+        )
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data == "payout:stars")
+async def on_payout_stars_click(cb: CallbackQuery):
+    w = await db.get_or_create_creator_wallet(cb.from_user.id)
+    bal_stars = w.get("balance_stars", 0) or 0
+
+    if bal_stars < 50:
+        return await cb.answer("⚠️ Минимальный баланс для вывода в Stars: 50 ⭐.", show_alert=True)
+
+    p_id = await db.create_payout_request(
+        user_id=cb.from_user.id,
+        chat_id=cb.message.chat.id,
+        amount_rub=0.0,
+        amount_stars=bal_stars,
+        method="stars",
+        requisites=f"Telegram ID {cb.from_user.id}"
+    )
+
+    await cb.answer("⭐ Заявка на получение Stars принята!", show_alert=True)
+    await cb.message.reply(
+        f"⭐ <b>ЗАЯВКА НА ВЫВОД STARS #{p_id} ПРИНЯТА!</b>\n\n"
+        f"Количество: <b>{bal_stars:,} ⭐ Telegram Stars</b>\n"
+        f"Статус: 🟡 <i>Обработка перевода</i>\n\n"
+        f"Звёзды будут зачислены прямо на ваш Telegram-аккаунт!"
+    )
+
+
+@router.callback_query(F.data == "req:help")
+async def on_req_help_click(cb: CallbackQuery):
+    await cb.answer()
+    await cb.message.reply(
+        "💳 <b>Как привязать реквизиты:</b>\n\n"
+        "Отправьте команду в чат или в ЛС боту:\n"
+        "<code>привязать карту [номер карты или телефон СБП] [название банка]</code>\n\n"
+        "💡 <i>Пример: <code>привязать карту +79991234567 Сбербанк СБП</code></i>"
+    )
+
+
+# ════════════════════════════ 5. АДМИН-ПАНЕЛЬ ВЫПЛАТ ДЛЯ ГАСИМА ════════════════════════════
+
+@router.message(Cmd("заявки на вывод", "выплаты", "заявки выплат", section=S,
+                    usage="заявки на вывод", desc="Панель вывода средств создателей магазинов"))
+async def cmd_admin_payouts(message: Message, bot: Bot, **kw):
+    import config
+    if message.from_user.id != config.OWNER_ID:
+        return
+
+    payouts = await db.get_pending_payouts(limit=10)
+    if not payouts:
+        return await message.reply("✅ <b>Нет активных заявок на вывод!</b> Все выплаты обработаны.")
+
+    lines = []
+    for p in payouts:
+        u_name = f"@{p['username']}" if p.get("username") else (p.get("first_name") or f"ID:{p['user_id']}")
+        sum_txt = f"{p['amount_rub']} ₽" if p["method"] == "card" else f"{p['amount_stars']} ⭐"
+        lines.append(
+            f"<b>#{p['id']}</b> | {u_name} | <b>{sum_txt}</b>\n"
+            f"💳 Реквизиты: <code>{html.escape(p['requisites'])}</code>\n"
+            f"Действие: <code>выплачено {p['id']}</code>"
+        )
+
+    await message.reply("📋 <b>ОЖИДАЮЩИЕ ЗАЯВКИ НА ВЫВОД СРЕДСТВ:</b>\n\n" + "\n\n".join(lines))
+
+
+@router.message(Cmd("выплачено", "переведено", section=S,
+                    usage="выплачено [id]", desc="Подтвердить выплату создателю магазина"))
+async def cmd_confirm_payout(message: Message, bot: Bot, args: str = "", **kw):
+    import config
+    if message.from_user.id != config.OWNER_ID:
+        return
+
+    arg = (args or "").strip()
+    if not arg.isdigit():
+        return await message.reply("⚠️ Укажите номер заявки: <code>выплачено 1</code>")
+
+    p_id = int(arg)
+    res = await db.complete_payout_request(p_id)
+    if not res:
+        return await message.reply(f"⚠️ Заявка #{p_id} не найдена или уже была обработана.")
+
+    await message.reply(f"✅ <b>Заявка #{p_id} успешно отмечена как выплаченная!</b>")
+
+    # Уведомляем создателя
+    try:
+        sum_txt = f"{res['amount_rub']} ₽" if res["method"] == "card" else f"{res['amount_stars']} ⭐"
+        await bot.send_message(
+            res["user_id"],
+            f"🎉 <b>ВЫПЛАТА ПО ЗАЯВКЕ #{p_id} ВЫПОЛНЕНА!</b>\n\n"
+            f"Сумма: <b>{sum_txt}</b> успешно отправлена по вашим реквизитам:\n"
+            f"<code>{res['requisites']}</code>\n\n"
+            f"Спасибо за сотрудничество с платформой MOXXI! 💖"
+        )
+    except Exception:
+        pass
+
 
 
 @router.callback_query(F.data.startswith("buy_citem:"))
