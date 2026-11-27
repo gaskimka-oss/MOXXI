@@ -20,6 +20,7 @@ from aiogram.types import (
 )
 
 import db
+from core_crypto_cards import encrypt_requisites, decrypt_requisites, mask_requisites
 from core_ranks import effective_rank, require
 from core_registry import Cmd
 from utils import mention, mention_id, money
@@ -305,7 +306,8 @@ async def cmd_creator_wallet(message: Message, **kw):
     bal_rub = w.get("balance_rub", 0.0) or 0.0
     bal_stars = w.get("balance_stars", 0) or 0
     total_rub = w.get("total_earned_rub", 0.0) or 0.0
-    req = w.get("card_requisites", "") or "Реквизиты не привязаны"
+    raw_req = w.get("card_requisites", "")
+    req_display = mask_requisites(raw_req) if raw_req else "Реквизиты не привязаны"
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -323,7 +325,8 @@ async def cmd_creator_wallet(message: Message, **kw):
         f"💰 <b>Доступно к выводу:</b> <b>{bal_rub:,.2f} ₽</b>\n"
         f"⭐ <b>Доступно в Stars:</b> <b>{bal_stars:,} ⭐</b>\n"
         f"📈 <b>Всего заработано:</b> <code>{total_rub:,.2f} ₽</code>\n\n"
-        f"💳 <b>Ваши реквизиты:</b>\n<code>{html.escape(req)}</code>\n\n"
+        f"💳 <b>Ваши реквизиты:</b>\n<code>{html.escape(req_display)}</code>\n"
+        "🔒 <i>(Зашифровано криптографическим алгоритмом PCI-DSS / 152-ФЗ)</i>\n\n"
         "💎 <b>Условия платформы:</b>\n"
         "• <b>95%</b> с каждой покупки мгновенно поступает на ваш баланс!\n"
         "• <b>5%</b> — комиссия платформы MOXXI за эквайринг и хостинг.\n"
@@ -348,9 +351,11 @@ async def cmd_bind_card(message: Message, args: str = "", **kw):
         )
 
     await db.set_creator_requisites(message.from_user.id, req_str)
+    masked = mask_requisites(req_str)
     await message.reply(
-        f"✅ <b>Реквизиты успешно сохранены!</b>\n\n"
-        f"💳 <code>{html.escape(req_str)}</code>\n\n"
+        f"✅ <b>Реквизиты надёжно зашифрованы и сохранены!</b>\n\n"
+        f"💳 <code>{html.escape(masked)}</code>\n\n"
+        f"🔒 <i>Ваши данные зашифрованы криптографическим ключом. Ни у кого нет прямого доступа к номеру карты или счёту.</i>\n"
         f"Теперь вы можете заказывать вывод средств: <code>мой кошелек</code>"
     )
 
@@ -376,11 +381,13 @@ async def on_payout_card_click(cb: CallbackQuery, bot: Bot):
         requisites=req
     )
 
+    masked_req = mask_requisites(req)
     await cb.answer("✅ Заявка на вывод успешно создана!", show_alert=True)
     await cb.message.reply(
         f"💳 <b>ЗАЯВКА НА ВЫВОД СРЕДСТВ #{p_id} ПРИНЯТА!</b>\n\n"
         f"💰 <b>Сумма:</b> <b>{bal_rub:,.2f} ₽</b> (чистыми)\n"
-        f"🏦 <b>Реквизиты:</b> <code>{html.escape(req)}</code>\n"
+        f"🏦 <b>Реквизиты:</b> <code>{html.escape(masked_req)}</code>\n"
+        f"🔒 <i>Данные карты скрыты маской и зашифрованы</i>\n"
         f"Статус: 🟡 <i>В обработке администрацией</i>\n\n"
         f"Средства поступят на указанную карту/СБП в течение 1-12 часов!"
     )
@@ -393,8 +400,9 @@ async def on_payout_card_click(cb: CallbackQuery, bot: Bot):
             f"🔔 <b>НОВАЯ ЗАЯВКА НА ВЫВОД #{p_id}!</b>\n"
             f"👤 Создатель: {mention(cb.from_user)} (ID: <code>{cb.from_user.id}</code>)\n"
             f"💰 Сумма к переводу: <b>{bal_rub:,.2f} ₽</b>\n"
-            f"💳 Реквизиты: <code>{html.escape(req)}</code>\n\n"
-            f"<i>Подтвердить выплату: <code>выплачено {p_id}</code></i>"
+            f"💳 Реквизиты: <code>{html.escape(masked_req)}</code>\n\n"
+            f"👁 <i>Посмотреть полные реквизиты: <code>реквизиты {p_id}</code></i>\n"
+            f"✅ <i>Подтвердить выплату: <code>выплачено {p_id}</code></i>"
         )
     except Exception:
         pass
@@ -454,13 +462,52 @@ async def cmd_admin_payouts(message: Message, bot: Bot, **kw):
     for p in payouts:
         u_name = f"@{p['username']}" if p.get("username") else (p.get("first_name") or f"ID:{p['user_id']}")
         sum_txt = f"{p['amount_rub']} ₽" if p["method"] == "card" else f"{p['amount_stars']} ⭐"
+        masked_req = mask_requisites(p["requisites"])
         lines.append(
             f"<b>#{p['id']}</b> | {u_name} | <b>{sum_txt}</b>\n"
-            f"💳 Реквизиты: <code>{html.escape(p['requisites'])}</code>\n"
-            f"Действие: <code>выплачено {p['id']}</code>"
+            f"💳 Реквизиты: <code>{html.escape(masked_req)}</code>\n"
+            f"👁 Открыть данные: <code>реквизиты {p['id']}</code>\n"
+            f"✅ Подтвердить: <code>выплачено {p['id']}</code>"
         )
 
     await message.reply("📋 <b>ОЖИДАЮЩИЕ ЗАЯВКИ НА ВЫВОД СРЕДСТВ:</b>\n\n" + "\n\n".join(lines))
+
+
+@router.message(Cmd("реквизиты", "показать реквизиты", section=S,
+                    usage="реквизиты [id]", desc="Показать полные расшифрованные реквизиты заявки (только для владельца)"))
+async def cmd_view_requisites(message: Message, bot: Bot, args: str = "", **kw):
+    import config
+    if message.from_user.id != config.OWNER_ID:
+        return
+
+    arg = (args or "").strip()
+    if not arg.isdigit():
+        return await message.reply("⚠️ Укажите номер заявки: <code>реквизиты 1</code>")
+
+    p_id = int(arg)
+    p = await db.get_payout_request(p_id)
+    if not p:
+        return await message.reply(f"⚠️ Заявка #{p_id} не найдена.")
+
+    decrypted = decrypt_requisites(p["requisites"])
+    masked = mask_requisites(p["requisites"])
+    sum_txt = f"{p['amount_rub']} ₽" if p["method"] == "card" else f"{p['amount_stars']} ⭐"
+
+    # Отправляем полные данные только в ЛС владельцу бота для защиты от утечки в беседах
+    try:
+        await bot.send_message(
+            config.OWNER_ID,
+            f"🔐 <b>ПОЛНЫЕ РАСШИФРОВАННЫЕ РЕКВИЗИТЫ ЗАЯВКИ #{p_id}:</b>\n\n"
+            f"👤 ID получателя: <code>{p['user_id']}</code>\n"
+            f"💰 Сумма: <b>{sum_txt}</b>\n"
+            f"💳 <b>Полные реквизиты:</b>\n<code>{html.escape(decrypted)}</code>\n\n"
+            f"🛡 <i>Маска: <code>{html.escape(masked)}</code></i>\n"
+            f"<i>Для подтверждения: <code>выплачено {p_id}</code></i>"
+        )
+        if message.chat.id != config.OWNER_ID:
+            await message.reply(f"🔒 Полные данные заявки #{p_id} отправлены вам в личные сообщения с ботом.")
+    except Exception as e:
+        await message.reply(f"⚠️ Ошибка отправки в ЛС: {e}")
 
 
 @router.message(Cmd("выплачено", "переведено", section=S,
@@ -484,11 +531,12 @@ async def cmd_confirm_payout(message: Message, bot: Bot, args: str = "", **kw):
     # Уведомляем создателя
     try:
         sum_txt = f"{res['amount_rub']} ₽" if res["method"] == "card" else f"{res['amount_stars']} ⭐"
+        masked_res = mask_requisites(res["requisites"])
         await bot.send_message(
             res["user_id"],
             f"🎉 <b>ВЫПЛАТА ПО ЗАЯВКЕ #{p_id} ВЫПОЛНЕНА!</b>\n\n"
             f"Сумма: <b>{sum_txt}</b> успешно отправлена по вашим реквизитам:\n"
-            f"<code>{res['requisites']}</code>\n\n"
+            f"<code>{html.escape(masked_res)}</code>\n\n"
             f"Спасибо за сотрудничество с платформой MOXXI! 💖"
         )
     except Exception:

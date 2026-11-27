@@ -3912,20 +3912,25 @@ async def credit_creator_earnings(user_id: int, net_rub: float, net_stars: int =
 
 
 async def set_creator_requisites(user_id: int, requisites: str) -> None:
+    from core_crypto_cards import encrypt_requisites
     now = int(time.time())
     await get_or_create_creator_wallet(user_id)
+    enc_req = encrypt_requisites(requisites.strip())
     await execute(
         "UPDATE creator_payout_wallets SET card_requisites = ?, updated_at = ? WHERE user_id = ?",
-        (requisites.strip(), now, user_id)
+        (enc_req, now, user_id)
     )
 
 
 async def create_payout_request(user_id: int, chat_id: int, amount_rub: float, amount_stars: int, method: str, requisites: str) -> int:
+    from core_crypto_cards import encrypt_requisites
     now = int(time.time())
+    # Если реквизиты еще не зашифрованы, шифруем перед записью в заявку
+    enc_req = encrypt_requisites(requisites.strip()) if not requisites.startswith("ENC:v1:") else requisites.strip()
     await execute(
         "INSERT INTO payout_requests (user_id, chat_id, amount_rub, amount_stars, method, requisites, status, created_at) "
         "VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)",
-        (user_id, chat_id, amount_rub, amount_stars, method, requisites, now)
+        (user_id, chat_id, amount_rub, amount_stars, method, enc_req, now)
     )
     row = await fetchone("SELECT last_insert_rowid() as id")
     p_id = int(row["id"]) if row else 0
@@ -3946,6 +3951,11 @@ async def get_pending_payouts(limit: int = 20) -> list[dict]:
         (limit,)
     )
     return [dict(r) for r in rows]
+
+
+async def get_payout_request(payout_id: int) -> Optional[dict]:
+    p = await fetchone("SELECT * FROM payout_requests WHERE id = ?", (payout_id,))
+    return dict(p) if p else None
 
 
 async def complete_payout_request(payout_id: int) -> Optional[dict]:
