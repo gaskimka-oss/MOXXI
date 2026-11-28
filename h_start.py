@@ -1133,7 +1133,7 @@ async def on_paid(message: Message, bot: Bot):
         return await message.answer(
             f"❄️🎉 <b>НОВОГОДНЯЯ ВАЛЮТА УСПЕШНО НАЧИСЛЕНА!</b>\n\n"
             f"Вам начислено: <b>+{flakes_amount:,} ❄️ Снежинок</b>!\n"
-            f"Используйте их для открытия ❄️ Ледяных Кейсов 2027 и прокачки Ёлки!"
+            f"Используйте их для открытия ❄️ Ледяных Кейсов 2026-2027 и прокачки Ёлки!"
         )
 
     if payload.startswith("act_shop:"):

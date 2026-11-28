@@ -266,7 +266,7 @@ async def render_card(message: Message, bot: Bot, uid: int, name: str | None) ->
     from h_titles import get_display_prefix
     prefix = await get_display_prefix(message.chat.id, uid)
     prefix_str = f"<b>{html.escape(prefix)}</b> " if prefix else ""
-    ny_banner = "❄️ ══ 🎄 ══ 🎁 <b>НОВЫЙ ГОД 2027</b> 🎁 ══ 🎄 ══ ❄️"
+    ny_banner = "❄️ ══ 🎄 ══ 🎁 <b>НОВЫЙ ГОД 2026-2027</b> 🎁 ══ 🎄 ══ ❄️"
     out = [ny_banner, f"👤 {prefix_str}<b>Это пользователь {link}</b>"]
     if tg:
         out.append(f"👨🏻‍🔧 {tg}")
@@ -318,7 +318,7 @@ async def render_card(message: Message, bot: Bot, uid: int, name: str | None) ->
     # Новогодний баланс снежинок
     u_flakes = int(u.get("snowflakes", 0) or 0)
     out.append(f"▫️ ❄️ Снежинки: <b>{u_flakes:,} ❄️</b>")
-    out.append(f"▫️ 🎄 Настроение: <i>В ожидании Нового Года 2027 ✨</i>")
+    out.append(f"▫️ 🎄 Настроение: <i>В ожидании Нового Года 2026-2027 ✨</i>")
 
     # Кастомный титул
     active_title = await db.get_active_title(uid)
@@ -915,7 +915,7 @@ async def cmd_template(message: Message, bot: Bot, **kw):
             link_info = f"\n\n👉 <b>Заполнить описание можно в теме:</b> {link}"
 
     template_body = (
-        "❄️ ══ 🎄 ══ 🎁 <b>НОВОГОДНИЙ ШАБЛОН АНКЕТЫ 2027</b> 🎁 ══ 🎄 ══ ❄️\n\n"
+        "❄️ ══ 🎄 ══ 🎁 <b>НОВОГОДНИЙ ШАБЛОН АНКЕТЫ 2026-2027</b> 🎁 ══ 🎄 ══ ❄️\n\n"
         f"📝 <b>Заполните анкету под ёлочкой</b> (запрос от {u_mention})\n\n"
         "✨ Нажмите на форму ниже — она автоматически скопируется.\n"
         "Впишите свои данные после двоеточий и отправьте в чат:\n\n"
@@ -1409,7 +1409,7 @@ async def _get_chat_nick_data(cid: int):
 
 def _format_nick_list_with(title: str, with_nick: list, total: int) -> str:
     out = [
-        "❄️ ══ 🎄 ══ 🎁 <b>ЗИМНИЙ НИК-ЛИСТ 2027</b> 🎁 ══ 🎄 ══ ❄️",
+        "❄️ ══ 🎄 ══ 🎁 <b>ЗИМНИЙ НИК-ЛИСТ 2026-2027</b> 🎁 ══ 🎄 ══ ❄️",
         f"🏷 <b>Ники участников беседы · {title}</b>\n"
         f"❄️ <i>Установили ник:</i> <b>{len(with_nick)}</b> из <b>{total}</b>\n"
         "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
@@ -1429,7 +1429,7 @@ def _format_nick_list_with(title: str, with_nick: list, total: int) -> str:
 
 def _format_nick_list_without(title: str, without_nick: list, total: int) -> str:
     out = [
-        "❄️ ══ 🎄 ══ 🎁 <b>ЗИМНИЙ НИК-ЛИСТ 2027</b> 🎁 ══ 🎄 ══ ❄️",
+        "❄️ ══ 🎄 ══ 🎁 <b>ЗИМНИЙ НИК-ЛИСТ 2026-2027</b> 🎁 ══ 🎄 ══ ❄️",
         f"👥 <b>Участники без ника · {title}</b>\n"
         f"⛄ <i>Ещё не поставили ник:</i> <b>{len(without_nick)}</b> из <b>{total}</b>\n"
         "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
@@ -1572,7 +1572,7 @@ async def _get_chat_desc_data(cid: int):
 
 def _format_desc_list_with(title: str, done: list, empty: list, total: int) -> str:
     out = [
-        "❄️ ══ 🎄 ══ 🎁 <b>ЗИМНИЙ СПИСОК АНКЕТ 2027</b> 🎁 ══ 🎄 ══ ❄️",
+        "❄️ ══ 🎄 ══ 🎁 <b>ЗИМНИЙ СПИСОК АНКЕТ 2026-2027</b> 🎁 ══ 🎄 ══ ❄️",
         f"📝 <b>Анкеты и описания беседы · {title}</b>\n",
         f"❄️ Заполнили анкету: <b>{len(done)}</b>",
         f"⛄ Без анкеты: <b>{len(empty)}</b>",
@@ -1602,7 +1602,7 @@ def _format_desc_list_with(title: str, done: list, empty: list, total: int) -> s
 
 def _format_desc_list_without(title: str, done: list, empty: list, total: int) -> str:
     out = [
-        "❄️ ══ 🎄 ══ 🎁 <b>ЗИМНИЙ СПИСОК АНКЕТ 2027</b> 🎁 ══ 🎄 ══ ❄️",
+        "❄️ ══ 🎄 ══ 🎁 <b>ЗИМНИЙ СПИСОК АНКЕТ 2026-2027</b> 🎁 ══ 🎄 ══ ❄️",
         f"👥 <b>Участники без анкеты · {title}</b> ({len(empty)} из {total})\n",
         f"❄️ С описанием: <b>{len(done)}</b> | ⛄ Без описания: <b>{len(empty)}</b>\n",
         "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"

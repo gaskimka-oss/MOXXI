@@ -38,7 +38,7 @@ ADVENT_REWARDS = {
     17: {"desc": "35,000 монет + 75 ❄️", "coins": 35000, "flakes": 75, "case_id": 0},
     18: {"desc": "38,000 монет + 75 ❄️", "coins": 38000, "flakes": 75, "case_id": 0},
     19: {"desc": "40,000 монет + 80 ❄️", "coins": 40000, "flakes": 80, "case_id": 0},
-    20: {"desc": "❄️ Ледяной Кейс 2027 + 85 ❄️", "coins": 20000, "flakes": 85, "case_id": 5},
+    20: {"desc": "❄️ Ледяной Кейс 2026-2027 + 85 ❄️", "coins": 20000, "flakes": 85, "case_id": 5},
     21: {"desc": "42,000 монет + 85 ❄️", "coins": 42000, "flakes": 85, "case_id": 0},
     22: {"desc": "45,000 монет + 90 ❄️", "coins": 45000, "flakes": 90, "case_id": 0},
     23: {"desc": "48,000 монет + 90 ❄️", "coins": 48000, "flakes": 90, "case_id": 0},

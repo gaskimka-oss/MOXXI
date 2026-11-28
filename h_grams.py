@@ -717,7 +717,7 @@ async def cmd_balance(message: Message, bot: Bot, args: str = "", **kw):
     snowflakes = int(u_data.get("snowflakes", 0) or 0)
 
     txt = (
-        f"❄️ ══ 🎄 ══ 🎁 <b>ЗИМНИЙ БАЛАНС 2027</b> 🎁 ══ 🎄 ══ ❄️\n"
+        f"❄️ ══ 🎄 ══ 🎁 <b>ЗИМНИЙ БАЛАНС 2026-2027</b> 🎁 ══ 🎄 ══ ❄️\n"
         f"👤 {mention_id(uid, name)}\n\n"
         f"🌑 <b>Баланс:</b> <code>{c(bal)}</code>\n"
         f"❄️ <b>Снежинки:</b> <b>{snowflakes:,} ❄️</b>\n\n"
@@ -929,7 +929,7 @@ async def cmd_top(message: Message, **kw):
         uname = r["first_name"] or r["username"] or f"Игрок {r['user_id']}"
         lines.append(f"{medals[i]} {mention_id(r['user_id'], uname)} — <b>{c(r['balance'])}</b>")
     await message.reply(
-        "❄️ ══ 🎄 ══ 🎁 <b>ЗИМНИЙ ТОП БОГАЧЕЙ 2027</b> 🎁 ══ 🎄 ══ ❄️\n"
+        "❄️ ══ 🎄 ══ 🎁 <b>ЗИМНИЙ ТОП БОГАЧЕЙ 2026-2027</b> 🎁 ══ 🎄 ══ ❄️\n"
         "🏆 <i>Самые успешные магнаты вселенной MOXXI:</i>\n\n"
         + "\n".join(lines) + "\n\n"
         "✨ <i>Фармите граммы и врывайтесь на праздничный пьедестал!</i>"

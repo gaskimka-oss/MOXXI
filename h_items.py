@@ -96,7 +96,7 @@ CASES = {
     2: {"name": "🧰 Серебряный кейс", "price": 1500, "currency": "coins", "min_c": 1000, "max_c": 4500, "xp": 150, "icon": "🧰"},
     3: {"name": "🎁 Золотой кейс", "price": 4000, "currency": "coins", "min_c": 3000, "max_c": 12000, "xp": 400, "icon": "🎁"},
     4: {"name": "💎 Кейс Moxxi (Мифик)", "price": 10000, "currency": "coins", "min_c": 8000, "max_c": 35000, "xp": 1200, "icon": "💎"},
-    5: {"name": "❄️ Ледяной Кейс 2027", "price": 30, "currency": "snowflakes", "min_c": 15000, "max_c": 80000, "xp": 2500, "icon": "❄️", "winter_only": True}
+    5: {"name": "❄️ Ледяной Кейс 2026-2027", "price": 30, "currency": "snowflakes", "min_c": 15000, "max_c": 80000, "xp": 2500, "icon": "❄️", "winter_only": True}
 }
 
 
@@ -202,7 +202,7 @@ async def open_case_animated(bot: Bot, chat_id: int, user_obj, case_id: int, edi
 
     # Проверка зимнего кейса
     if c.get("winter_only") and not is_winter_active():
-        err_txt = "❄️ Ледяной Кейс 2027 откроется 1 декабря вместе со стартом новогоднего сезона!"
+        err_txt = "❄️ Ледяной Кейс 2026-2027 откроется 1 декабря вместе со стартом новогоднего сезона!"
         if edit_msg:
             return await edit_msg.edit_text(err_txt)
         elif reply_to_msg:

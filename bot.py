@@ -248,6 +248,20 @@ async def user_middleware(handler, event, data: dict):
                 except Exception:
                     pass
         await db.register_chat(chat.id, chat.title)
+        if isinstance(event, Message) and user and not user.is_bot:
+            # Надёжная фиксация суточного актива (топ дня) и общей статистики для КАЖДОГО сообщения участника
+            try:
+                from utils import current_msk_date
+                from config import XP_PER_MESSAGE
+                m_day = current_msk_date()
+                await db.execute(
+                    "INSERT INTO daily_stats (day, chat_id, user_id, messages) VALUES (?,?,?,1) "
+                    "ON CONFLICT(day, chat_id, user_id) DO UPDATE SET messages = messages + 1",
+                    (m_day, chat.id, user.id)
+                )
+                await db.bump_chat_stat(chat.id, user.id, XP_PER_MESSAGE)
+            except Exception as _stat_err:
+                log.warning("user_middleware daily_stats err: %s", _stat_err)
         if isinstance(event, Message):
             try:
                 from h_security_plus import check_security_violations
