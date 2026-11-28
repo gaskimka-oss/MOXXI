@@ -252,6 +252,13 @@ async def access_middleware(handler, event, data: dict):
                 await db.track_daily_activity(event.from_user.id, action="cmd", is_group=(event.chat.type != "private"))
             except Exception:
                 pass
+            if not event.from_user.is_bot:
+                try:
+                    from h_command_discovery import record_command_use
+                    cid = event.chat.id if event.chat else 0
+                    await record_command_use(event.from_user.id, key, cid, data.get("bot"))
+                except Exception:
+                    pass
 
         # Выполнение команды с замером времени и полным логированием
         t0 = time.monotonic()
