@@ -713,10 +713,14 @@ async def cmd_balance(message: Message, bot: Bot, args: str = "", **kw):
     else:
         bonus_line = f"🎁 <b>Бонус готов!</b> Заберите <code>бонус</code>"
 
+    u_data = await db.get_user(uid)
+    snowflakes = int(u_data.get("snowflakes", 0) or 0)
+
     txt = (
-        f"💳 <b>ФИНАНСОВЫЙ ПРОФИЛЬ</b>\n"
+        f"❄️ ══ 🎄 ══ 🎁 <b>ЗИМНИЙ БАЛАНС 2027</b> 🎁 ══ 🎄 ══ ❄️\n"
         f"👤 {mention_id(uid, name)}\n\n"
-        f"🌑 <b>Баланс:</b> <code>{c(bal)}</code>\n\n"
+        f"🌑 <b>Баланс:</b> <code>{c(bal)}</code>\n"
+        f"❄️ <b>Снежинки:</b> <b>{snowflakes:,} ❄️</b>\n\n"
         f"🎮 <b>Игровой уровень:</b> <b>{lvl} LVL</b> ({xp}/{next_xp} XP)\n"
         f"📊 Прогресс: <code>[{bar}]</code> {pct}%\n"
         f"🎲 Сыграно игр: <b>{prof['games_played']}</b> (побед: {prof['games_won']})\n\n"
@@ -724,7 +728,7 @@ async def cmd_balance(message: Message, bot: Bot, args: str = "", **kw):
         f"💵 Доход: <b>+{income_min:,} 🌑/мин</b>\n"
         f"🔒 Мешок: <b>{bag_status}</b>\n\n"
         f"{bonus_line}\n"
-        f"💡 <i>Команды:</i> <code>бизнесы</code> · <code>игры</code> · <code>скрыть мешок</code>"
+        f"💡 <i>Команды:</i> <code>бизнесы</code> · <code>игры</code> · <code>скрыть мешок</code> · <code>купить снежинки</code>"
     )
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -735,6 +739,9 @@ async def cmd_balance(message: Message, bot: Bot, args: str = "", **kw):
         [
             InlineKeyboardButton(text="🏢 Мои бизнесы", callback_data="biz:menu"),
             InlineKeyboardButton(text="🎰 Игры и Казино", callback_data="games:menu")
+        ],
+        [
+            InlineKeyboardButton(text="❄️ Магазин Снежинок", callback_data="buy_snowflakes_menu")
         ]
     ])
     await message.reply(txt, reply_markup=kb)
@@ -916,12 +923,17 @@ async def cmd_top(message: Message, **kw):
         "ORDER BY balance DESC LIMIT 10")
     if not rows:
         return await message.reply("Пока никто не играл.")
-    medals = ["🥇", "🥈", "🥉"] + ["🔹"] * 7
+    medals = ["👑🥇", "🥈", "🥉"] + ["❄️"] * 7
     lines = []
     for i, r in enumerate(rows):
         uname = r["first_name"] or r["username"] or f"Игрок {r['user_id']}"
-        lines.append(f"{medals[i]} {mention_id(r['user_id'], uname)} — {c(r['balance'])}")
-    await message.reply(f"🌑 <b>Топ игроков по балансу</b>\n\n" + "\n".join(lines))
+        lines.append(f"{medals[i]} {mention_id(r['user_id'], uname)} — <b>{c(r['balance'])}</b>")
+    await message.reply(
+        "❄️ ══ 🎄 ══ 🎁 <b>ЗИМНИЙ ТОП БОГАЧЕЙ 2027</b> 🎁 ══ 🎄 ══ ❄️\n"
+        "🏆 <i>Самые успешные магнаты вселенной MOXXI:</i>\n\n"
+        + "\n".join(lines) + "\n\n"
+        "✨ <i>Фармите граммы и врывайтесь на праздничный пьедестал!</i>"
+    )
 
 
 @router.message(Cmd("восстановить топ", "сброс топа", "сбросить топ", "вернуть топ", "фикс топа", "исправить топ",

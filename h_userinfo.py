@@ -915,13 +915,15 @@ async def cmd_template(message: Message, bot: Bot, **kw):
             link_info = f"\n\n👉 <b>Заполнить описание можно в теме:</b> {link}"
 
     template_body = (
-        f"📝 <b>Заполните описание</b> (запрос от {u_mention})\n\n"
-        "Нажмите на форму — она скопируется. Впишите свои данные "
-        "после двоеточий и отправьте в тему описаний:\n\n"
+        "❄️ ══ 🎄 ══ 🎁 <b>НОВОГОДНИЙ ШАБЛОН АНКЕТЫ 2027</b> 🎁 ══ 🎄 ══ ❄️\n\n"
+        f"📝 <b>Заполните анкету под ёлочкой</b> (запрос от {u_mention})\n\n"
+        "✨ Нажмите на форму ниже — она автоматически скопируется.\n"
+        "Впишите свои данные после двоеточий и отправьте в чат:\n\n"
         f"<code>{TEMPLATE}</code>\n\n"
-        "Оформлять можно как угодно — хоть с эмодзи, бот поймёт.\n"
+        "❄️ <i>Оформлять можно как угодно — бот поймёт любой стиль.</i>\n"
         "Достаточно заполнить хотя бы 2 строки. "
-        f"Заполняется <b>один раз</b>.{link_info}"
+        f"Заполняется <b>один раз</b>.{link_info}\n\n"
+        "🎁 <i>После заполнения анкеты вы получите новогодний статус в профиле!</i>"
     )
     sent = await message.reply(template_body, disable_web_page_preview=True)
     _autodel(sent, 300)
@@ -1406,27 +1408,38 @@ async def _get_chat_nick_data(cid: int):
 
 
 def _format_nick_list_with(title: str, with_nick: list, total: int) -> str:
-    out = [f"🏷 <b>Ники участников · {title}</b> ({len(with_nick)} из {total})\n"]
+    out = [
+        "❄️ ══ 🎄 ══ 🎁 <b>ЗИМНИЙ НИК-ЛИСТ 2027</b> 🎁 ══ 🎄 ══ ❄️",
+        f"🏷 <b>Ники участников беседы · {title}</b>\n"
+        f"❄️ <i>Установили ник:</i> <b>{len(with_nick)}</b> из <b>{total}</b>\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+    ]
     if not with_nick:
-        out.append("<i>Пока никто в этой группе не установил ник.</i>\n\nПоставить: <code>+ник ваш ник</code>")
+        out.append("<i>❄️ Пока никто в этой группе не установил ник под ёлочкой.</i>\n\nПоставить: <code>+ник ваш ник</code>")
     else:
         for r in with_nick[:80]:
             nick = r["nick"]
             nm = r["display_name"] or r["first_name"] or (f"@{r['username']}" if r["username"] else str(r["user_id"]))
-            out.append(f"• {mention_id(r['user_id'], nm)} — <b>{html.escape(str(nick)[:32])}</b>")
+            out.append(f"❄️ {mention_id(r['user_id'], nm)} — <b>{html.escape(str(nick)[:32])}</b>")
         if len(with_nick) > 80:
             out.append(f"\n<i>…показаны первые 80 из {len(with_nick)} участников с ником</i>")
+    out.append("\n🎄 <i>Поставить зимний ник: <code>+ник [ваш ник]</code></i>")
     return "\n".join(out)
 
 
 def _format_nick_list_without(title: str, without_nick: list, total: int) -> str:
-    out = [f"👥 <b>Участники без ника · {title}</b> ({len(without_nick)} из {total})\n"]
+    out = [
+        "❄️ ══ 🎄 ══ 🎁 <b>ЗИМНИЙ НИК-ЛИСТ 2027</b> 🎁 ══ 🎄 ══ ❄️",
+        f"👥 <b>Участники без ника · {title}</b>\n"
+        f"⛄ <i>Ещё не поставили ник:</i> <b>{len(without_nick)}</b> из <b>{total}</b>\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+    ]
     if not without_nick:
-        out.append("🎉 <b>Все участники беседы уже установили никнейм!</b>")
+        out.append("🎉 <b>Все участники беседы уже украсили ники к Новому Году!</b>")
     else:
         for r in without_nick[:60]:
             nm = r["display_name"] or r["first_name"] or (f"@{r['username']}" if r["username"] else str(r["user_id"]))
-            out.append(f"• {mention_id(r['user_id'], nm)}")
+            out.append(f"⛄ {mention_id(r['user_id'], nm)}")
         if len(without_nick) > 60:
             out.append(f"\n<i>…и ещё {len(without_nick) - 60} участников</i>")
         out.append("\n💡 <i>Чтобы поставить ник:</i> <code>+ник [ваш ник]</code>")
@@ -1559,15 +1572,17 @@ async def _get_chat_desc_data(cid: int):
 
 def _format_desc_list_with(title: str, done: list, empty: list, total: int) -> str:
     out = [
-        f"📝 <b>Список описаний (анкет) · {title}</b>\n",
-        f"✅ Заполнили описание: <b>{len(done)}</b>",
-        f"❌ Без описания: <b>{len(empty)}</b>",
+        "❄️ ══ 🎄 ══ 🎁 <b>ЗИМНИЙ СПИСОК АНКЕТ 2027</b> 🎁 ══ 🎄 ══ ❄️",
+        f"📝 <b>Анкеты и описания беседы · {title}</b>\n",
+        f"❄️ Заполнили анкету: <b>{len(done)}</b>",
+        f"⛄ Без анкеты: <b>{len(empty)}</b>",
         f"👥 Всего участников: <b>{total}</b>\n",
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
     ]
     if not done:
-        out.append("<i>Пока никто в этой группе не заполнил описание.</i>\nЗаполнить: напишите <code>шаблон</code>")
+        out.append("<i>❄️ Пока никто в этой группе не заполнил описание под ёлочкой.</i>\nЗаполнить: напишите <code>шаблон</code>")
     else:
-        out.append("<b>📋 Заполненные анкеты беседы:</b>")
+        out.append("<b>📋 Заполненные анкеты участников:</b>")
         for idx, r in enumerate(done[:60], 1):
             nm = r["real_name"] or r["hobby"] or r["first_name"] or (f"@{r['username']}" if r["username"] else str(r["user_id"]))
             details = []
@@ -1578,28 +1593,30 @@ def _format_desc_list_with(title: str, done: list, empty: list, total: int) -> s
             if r["hobby"]:
                 details.append(f"ник: {r['hobby']}")
             det_str = f" ({', '.join(details)})" if details else ""
-            out.append(f"<b>{idx}.</b> {mention_id(r['user_id'], nm)}{html.escape(det_str)}")
+            out.append(f"<b>{idx}.</b> ❄️ {mention_id(r['user_id'], nm)}{html.escape(det_str)}")
         if len(done) > 60:
             out.append(f"\n<i>…и ещё {len(done) - 60} анкет</i>")
-    out.append("\n💡 <i>Чтобы посмотреть полное описание участника — напишите «описание @юзер»</i>")
+    out.append("\n🎄 <i>Посмотреть анкету: <code>описание @юзер</code> | Заполнить: <code>шаблон</code></i>")
     return "\n".join(out)
 
 
 def _format_desc_list_without(title: str, done: list, empty: list, total: int) -> str:
     out = [
-        f"👥 <b>Участники без описания · {title}</b> ({len(empty)} из {total})\n",
-        f"✅ С описанием: <b>{len(done)}</b> | ❌ Без описания: <b>{len(empty)}</b>\n",
+        "❄️ ══ 🎄 ══ 🎁 <b>ЗИМНИЙ СПИСОК АНКЕТ 2027</b> 🎁 ══ 🎄 ══ ❄️",
+        f"👥 <b>Участники без анкеты · {title}</b> ({len(empty)} из {total})\n",
+        f"❄️ С описанием: <b>{len(done)}</b> | ⛄ Без описания: <b>{len(empty)}</b>\n",
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
     ]
     if not empty:
-        out.append("🎉 <b>Все участники беседы заполнили свои анкеты/описания!</b>")
+        out.append("🎉 <b>Все участники беседы заполнили свои анкеты к Новому Году!</b>")
     else:
         out.append("<b>📋 Список участников без анкеты:</b>")
         for r in empty[:60]:
             nm = r["real_name"] or r["hobby"] or r["first_name"] or (f"@{r['username']}" if r["username"] else str(r["user_id"]))
-            out.append(f"• {mention_id(r['user_id'], nm)}")
+            out.append(f"⛄ {mention_id(r['user_id'], nm)}")
         if len(empty) > 60:
             out.append(f"\n<i>…и ещё {len(empty) - 60} участников</i>")
-        out.append("\n💡 <i>Чтобы заполнить:</i> <code>+описание [текст]</code> или напишите <code>шаблон</code>")
+        out.append("\n💡 <i>Чтобы заполнить анкету:</i> <code>+описание [текст]</code> или <code>шаблон</code>")
     return "\n".join(out)
 
 

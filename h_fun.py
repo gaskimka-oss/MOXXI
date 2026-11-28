@@ -872,7 +872,7 @@ async def cmd_topday(message: Message, bot: Bot, **kw):
             "ORDER BY m DESC LIMIT 10", (day, message.chat.id))
     if not rows:
         return await message.reply("🏆 Сегодня ещё никто не активничал.")
-    medals = ["🥇", "🥈", "🥉"] + ["▫️"] * 7
+    medals = ["👑🥇", "🥈", "🥉"] + ["❄️"] * 7
     lines = []
     for i, r in enumerate(rows):
         uid = r["user_id"]
@@ -892,9 +892,14 @@ async def cmd_topday(message: Message, bot: Bot, **kw):
                     await db.touch_user(uid, member.user.username, member.user.first_name)
             except Exception:
                 uname = f"Игрок {uid}"
-        lines.append(f"{medals[i]} {mention_id(uid, uname)} — {r['m']} сообщ.")
+        lines.append(f"{medals[i]} {mention_id(uid, uname)} — <b>{r['m']} сообщ.</b>")
 
-    await message.reply("🏆 <b>Топ дня</b>\n\n" + "\n".join(lines))
+    await message.reply(
+        "❄️ ══ 🎄 ══ 🎁 <b>ЗИМНИЙ ТОП АКТИВА ДНЯ 2027</b> 🎁 ══ 🎄 ══ ❄️\n"
+        "🏆 <i>Лидеры общения за сегодняшние сутки:</i>\n\n"
+        + "\n".join(lines) + "\n\n"
+        "✨ <i>Общайтесь в чате и забирайте праздничные бонусы!</i>"
+    )
 
 
 # ══════════════════ ЕЖЕДНЕВНОЕ КОЛЕСО ФОРТУНЫ МОКСИ ══════════════════
