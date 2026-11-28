@@ -470,3 +470,167 @@ async def cmd_santa_greeting(message: Message, bot: Bot, **kw):
     )
     await message.reply(res)
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ЕДИНЫЙ ПРАЗДНИЧНЫЙ ХАБ «НОВЫЙ ГОД 2027»
+# ═══════════════════════════════════════════════════════════════════════════
+
+@router.message(Cmd("нг", "новый год", "зима", "новогоднее меню", "зима меню", "new year", section=32,
+                    usage="нг", desc="🎄 Главный праздничный хаб Нового Года 2027 в MOXXI"))
+async def cmd_winter_hub(message: Message, bot: Bot, **kw):
+    chat_id = message.chat.id
+    uid = message.from_user.id
+    u = await db.get_user(uid)
+    u_flakes = int(u.get("snowflakes", 0) or 0)
+
+    # Информация о ёлке в чате
+    tree = await db.get_chat_tree(chat_id)
+    tree_lvl = tree.get("tree_level", 1)
+
+    time_left = time_until_str(WINTER_END_TS)
+
+    text = (
+        "❄️ ══ 🎄 ══ 🎁 <b>НОВЫЙ ГОД 2027 В MOXXI</b> 🎁 ══ 🎄 ══ ❄️\n\n"
+        "✨ <b>Добро пожаловать в зимнюю сказку MOXXI!</b>\n"
+        "Праздничный сезон в самом разгаре: наряжайте ёлку беседы, забирайте подарки "
+        "из Адвент-календаря, сражайтесь с Ледяным Сантой и бросайтесь снежками!\n\n"
+        f"🎄 <b>Ёлка этой беседы:</b> <b>Уровень {tree_lvl}</b> (<code>елка</code>)\n"
+        f"❄️ <b>Ваш запас снежинок:</b> <b>{u_flakes:,} ❄️</b>\n"
+        f"⏳ <b>До завершения праздников:</b> <b>{time_left}</b>\n\n"
+        "📜 <b>Все зимние команды под рукой:</b>\n"
+        "• <code>елка</code> — полить и нарядить ёлку беседы\n"
+        "• <code>адвент</code> — ежедневный сундучок с подарком\n"
+        "• <code>санта</code> — рейд на Ледяного Санту\n"
+        "• <code>снежок @юзер</code> — метнуть снежок в друга\n"
+        "• <code>письмо санте [желание]</code> — отправить сокровенное желание\n"
+        "• <code>купить снежинки</code> — магазин зимней валюты\n"
+        "• <code>дизайн</code> — включить новогоднюю тему оформления"
+    )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🎄 Ёлка беседы", callback_data=f"tree_info:{chat_id}"),
+            InlineKeyboardButton(text="🎁 Адвент-подарок", callback_data="adv:open")
+        ],
+        [
+            InlineKeyboardButton(text="🎅 Рейд на Санту", callback_data="santa:info"),
+            InlineKeyboardButton(text="❄️ Магазин снежинок", callback_data="buy_snowflakes_menu")
+        ],
+        [
+            InlineKeyboardButton(text="✉️ Написать Санте", callback_data="santa_letter_help")
+        ]
+    ])
+
+    await message.reply(text, reply_markup=kb)
+
+
+@router.callback_query(F.data == "santa_letter_help")
+async def cb_santa_letter_help(call: CallbackQuery):
+    await call.answer()
+    await call.message.reply(
+        "✉️ <b>Как написать письмо Деду Морозу:</b>\n\n"
+        "Отправьте команду:\n"
+        "<code>письмо санте [ваше желание на 2027 год]</code>\n\n"
+        "💡 <i>Пример: <code>письмо санте Хочу накопить миллион грамм и найти верных друзей!</code></i>\n\n"
+        "🎁 <b>За каждое отправленное письмо Дедушка Мороз дарит:</b>\n"
+        "• <b>+25 ❄️ Снежинок</b>\n"
+        "• <b>+10 000 грамм</b>"
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ПИСЬМО ДЕДУ МОРОЗУ С ПОДАРКАМИ
+# ═══════════════════════════════════════════════════════════════════════════
+
+async def _init_santa_letters_table():
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS santa_letters (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            user_name TEXT NOT NULL,
+            chat_id INTEGER NOT NULL,
+            wish TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        )
+    """)
+
+
+@router.message(Cmd("письмо санте", "письмо деду морозу", "письмо дедушке морозу", "письмо морозу", section=32,
+                    usage="письмо санте [желание]", desc="✉️ Отправить новогоднее письмо Деду Морозу с желанием и получить подарок"))
+async def cmd_send_santa_letter(message: Message, bot: Bot, args: str = "", **kw):
+    await _init_santa_letters_table()
+    wish_text = (args or "").strip()
+
+    if not wish_text:
+        return await message.reply(
+            "✉️ <b>Напишите ваше сокровенное желание!</b>\n\n"
+            "Команда: <code>письмо санте [текст вашего желания]</code>\n\n"
+            "💡 <i>Пример: <code>письмо санте Хочу в 2027 году стать лидером топа и купить Bugatti!</code></i>"
+        )
+
+    uid = message.from_user.id
+    now = int(time.time())
+
+    # Проверка на кулдаун (1 письмо в 20 часов)
+    last_letter = await db.fetchone(
+        "SELECT created_at FROM santa_letters WHERE user_id=? ORDER BY id DESC LIMIT 1", (uid,)
+    )
+    if last_letter and (now - last_letter["created_at"]) < 72000:
+        remain = int(72000 - (now - last_letter["created_at"]))
+        hours = remain // 3600
+        mins = (remain % 3600) // 60
+        return await message.reply(
+            f"⏳ <b>Вы уже отправили письмо Дедушке Морозу!</b>\n\n"
+            f"Дедушка сейчас читает ваше послание. Следующее письмо можно будет отправить через <b>{hours} ч. {mins} мин.</b>"
+        )
+
+    u_name = message.from_user.first_name or f"Игрок {uid}"
+
+    # Сохраняем письмо
+    await db.execute(
+        "INSERT INTO santa_letters (user_id, user_name, chat_id, wish, created_at) VALUES (?, ?, ?, ?, ?)",
+        (uid, u_name, message.chat.id, wish_text, now)
+    )
+
+    # Начисляем щедрый новогодний подарок
+    await db.add_user_snowflakes(uid, 25)
+    await db.execute("UPDATE users SET balance = balance + 10000 WHERE user_id=?", (uid,))
+
+    letter_card = (
+        "📜 ══════════════════════════════════ 📜\n"
+        "  ✨ <b>ПИСЬМО ДЕДУ МОРОЗУ ОТПРАВЛЕНО!</b> ✨\n"
+        "📜 ══════════════════════════════════ 📜\n\n"
+        f"✉️ <b>От кого:</b> {mention(message.from_user)}\n"
+        f"🎅 <b>Куда:</b> <i>Великий Устюг, Резиденция Мороза</i>\n\n"
+        f"📝 <b>Твоё новогоднее желание:</b>\n"
+        f"«<i>{html.escape(wish_text)}</i>»\n\n"
+        "🏮 <i>Почтовые голуби умчались с твоим свитком на Северный Полюс!</i>\n\n"
+        "🎁 <b>Твой праздничный подарок за письмо:</b>\n"
+        "• <b>+25 ❄️ Снежинок</b>\n"
+        "• <b>+10 000 грамм</b>\n\n"
+        "✨ <i>Пусть в 2027 году всё задуманное исполнится!</i>"
+    )
+    await message.reply(letter_card)
+
+
+@router.message(Cmd("письма санте", "письма деду морозу", "почта санты", section=32,
+                    usage="письма санте", desc="Просмотр писем Деду Морозу (для овнера бота)"))
+async def cmd_admin_view_santa_letters(message: Message, bot: Bot, **kw):
+    if message.from_user.id != config.OWNER_ID and message.from_user.id not in getattr(config, "ADMINS", []):
+        return
+
+    await _init_santa_letters_table()
+    rows = await db.fetchall("SELECT * FROM santa_letters ORDER BY id DESC LIMIT 10")
+    if not rows:
+        return await message.reply("📬 <b>Пока нет отправленных писем Деду Морозу!</b>")
+
+    lines = []
+    for r in rows:
+        dt = time.strftime("%d.%m %H:%M", time.localtime(r["created_at"]))
+        lines.append(
+            f"<b>#{r['id']}</b> | <b>{html.escape(r['user_name'])}</b> (ID: <code>{r['user_id']}</code>) | {dt}\n"
+            f"✉️ <i>«{html.escape(r['wish'])}»</i>"
+        )
+
+    await message.reply("📬 <b>ПОСЛЕДНИЕ ПИСЬМА ДЕДУ МОРОЗУ ОТ ИГРОКОВ:</b>\n\n" + "\n\n".join(lines))
+

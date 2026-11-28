@@ -266,7 +266,8 @@ async def render_card(message: Message, bot: Bot, uid: int, name: str | None) ->
     from h_titles import get_display_prefix
     prefix = await get_display_prefix(message.chat.id, uid)
     prefix_str = f"<b>{html.escape(prefix)}</b> " if prefix else ""
-    out = [f"👤 {prefix_str}<b>Это пользователь {link}</b>"]
+    ny_banner = "❄️ ══ 🎄 ══ 🎁 <b>НОВЫЙ ГОД 2027</b> 🎁 ══ 🎄 ══ ❄️"
+    out = [ny_banner, f"👤 {prefix_str}<b>Это пользователь {link}</b>"]
     if tg:
         out.append(f"👨🏻‍🔧 {tg}")
     if in_chat is True:
@@ -313,6 +314,11 @@ async def render_card(message: Message, bot: Bot, uid: int, name: str | None) ->
     else:
         vip_str = "Отсутствует"
     out.append(f"▫️ 💎 VIP: <b>{vip_str}</b>")
+
+    # Новогодний баланс снежинок
+    u_flakes = int(u.get("snowflakes", 0) or 0)
+    out.append(f"▫️ ❄️ Снежинки: <b>{u_flakes:,} ❄️</b>")
+    out.append(f"▫️ 🎄 Настроение: <i>В ожидании Нового Года 2027 ✨</i>")
 
     # Кастомный титул
     active_title = await db.get_active_title(uid)

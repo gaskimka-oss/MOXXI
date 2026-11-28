@@ -75,6 +75,32 @@ async def cmd_buy_snowflakes(message: Message, **kw):
     await message.reply(text, reply_markup=kb)
 
 
+@router.callback_query(F.data == "buy_snowflakes_menu")
+async def cb_buy_snowflakes_menu(cb: CallbackQuery):
+    rows = []
+    for pid, p in SNOWFLAKE_PACKAGES.items():
+        rows.append([
+            InlineKeyboardButton(text=f"{p['name']} — {p['rub']}₽ / {p['stars']}⭐", callback_data=f"buy_snow:{pid}")
+        ])
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+    u = await db.get_user(cb.from_user.id)
+    cur_flakes = u.get("snowflakes", 0) or 0
+
+    text = (
+        "❄️ <b>ОФИЦИАЛЬНЫЙ МАГАЗИН НОВОГОДНЕЙ ВАЛЮТЫ 2027</b>\n"
+        "┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n"
+        f"Ваш баланс: <b>{cur_flakes:,} ❄️ Снежинок</b>\n\n"
+        "Снежинки нужны для:\n"
+        "• Открытия лимитированного <b>❄️ Ледяного Кейса 2027</b>\n"
+        "• Прокачки новогодней <b>Ёлки беседы</b> до 10 LVL\n"
+        "• Участия в битве за <b>10 LVL Telegram Boost</b>\n"
+        "• Бросков снежками и подарков друзьям!\n\n"
+        "<i>Выберите желаемый праздничный набор ниже:</i>"
+    )
+    await cb.message.reply(text, reply_markup=kb)
+    await cb.answer()
+
+
 @router.callback_query(F.data.startswith("buy_snow:"))
 async def on_buy_snow_callback(cb: CallbackQuery, bot: Bot):
     pid = cb.data.split(":")[1]

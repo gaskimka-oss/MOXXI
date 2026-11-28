@@ -12,6 +12,22 @@ from typing import Any
 import db
 
 ALL_THEMES: dict[str, dict[str, Any]] = {
+    "new_year_2027": {
+        "id": "new_year_2027",
+        "name": "🎄 Новогодняя Сказка 2027 (Winter Magic)",
+        "badge": "🎄",
+        "desc": "Праздничный стиль с ёлками, гирляндами, мандаринами, подарками и искрами бенгальских огней",
+        "banner": "🎄 ══ ❄️ ══ 🎁 ══ 🎅 ══ 🍾 ══ ❄️ ══ 🎄",
+        "header_title": "🎄 ❄️ <b>{title}</b> ❄️ 🎄",
+        "divider": "❄️ ✨ ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈ ✨ ❄️",
+        "group_box": "┏━ 🎄 <b>{head}</b>",
+        "branch_mid": "┣━🎁",
+        "branch_last": "┗━🎁",
+        "footer_banner": "🎄 ══ ❄️ ══ 🎁 ══ 🎅 ══ 🍾 ══ ❄️ ══ 🎄",
+        "footer_fmt": "❄️ <i>Зимний совет Мороза: <b>{total}</b></i>",
+        "accent_icon": "🎄",
+        "bullets": {10: "🎅", 9: "🎄", 8: "🎁", 7: "🍾", 6: "❄️", 5: "⛄", 4: "🧣", 3: "🛷", 2: "🍊", 1: "▫️"}
+    },
     "rainbow": {
         "id": "rainbow",
         "name": "🌈 Радужный Неон (Diamond Rainbow)",
